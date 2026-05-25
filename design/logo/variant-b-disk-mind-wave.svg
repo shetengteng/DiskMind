@@ -1,0 +1,33 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradB" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c5fd5"/>
+      <stop offset="100%" stop-color="#3b1f9e"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="224" fill="url(#bgGradB)"/>
+
+  <g transform="translate(512 512)">
+    <ellipse cx="0" cy="60" rx="320" ry="120" fill="#ffffff" fill-opacity="0.18"/>
+    <ellipse cx="0" cy="20" rx="320" ry="120" fill="#ffffff" fill-opacity="0.32"/>
+    <ellipse cx="0" cy="-20" rx="320" ry="120" fill="#ffffff" fill-opacity="0.92"/>
+    <circle cx="0" cy="-20" r="36" fill="#3b1f9e"/>
+  </g>
+
+  <g transform="translate(512 320)" stroke="#ffffff" stroke-width="14" stroke-linecap="round" fill="none">
+    <path d="M -200 0 Q -150 -80 -100 0 T 0 0 T 100 0 T 200 0" opacity="0.95"/>
+    <path d="M -160 -50 Q -110 -130 -60 -50 T 40 -50 T 140 -50" opacity="0.55"/>
+    <path d="M -160 50 Q -110 -30 -60 50 T 40 50 T 140 50" opacity="0.55"/>
+  </g>
+
+  <g fill="#ffffff">
+    <circle cx="312" cy="320" r="14"/>
+    <circle cx="712" cy="320" r="14"/>
+  </g>
+</svg>

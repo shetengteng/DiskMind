@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DiskMind 可行性分析报告 · 智能磁盘清理桌面软件</title>
+<style>
+  :root {
+    --bg-0: #07090f;
+    --bg-1: #0b1020;
+    --bg-2: #111634;
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-hi: rgba(255, 255, 255, 0.08);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hi: rgba(255, 255, 255, 0.16);
+    --text-1: #e8ecf5;
+    --text-2: #a9b1c4;
+    --text-3: #6b7388;
+    --brand-1: #6366f1;
+    --brand-2: #8b5cf6;
+    --brand-3: #06b6d4;
+    --brand-4: #f43f5e;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --radius: 16px;
+    --shadow: 0 20px 60px -20px rgba(99, 102, 241, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-1);
+    background: var(--bg-0);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ===== Background ===== */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(1000px 600px at 10% -10%, rgba(99,102,241,0.25), transparent 60%),
+      radial-gradient(900px 600px at 110% 10%, rgba(139,92,246,0.22), transparent 60%),
+      radial-gradient(800px 600px at 50% 110%, rgba(6,182,212,0.18), transparent 60%),
+      linear-gradient(180deg, #07090f 0%, #0b1020 100%);
+    z-index: -2;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* ===== Top Nav ===== */
+  .nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    backdrop-filter: blur(18px);
+    background: rgba(7,9,15,0.6);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.3px;
+  }
+  .logo-mark {
+    width: 32px; height: 32px;
+    border-radius: 9px;
+    background: conic-gradient(from 210deg, #6366f1, #8b5cf6, #06b6d4, #6366f1);
+    position: relative;
+    box-shadow: 0 8px 30px -8px rgba(99,102,241,0.7);
+  }
+  .logo-mark::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: 6px;
+    background: #0b1020;
+  }
+  .logo-mark::before {
+    content: "";
+    position: absolute;
+    inset: 11px;
+    border-radius: 3px;
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    z-index: 1;
+  }
+  .nav-links {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .nav-links a {
+    color: var(--text-2);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: all .25s ease;
+  }
+  .nav-links a:hover { color: var(--text-1); background: var(--surface); }
+
+  /* ===== Layout ===== */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+  section {
+    padding: 100px 0 60px;
+    scroll-margin-top: 80px;
+  }
+  .section-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--brand-3);
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(6,182,212,0.08);
+    border: 1px solid rgba(6,182,212,0.25);
+    margin-bottom: 18px;
+  }
+  .section-title {
+    font-size: 42px;
+    font-weight: 800;
+    margin: 0 0 14px;
+    line-height: 1.2;
+    background: linear-gradient(135deg, #fff 30%, #a9b1c4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .section-sub {
+    color: var(--text-2);
+    font-size: 17px;
+    max-width: 760px;
+    margin: 0 0 44px;
+  }
+
+  /* ===== Hero ===== */
+  .hero {
+    padding: 160px 0 80px;
+    text-align: center;
+    position: relative;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(6,182,212,0.15));
+    border: 1px solid var(--border-hi);
+    font-size: 13px;
+    color: var(--text-2);
+    margin-bottom: 28px;
+  }
+  .hero-badge .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 12px var(--ok);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .hero h1 {
+    font-size: clamp(40px, 7vw, 80px);
+    font-weight: 900;
+    line-height: 1.05;
+    margin: 0 0 24px;
+    letter-spacing: -1.5px;
+  }
+  .hero h1 .gradient {
+    background: linear-gradient(120deg, #6366f1 0%, #8b5cf6 35%, #06b6d4 75%, #10b981 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lead {
+    font-size: 20px;
+    color: var(--text-2);
+    max-width: 720px;
+    margin: 0 auto 36px;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+    margin-top: 32px;
+  }
+  .hero-meta .chip {
+    padding: 10px 18px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-2);
+  }
+
+  /* ===== Stats Row ===== */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-top: 64px;
+  }
+  .stat {
+    padding: 24px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: left;
+    transition: all .3s ease;
+  }
+  .stat:hover { background: var(--surface-hi); transform: translateY(-3px); border-color: var(--border-hi); }
+  .stat .num {
+    font-size: 36px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .stat .label {
+    font-size: 13px;
+    color: var(--text-3);
+    margin-top: 6px;
+  }
+
+  /* ===== Cards Grid ===== */
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+
+  .card {
+    padding: 28px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: all .3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent, rgba(99,102,241,0.08));
+    opacity: 0;
+    transition: opacity .3s ease;
+  }
+  .card:hover { transform: translateY(-4px); border-color: var(--border-hi); background: var(--surface-hi); }
+  .card:hover::before { opacity: 1; }
+
+  .card-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(6,182,212,0.2));
+    border: 1px solid var(--border-hi);
+  }
+  .card h3 {
+    font-size: 18px;
+    margin: 0 0 8px;
+    color: var(--text-1);
+  }
+  .card p {
+    font-size: 14px;
+    color: var(--text-2);
+    margin: 0;
+  }
+
+  /* ===== Table ===== */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 16px 20px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: rgba(255,255,255,0.03);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-3);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ===== SWOT ===== */
+  .swot {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .swot-card {
+    padding: 28px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .swot-card h4 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .swot-card ul {
+    margin: 0; padding-left: 18px;
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .swot-card li { margin-bottom: 6px; }
+  .swot-s h4 { color: #10b981; border-color: rgba(16,185,129,0.3); }
+  .swot-w h4 { color: #f43f5e; border-color: rgba(244,63,94,0.3); }
+  .swot-o h4 { color: #6366f1; border-color: rgba(99,102,241,0.3); }
+  .swot-t h4 { color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+
+  /* ===== Architecture Diagram ===== */
+  .arch {
+    padding: 36px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .arch-row {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .arch-row:last-child { border-bottom: none; }
+  .arch-step {
+    font-weight: 700;
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 18px;
+  }
+  .arch-body { color: var(--text-2); font-size: 15px; }
+  .arch-body b { color: var(--text-1); }
+
+  /* ===== AI Showcase ===== */
+  .ai-showcase {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 28px;
+    align-items: stretch;
+  }
+  .ai-card {
+    padding: 28px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(6,182,212,0.08));
+    border: 1px solid rgba(99,102,241,0.25);
+  }
+  .ai-card h3 {
+    margin: 0 0 16px;
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .code {
+    background: #050810;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: #cdd6f4;
+    overflow-x: auto;
+    line-height: 1.7;
+  }
+  .code .k { color: #8b5cf6; }
+  .code .s { color: #10b981; }
+  .code .n { color: #06b6d4; }
+  .code .c { color: var(--text-3); }
+
+  /* ===== Risk Cards ===== */
+  .risk-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .risk {
+    padding: 22px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .risk.high { border-left-color: var(--danger); }
+  .risk.mid  { border-left-color: var(--warn); }
+  .risk.low  { border-left-color: var(--ok); }
+  .risk .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .risk-name { font-weight: 600; font-size: 15px; }
+  .risk-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .risk.high .risk-badge { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .risk.mid  .risk-badge { background: rgba(245,158,11,0.15); color: #fcd34d; }
+  .risk.low  .risk-badge { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+  .risk p { margin: 0; font-size: 13px; color: var(--text-2); }
+  .risk .mitig {
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .risk .mitig b { color: var(--text-1); }
+
+  /* ===== Timeline ===== */
+  .timeline {
+    position: relative;
+    padding: 30px 0;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 28px;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, var(--brand-1), var(--brand-3), transparent);
+  }
+  .tl-item {
+    position: relative;
+    padding-left: 70px;
+    margin-bottom: 28px;
+  }
+  .tl-item::before {
+    content: "";
+    position: absolute;
+    left: 21px;
+    top: 8px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--bg-0);
+    border: 2px solid var(--brand-2);
+    box-shadow: 0 0 18px rgba(139,92,246,0.5);
+  }
+  .tl-date {
+    font-size: 13px;
+    color: var(--brand-3);
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .tl-title {
+    font-size: 17px;
+    margin: 4px 0 6px;
+    color: var(--text-1);
+    font-weight: 600;
+  }
+  .tl-desc { color: var(--text-2); font-size: 14px; }
+
+  /* ===== Pricing ===== */
+  .pricing {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  .price {
+    padding: 28px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+    transition: all .3s ease;
+    position: relative;
+  }
+  .price.featured {
+    background: linear-gradient(180deg, rgba(99,102,241,0.15), rgba(6,182,212,0.05));
+    border-color: rgba(99,102,241,0.5);
+    box-shadow: var(--shadow);
+  }
+  .price.featured::before {
+    content: "推荐";
+    position: absolute;
+    top: -10px; left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .price h4 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-3);
+    margin: 0 0 16px;
+  }
+  .price .amount {
+    font-size: 38px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff, #a9b1c4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .price .unit { font-size: 14px; color: var(--text-3); }
+  .price ul {
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .price li {
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .price li:last-child { border-bottom: none; }
+  .price li::before { content: "✓ "; color: var(--ok); margin-right: 4px; }
+
+  /* ===== Conclusion ===== */
+  .conclusion {
+    padding: 60px;
+    border-radius: 28px;
+    background:
+      radial-gradient(600px 300px at 20% 0%, rgba(99,102,241,0.25), transparent 60%),
+      radial-gradient(600px 300px at 80% 100%, rgba(6,182,212,0.2), transparent 60%),
+      linear-gradient(180deg, #0d1330 0%, #0a0e22 100%);
+    border: 1px solid var(--border-hi);
+    text-align: center;
+  }
+  .conclusion h2 {
+    font-size: 38px;
+    font-weight: 800;
+    margin: 0 0 18px;
+    background: linear-gradient(135deg, #fff, #a9b1c4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .conclusion .quote {
+    font-size: 22px;
+    color: var(--text-2);
+    font-style: italic;
+    margin: 24px auto 0;
+    max-width: 720px;
+  }
+  .csf {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 40px;
+    text-align: left;
+  }
+  .csf-item {
+    padding: 18px 20px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .csf-item .num {
+    width: 28px; height: 28px;
+    flex: 0 0 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    color: white;
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .csf-item p { margin: 0; font-size: 14px; color: var(--text-2); }
+  .csf-item b { color: var(--text-1); }
+
+  /* ===== Footer ===== */
+  footer {
+    text-align: center;
+    padding: 60px 28px;
+    color: var(--text-3);
+    font-size: 13px;
+    border-top: 1px solid var(--border);
+    margin-top: 80px;
+  }
+
+  /* ===== Reveal animations ===== */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity .7s ease, transform .7s ease;
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 980px) {
+    .grid-3, .grid-4, .pricing { grid-template-columns: repeat(2, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .ai-showcase, .swot, .risk-grid { grid-template-columns: 1fr; }
+    .section-title { font-size: 32px; }
+    .conclusion { padding: 36px 24px; }
+    .csf { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 600px) {
+    .grid-3, .grid-4, .grid-2, .pricing, .stats { grid-template-columns: 1fr; }
+    section { padding: 70px 0 40px; }
+    .hero { padding: 130px 0 50px; }
+    .arch-row { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== NAV ===== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="logo">
+      <div class="logo-mark"></div>
+      DiskMind
+    </div>
+    <div class="nav-links">
+      <a href="#overview">概述</a>
+      <a href="#market">市场</a>
+      <a href="#users">用户</a>
+      <a href="#product">产品</a>
+      <a href="#tech">技术</a>
+      <a href="#ai">AI</a>
+      <a href="#risk">风险</a>
+      <a href="#plan">规划</a>
+      <a href="#biz">商业</a>
+      <a href="#conclusion">结论</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge reveal">
+      <span class="dot"></span>
+      可行性分析报告 · v1.0 · 2026-05-25
+    </div>
+    <h1 class="reveal">
+      DiskMind<br />
+      <span class="gradient">让 AI 接管你的磁盘清理</span>
+    </h1>
+    <p class="lead reveal">
+      跨平台桌面端智能清理工具。规则库扫描 + 大语言模型语义判定，
+      把"我能不能删这个文件"这件事，从靠经验变成靠 AI。
+    </p>
+    <div class="hero-meta reveal">
+      <span class="chip">🪟 Windows · 🍎 macOS</span>
+      <span class="chip">🦀 Rust + Tauri 2.0</span>
+      <span class="chip">🤖 LLM 双轨（云端 + 本地）</span>
+      <span class="chip">🛡️ 沙箱清理 · 30 天回滚</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat reveal">
+        <div class="num">180亿$</div>
+        <div class="label">全球桌面工具类市场</div>
+      </div>
+      <div class="stat reveal">
+        <div class="num">8人</div>
+        <div class="label">MVP 团队规模</div>
+      </div>
+      <div class="stat reveal">
+        <div class="num">7个月</div>
+        <div class="label">至 v1.0 正式发布</div>
+      </div>
+      <div class="stat reveal">
+        <div class="num">¥0.03</div>
+        <div class="label">单次 AI 扫描成本</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== OVERVIEW ===== -->
+<section id="overview" class="container">
+  <span class="section-tag reveal">01 · 项目概述</span>
+  <h2 class="section-title reveal">用大模型重新定义磁盘清理</h2>
+  <p class="section-sub reveal">
+    DiskMind 是面向 Windows / macOS 双端的桌面级智能磁盘分析与清理工具。
+    本地扫描采集元数据 → LLM 语义判定可清理性 → 自然语言解释 + 风险评分，
+    把"看不懂、不敢删"变成"看得懂、敢放心删"。
+  </p>
+
+  <div class="grid-3">
+    <div class="card reveal">
+      <div class="card-icon">🔍</div>
+      <h3>规则 + 语义双引擎</h3>
+      <p>传统规则库覆盖已知文件，LLM 推断长尾未知文件的归属与用途。</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🧠</div>
+      <h3>风险评分 + 自然语言</h3>
+      <p>每条建议附 0–100 风险分与一句话解释，用户决策有理有据。</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🛡️</div>
+      <h3>沙箱清理 · 可回滚</h3>
+      <p>所有删除先入应用 Trash，30 天可一键恢复，杜绝"误删神话"。</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🌐</div>
+      <h3>跨平台一致体验</h3>
+      <p>Tauri 2.0 + Rust 内核，Mac/Win 同一套交互与品牌心智。</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🔒</div>
+      <h3>隐私优先模式</h3>
+      <p>本地 Ollama 推理可选,文件内容永不外发,仅元数据可见。</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">💬</div>
+      <h3>对话式问答</h3>
+      <p>"这个 6GB 文件能删吗?" 直接问 AI,得到上下文相关的回答。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MARKET ===== -->
+<section id="market" class="container">
+  <span class="section-tag reveal">02 · 市场与竞品</span>
+  <h2 class="section-title reveal">空白市场:AI 第一性的清理工具尚无定义者</h2>
+  <p class="section-sub reveal">
+    竞品多数把 AI 当作宣传词,真正落地"LLM 判定 + 解释"的产品几乎为零。
+    AI PC 浪潮 + 用户隐私意识觉醒,是 DiskMind 切入的最佳时机。
+  </p>
+
+  <div class="table-wrap reveal" style="margin-bottom: 40px;">
+    <table>
+      <thead>
+        <tr>
+          <th>产品</th>
+          <th>平台</th>
+          <th>核心模式</th>
+          <th>优势</th>
+          <th>短板</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><b>CCleaner</b></td><td>Win / Mac</td><td>规则匹配</td><td>老牌, 规则全</td><td>UI 老旧, 无智能化</td></tr>
+        <tr><td><b>CleanMyMac X</b></td><td>Mac</td><td>规则 + 启发式</td><td>体验佳, 品牌强</td><td>仅 Mac, 订阅贵</td></tr>
+        <tr><td><b>BleachBit</b></td><td>跨平台</td><td>开源规则</td><td>免费透明</td><td>不友好, 维护慢</td></tr>
+        <tr><td><b>Windows 存储感知</b></td><td>Win</td><td>系统内置</td><td>免费, 原生</td><td>功能浅, 不智能</td></tr>
+        <tr><td><b>腾讯/360 管家</b></td><td>Win</td><td>安全套件</td><td>国内渗透高</td><td>捆绑, 误删严重</td></tr>
+        <tr style="background: linear-gradient(90deg, rgba(99,102,241,0.1), rgba(6,182,212,0.1));">
+          <td><b style="background: linear-gradient(135deg,#6366f1,#06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent;">DiskMind</b></td>
+          <td>Win + Mac</td><td>规则 + LLM 语义</td><td>AI 解释, 透明, 跨平台</td><td>初期品牌零积累</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="swot">
+    <div class="swot-card swot-s reveal">
+      <h4>Strengths · 优势</h4>
+      <ul>
+        <li>AI 差异化壁垒清晰</li>
+        <li>跨平台一套架构</li>
+        <li>用户体验可重塑</li>
+      </ul>
+    </div>
+    <div class="swot-card swot-w reveal">
+      <h4>Weaknesses · 劣势</h4>
+      <ul>
+        <li>初期品牌零积累</li>
+        <li>LLM 推理成本敏感</li>
+        <li>团队规模有限</li>
+      </ul>
+    </div>
+    <div class="swot-card swot-o reveal">
+      <h4>Opportunities · 机会</h4>
+      <ul>
+        <li>端侧大模型成熟 (Llama 3.2 / Qwen2.5)</li>
+        <li>用户隐私意识觉醒</li>
+        <li>海外订阅市场成熟</li>
+      </ul>
+    </div>
+    <div class="swot-card swot-t reveal">
+      <h4>Threats · 威胁</h4>
+      <ul>
+        <li>大厂入场 (微软 / 苹果)</li>
+        <li>误删导致口碑反噬</li>
+        <li>各国数据合规法规</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== USERS ===== -->
+<section id="users" class="container">
+  <span class="section-tag reveal">03 · 目标用户</span>
+  <h2 class="section-title reveal">四类用户,一种诉求:看懂磁盘</h2>
+  <p class="section-sub reveal">
+    极客要可控、创意从业者要安全释放、办公用户要一键、企业要合规审计。
+    LLM 让一个产品同时讲清四类语言。
+  </p>
+
+  <div class="grid-4">
+    <div class="card reveal">
+      <div class="card-icon">💻</div>
+      <h3>开发者 / 极客</h3>
+      <p style="color: var(--brand-3); font-weight: 600;">25%</p>
+      <p>看清每个文件 · 可控 · 可脚本化</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🎨</div>
+      <h3>创意从业者</h3>
+      <p style="color: var(--brand-3); font-weight: 600;">30%</p>
+      <p>大文件多 · 缓存爆炸 · 安全释放空间</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">📊</div>
+      <h3>普通办公用户</h3>
+      <p style="color: var(--brand-3); font-weight: 600;">35%</p>
+      <p>一键清理 · 不要误删 · 看得懂</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">🏢</div>
+      <h3>企业 IT</h3>
+      <p style="color: var(--brand-3); font-weight: 600;">10%</p>
+      <p>批量 · 合规 · 可审计</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PRODUCT ===== -->
+<section id="product" class="container">
+  <span class="section-tag reveal">04 · 产品功能</span>
+  <h2 class="section-title reveal">从扫描到决策的六层架构</h2>
+  <p class="section-sub reveal">
+    每一层都可独立演进:规则库可扩展、AI 模型可切换、清理策略可自定义。
+  </p>
+
+  <div class="arch reveal">
+    <div class="arch-row">
+      <span class="arch-step">① 扫描层</span>
+      <span class="arch-body"><b>全盘 / 指定目录 / 应用维度 / 增量扫描</b> · 多线程 Rust 引擎</span>
+    </div>
+    <div class="arch-row">
+      <span class="arch-step">② 分类层</span>
+      <span class="arch-body"><b>系统垃圾 / 应用缓存 / 日志 / 临时文件 / 大文件 / 重复 / 未知</b></span>
+    </div>
+    <div class="arch-row">
+      <span class="arch-step">③ AI 层</span>
+      <span class="arch-body"><b>LLM 性质判定 · 风险打分 · 解释生成 · 对话问答</b></span>
+    </div>
+    <div class="arch-row">
+      <span class="arch-step">④ 决策层</span>
+      <span class="arch-body"><b>安全 / 谨慎 / 激进 三档清理策略 + 用户自定义白名单</b></span>
+    </div>
+    <div class="arch-row">
+      <span class="arch-step">⑤ 执行层</span>
+      <span class="arch-body"><b>沙箱回收站 · 可回滚操作日志 · 异步真删</b></span>
+    </div>
+    <div class="arch-row">
+      <span class="arch-step">⑥ 报告层</span>
+      <span class="arch-body"><b>清理报告 · 趋势分析 · 个性化建议 · 多端同步</b></span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== TECH ===== -->
+<section id="tech" class="container">
+  <span class="section-tag reveal">05 · 技术可行性</span>
+  <h2 class="section-title reveal">2026 年所有技术拼图均已就位</h2>
+  <p class="section-sub reveal">
+    Tauri 2.0 (~10MB 体积、性能比 Electron 强一档) + Rust 扫描引擎 + 端云双轨 LLM = 完全可落地的工程组合。
+  </p>
+
+  <div class="table-wrap reveal">
+    <table>
+      <thead>
+        <tr><th>层次</th><th>候选方案</th><th>推荐</th><th>理由</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>桌面框架</td><td>Electron / Tauri / .NET MAUI / Qt</td><td><b>Tauri 2.0</b></td><td>体积小、Rust 安全、跨平台一致</td></tr>
+        <tr><td>前端 UI</td><td>React / Vue 3</td><td><b>Vue 3 + TS</b></td><td>生态全、Tauri 友好</td></tr>
+        <tr><td>UI 组件</td><td>shadcn / Ant / Naive UI</td><td><b>Naive UI</b></td><td>Vue3 原生支持,美观</td></tr>
+        <tr><td>扫描引擎</td><td>Rust</td><td><b>Rust</b></td><td>文件 IO 与并发优势明显</td></tr>
+        <tr><td>AI 接入</td><td>云端 / 本地 / 混合</td><td><b>云 + 端混合</b></td><td>体验与隐私兼顾</td></tr>
+        <tr><td>数据库</td><td>SQLite / DuckDB</td><td><b>SQLite + DuckDB</b></td><td>元数据 + 分析查询</td></tr>
+        <tr><td>打包</td><td>Tauri Bundler</td><td><b>Tauri Bundler</b></td><td>MSI / DMG / 自动签名</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== AI ===== -->
+<section id="ai" class="container">
+  <span class="section-tag reveal">06 · AI 应用</span>
+  <h2 class="section-title reveal">差异化的核心:LLM 真正落地</h2>
+  <p class="section-sub reveal">
+    LLM 不是宣传词。结构化输出 + 元数据隐私 + 双轨推理,让 AI 成为产品本身。
+  </p>
+
+  <div class="ai-showcase">
+    <div class="ai-card reveal">
+      <h3>四个 LLM 真正在做的事</h3>
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <b style="color: var(--text-1);">① 长尾文件性质判定</b>
+          <p style="color: var(--text-2); margin: 4px 0 0; font-size: 14px;">规则库无法识别的 `~/.config/random-tool/cache.db`,LLM 基于路径与上下文推断归属。</p>
+        </div>
+        <div>
+          <b style="color: var(--text-1);">② 风险评分 + 自然语言解释</b>
+          <p style="color: var(--text-2); margin: 4px 0 0; font-size: 14px;">每条建议附 0–100 风险分 + 一句话理由,普通用户读得懂、信得过。</p>
+        </div>
+        <div>
+          <b style="color: var(--text-1);">③ 对话式问答</b>
+          <p style="color: var(--text-2); margin: 4px 0 0; font-size: 14px;">"这个 Xcode/DerivedData 能删吗?" — AI 上下文回答,而非搜索结果。</p>
+        </div>
+        <div>
+          <b style="color: var(--text-1);">④ 个性化策略学习</b>
+          <p style="color: var(--text-2); margin: 4px 0 0; font-size: 14px;">用户保留/删除/恢复行为持续微调建议权重,做到越用越懂你。</p>
+        </div>
+      </div>
+    </div>
+    <div class="code reveal">
+<span class="c">// LLM 返回的结构化判定示例</span>
+{
+  <span class="n">"path"</span>: <span class="s">"/Library/Caches/com.adobe.PSCache"</span>,
+  <span class="n">"size_mb"</span>: <span class="k">4320</span>,
+  <span class="n">"category"</span>: <span class="s">"应用缓存"</span>,
+  <span class="n">"risk_score"</span>: <span class="k">12</span>,
+  <span class="n">"risk_level"</span>: <span class="s">"low"</span>,
+  <span class="n">"explanation"</span>: <span class="s">"Photoshop 自动重建</span>
+                  <span class="s">的缓存,删除后下次</span>
+                  <span class="s">启动会重新生成,</span>
+                  <span class="s">仅影响首次加载速度。"</span>,
+  <span class="n">"action"</span>: <span class="s">"safe_to_delete"</span>
+}
+    </div>
+  </div>
+
+  <div class="grid-3" style="margin-top: 40px;">
+    <div class="card reveal">
+      <div class="card-icon">☁️</div>
+      <h3>云端模式</h3>
+      <p><b>DeepSeek-V3 / GPT-4o-mini / Claude Haiku</b><br />准确率高 · 上下文长 · 默认推荐</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">💎</div>
+      <h3>本地模式</h3>
+      <p><b>Ollama + Qwen2.5-3B / Phi-3.5</b><br />零外发 · 完全离线 · 隐私敏感首选</p>
+    </div>
+    <div class="card reveal">
+      <div class="card-icon">⚡</div>
+      <h3>混合模式</h3>
+      <p>元数据本地预筛 + 复杂决策上云<br />平衡体验、成本与隐私</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== RISK ===== -->
+<section id="risk" class="container">
+  <span class="section-tag reveal">07 · 风险分析</span>
+  <h2 class="section-title reveal">直面风险:每一条都有解</h2>
+  <p class="section-sub reveal">
+    清理工具最大的敌人是误删事故,LLM 最大的敌人是幻觉。两者叠加,需要工程上严防死守。
+  </p>
+
+  <div class="risk-grid">
+    <div class="risk high reveal">
+      <div class="top"><span class="risk-name">误删核心文件</span><span class="risk-badge">高</span></div>
+      <p>直接造成系统/数据损坏,触发"灾难级"口碑反噬。</p>
+      <div class="mitig"><b>缓解:</b> 沙箱清理 + 白名单 + 30 天回滚 + 高风险二次确认</div>
+    </div>
+    <div class="risk mid reveal">
+      <div class="top"><span class="risk-name">LLM 幻觉</span><span class="risk-badge">中</span></div>
+      <p>模型给出错误的删除建议,误导用户。</p>
+      <div class="mitig"><b>缓解:</b> JSON Schema 强约束 + 二次规则校验 + 证据不足返回 unknown</div>
+    </div>
+    <div class="risk mid reveal">
+      <div class="top"><span class="risk-name">隐私顾虑</span><span class="risk-badge">中</span></div>
+      <p>用户担心文件元数据外泄到云端 LLM。</p>
+      <div class="mitig"><b>缓解:</b> 本地模式 + 上传字段透明审计 + 可视化上传清单</div>
+    </div>
+    <div class="risk mid reveal">
+      <div class="top"><span class="risk-name">大厂入场</span><span class="risk-badge">中</span></div>
+      <p>微软/苹果系统内置类似 AI 功能。</p>
+      <div class="mitig"><b>缓解:</b> 跨平台一致体验 + AI 深度领先 + 品牌叙事</div>
+    </div>
+    <div class="risk low reveal">
+      <div class="top"><span class="risk-name">扫描性能</span><span class="risk-badge">低</span></div>
+      <p>大磁盘扫描超过 5 分钟,首次体验差。</p>
+      <div class="mitig"><b>缓解:</b> 增量扫描 + 后台 watcher + 进度可视化</div>
+    </div>
+    <div class="risk low reveal">
+      <div class="top"><span class="risk-name">LLM 成本失控</span><span class="risk-badge">低</span></div>
+      <p>API 涨价或被滥用,毛利收窄。</p>
+      <div class="mitig"><b>缓解:</b> 多供应商可切换 + 缓存复用 + 本地兜底</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PLAN ===== -->
+<section id="plan" class="container">
+  <span class="section-tag reveal">08 · 研发规划</span>
+  <h2 class="section-title reveal">7 个月,从立项到正式发布</h2>
+  <p class="section-sub reveal">
+    8 人团队,聚焦核心。先 Mac 再 Win,先付费再免费,先体验再渠道。
+  </p>
+
+  <div class="timeline">
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 06</div>
+      <div class="tl-title">立项 / 架构敲定 / Demo</div>
+      <div class="tl-desc">完成 PRD、技术架构、品牌视觉,跑通最短路径原型。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 07</div>
+      <div class="tl-title">扫描引擎 v0.1 + 规则库</div>
+      <div class="tl-desc">Rust 多线程扫描器、SQLite 元数据索引、基础规则库。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 08</div>
+      <div class="tl-title">AI 接入 + 风险评分</div>
+      <div class="tl-desc">LLM 网关 (云 + 本地)、Prompt 工程、JSON Schema 校验。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 09</div>
+      <div class="tl-title">Mac 版 MVP 内测</div>
+      <div class="tl-desc">完整体验闭环、TestFlight 风格邀请测试、收集 NPS。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 10</div>
+      <div class="tl-title">Windows 版 MVP 内测</div>
+      <div class="tl-desc">Win 端文件系统差异打平、MSI 安装包、代码签名。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 11</div>
+      <div class="tl-title">v1.0 公测 · 品牌站上线</div>
+      <div class="tl-desc">ProductHunt 首发、Mac/PC 测评矩阵、开源扫描内核。</div>
+    </div>
+    <div class="tl-item reveal">
+      <div class="tl-date">2026 · 12</div>
+      <div class="tl-title">v1.0 正式发布 + Pro 上线</div>
+      <div class="tl-desc">Free / Pro / Family / Enterprise 四档,海外订阅同步上线。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== BUSINESS ===== -->
+<section id="biz" class="container">
+  <span class="section-tag reveal">09 · 商业模式</span>
+  <h2 class="section-title reveal">四档定价 · Pro 是主战场</h2>
+  <p class="section-sub reveal">
+    免费版做漏斗、Pro 版做收入、家庭版做粘性、企业版做溢价。
+  </p>
+
+  <div class="pricing">
+    <div class="price reveal">
+      <h4>Free</h4>
+      <div class="amount">¥0</div>
+      <div class="unit">永久免费</div>
+      <ul>
+        <li>全盘扫描</li>
+        <li>规则库清理</li>
+        <li>每月 10 次 AI 调用</li>
+        <li>基础回滚 (7 天)</li>
+      </ul>
+    </div>
+    <div class="price featured reveal">
+      <h4>Pro</h4>
+      <div class="amount">¥99</div>
+      <div class="unit">/ 年</div>
+      <ul>
+        <li>无限 AI 调用</li>
+        <li>对话式问答</li>
+        <li>高级清理策略</li>
+        <li>30 天回滚</li>
+        <li>多端同步</li>
+      </ul>
+    </div>
+    <div class="price reveal">
+      <h4>Family</h4>
+      <div class="amount">¥199</div>
+      <div class="unit">/ 年</div>
+      <ul>
+        <li>Pro 全部功能</li>
+        <li>5 台设备共享</li>
+        <li>家庭统一管理</li>
+        <li>儿童模式</li>
+      </ul>
+    </div>
+    <div class="price reveal">
+      <h4>Enterprise</h4>
+      <div class="amount">¥XXX</div>
+      <div class="unit">按席位</div>
+      <ul>
+        <li>集中管控台</li>
+        <li>合规审计日志</li>
+        <li>本地 LLM 部署</li>
+        <li>SLA 保障</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CONCLUSION ===== -->
+<section id="conclusion" class="container">
+  <span class="section-tag reveal">10 · 结论</span>
+  <h2 class="section-title reveal">强烈建议立项</h2>
+  <p class="section-sub reveal">
+    市场空间存在 · 技术可行性具备 · 差异化清晰 · 商业模型已被验证。
+  </p>
+
+  <div class="conclusion reveal">
+    <h2>关键成功要素 (CSF)</h2>
+    <div class="csf">
+      <div class="csf-item">
+        <div class="num">1</div>
+        <p><b>零误删神话</b><br />上线第一年不能有任何一例核心文件误删事故,这是产品的生命线。</p>
+      </div>
+      <div class="csf-item">
+        <div class="num">2</div>
+        <p><b>AI 解释要让人懂</b><br />自然语言解释必须做到普通用户读得懂、信得过,而非技术黑话。</p>
+      </div>
+      <div class="csf-item">
+        <div class="num">3</div>
+        <p><b>品牌叙事</b><br />把"AI 磁盘管家"形象立住,对抗大厂内置功能的同质化竞争。</p>
+      </div>
+      <div class="csf-item">
+        <div class="num">4</div>
+        <p><b>跨平台体验</b><br />Mac 与 Win 用户获得一致的视觉与心智锚点,而非两套产品。</p>
+      </div>
+    </div>
+    <div class="quote">
+      "DiskMind 不是一个清理工具,<br />
+      它是你磁盘里的第一位 AI 居民。"
+    </div>
+  </div>
+</section>
+
+<footer>
+  © 2026 DiskMind · 可行性分析报告 v1.0 · 撰写日期 2026-05-25
+</footer>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => entry.target.classList.add('in'), i * 60);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -50px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // Nav active highlight
+  const links = document.querySelectorAll('.nav-links a');
+  const sections = Array.from(links).map(a => document.querySelector(a.getAttribute('href')));
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY + 100;
+    sections.forEach((sec, i) => {
+      if (sec && sec.offsetTop <= y && sec.offsetTop + sec.offsetHeight > y) {
+        links.forEach(l => l.style.color = '');
+        links[i].style.color = '#fff';
+        links[i].style.background = 'rgba(255,255,255,0.06)';
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

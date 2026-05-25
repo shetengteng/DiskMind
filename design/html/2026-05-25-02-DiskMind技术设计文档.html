@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DiskMind 技术设计文档 (TDS) · v1.0</title>
+<style>
+  :root {
+    --bg-0: #07090f;
+    --bg-1: #0b1020;
+    --bg-2: #111634;
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-hi: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hi: rgba(255, 255, 255, 0.18);
+    --text-1: #e8ecf5;
+    --text-2: #a9b1c4;
+    --text-3: #6b7388;
+    --brand-1: #6366f1;
+    --brand-2: #8b5cf6;
+    --brand-3: #06b6d4;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --code-bg: #050810;
+    --radius: 14px;
+    --sidebar-w: 280px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-1);
+    background: var(--bg-0);
+    line-height: 1.75;
+    font-size: 15px;
+  }
+
+  /* ===== Background ===== */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(900px 600px at 0% 0%, rgba(99,102,241,0.18), transparent 60%),
+      radial-gradient(800px 600px at 100% 0%, rgba(6,182,212,0.14), transparent 60%),
+      linear-gradient(180deg, #07090f 0%, #0a0f1f 100%);
+    z-index: -2;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at top, black 0%, transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* ===== Top progress bar ===== */
+  .progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
+    z-index: 100;
+    width: 0;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+  }
+
+  /* ===== Top Nav ===== */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(20px);
+    background: rgba(7, 9, 15, 0.7);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: 0.3px;
+  }
+  .logo-mark {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: conic-gradient(from 210deg, #6366f1, #8b5cf6, #06b6d4, #6366f1);
+    position: relative;
+    box-shadow: 0 6px 24px -8px rgba(99, 102, 241, 0.7);
+  }
+  .logo-mark::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: 5px;
+    background: #0b1020;
+  }
+  .logo-mark::before {
+    content: "";
+    position: absolute;
+    inset: 10px;
+    border-radius: 3px;
+    background: linear-gradient(135deg, #6366f1, #06b6d4);
+    z-index: 1;
+  }
+  .top-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-3);
+    flex-wrap: wrap;
+  }
+  .top-chip {
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .top-chip.brand {
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(6,182,212,0.15));
+    border-color: rgba(99,102,241,0.3);
+    color: var(--text-1);
+  }
+
+  /* ===== Layout ===== */
+  .layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    max-width: 1480px;
+    margin: 0 auto;
+    gap: 0;
+  }
+
+  /* ===== Sidebar ===== */
+  .sidebar {
+    position: sticky;
+    top: 64px;
+    height: calc(100vh - 64px);
+    overflow-y: auto;
+    padding: 32px 16px 32px 32px;
+    border-right: 1px solid var(--border);
+  }
+  .sidebar-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-3);
+    margin: 0 12px 14px;
+    font-weight: 700;
+  }
+  .toc {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .toc-item a {
+    display: block;
+    padding: 7px 12px;
+    color: var(--text-2);
+    text-decoration: none;
+    font-size: 13.5px;
+    border-radius: 8px;
+    border-left: 2px solid transparent;
+    transition: all .2s ease;
+  }
+  .toc-item a:hover {
+    color: var(--text-1);
+    background: var(--surface);
+  }
+  .toc-item a.active {
+    color: var(--text-1);
+    background: linear-gradient(90deg, rgba(99,102,241,0.15), transparent);
+    border-left-color: var(--brand-1);
+    font-weight: 600;
+  }
+  .toc-num {
+    color: var(--brand-3);
+    font-weight: 700;
+    margin-right: 8px;
+    font-size: 12px;
+  }
+  .toc-sub {
+    list-style: none;
+    padding: 0;
+    margin: 2px 0 6px 14px;
+    border-left: 1px solid var(--border);
+  }
+  .toc-sub a {
+    padding: 4px 12px;
+    font-size: 12.5px;
+    color: var(--text-3);
+  }
+  .toc-sub a:hover { color: var(--text-2); }
+  .toc-sub a.active { color: var(--brand-3); background: transparent; border-left-color: transparent; }
+
+  /* ===== Main ===== */
+  .main {
+    padding: 0 60px 80px;
+    max-width: 980px;
+  }
+
+  /* ===== Hero ===== */
+  .doc-hero {
+    padding: 60px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .doc-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--brand-3);
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: rgba(6,182,212,0.08);
+    border: 1px solid rgba(6,182,212,0.25);
+    margin-bottom: 18px;
+  }
+  .doc-hero h1 {
+    font-size: 48px;
+    font-weight: 800;
+    margin: 0 0 12px;
+    line-height: 1.15;
+    background: linear-gradient(135deg, #fff 30%, #a9b1c4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .doc-hero h1 .sub {
+    font-size: 20px;
+    color: var(--text-2);
+    font-weight: 500;
+    display: block;
+    margin-top: 10px;
+  }
+  .doc-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-top: 28px;
+  }
+  .meta-card {
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .meta-card .lbl {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .meta-card .val {
+    font-size: 14px;
+    margin-top: 4px;
+    color: var(--text-1);
+    font-weight: 500;
+  }
+
+  /* ===== Section ===== */
+  section.chapter {
+    margin: 56px 0;
+    scroll-margin-top: 90px;
+  }
+  section.chapter > h2 {
+    font-size: 30px;
+    font-weight: 800;
+    margin: 0 0 8px;
+    color: var(--text-1);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  section.chapter > h2 .num {
+    color: var(--brand-3);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  section.chapter > .lead {
+    color: var(--text-2);
+    margin: 0 0 32px;
+    font-size: 15px;
+  }
+
+  h3 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 36px 0 14px;
+    color: var(--text-1);
+    scroll-margin-top: 90px;
+  }
+  h3 .num {
+    color: var(--brand-3);
+    font-size: 14px;
+    margin-right: 10px;
+    font-weight: 600;
+  }
+  h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 10px;
+    color: var(--text-1);
+  }
+  p {
+    color: var(--text-2);
+    margin: 12px 0;
+  }
+  strong { color: var(--text-1); }
+  ul, ol {
+    color: var(--text-2);
+    padding-left: 22px;
+  }
+  li { margin: 6px 0; }
+
+  /* ===== Cards ===== */
+  .card {
+    padding: 20px 24px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    margin: 16px 0;
+  }
+  .card.info {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(6,182,212,0.05));
+    border-color: rgba(99,102,241,0.3);
+  }
+  .card.warn {
+    background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02));
+    border-color: rgba(245,158,11,0.3);
+  }
+  .card.danger {
+    background: linear-gradient(135deg, rgba(239,68,68,0.08), rgba(239,68,68,0.02));
+    border-color: rgba(239,68,68,0.4);
+  }
+  .card.ok {
+    background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02));
+    border-color: rgba(16,185,129,0.3);
+  }
+  .card-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .card.info .card-label { color: var(--brand-1); }
+  .card.warn .card-label { color: var(--warn); }
+  .card.danger .card-label { color: var(--danger); }
+  .card.ok .card-label { color: var(--ok); }
+
+  /* ===== Tables ===== */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    margin: 16px 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  th, td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: rgba(255,255,255,0.03);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  td code, th code {
+    color: var(--brand-3);
+    background: rgba(6,182,212,0.08);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+
+  /* ===== Code blocks ===== */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    overflow-x: auto;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #cdd6f4;
+    position: relative;
+    margin: 16px 0;
+  }
+  pre::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0; right: 12px;
+    font-size: 10px;
+    color: var(--text-3);
+    background: var(--surface);
+    padding: 2px 8px;
+    border-radius: 0 0 6px 6px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-family: inherit;
+  }
+  code:not(pre code) {
+    background: rgba(255,255,255,0.06);
+    color: var(--brand-3);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace;
+    font-size: 0.88em;
+  }
+
+  /* Syntax highlight */
+  .k  { color: #c084fc; }   /* keyword */
+  .s  { color: #6ee7b7; }   /* string */
+  .n  { color: #67e8f9; }   /* number / property */
+  .c  { color: #64748b; font-style: italic; }   /* comment */
+  .fn { color: #fbbf24; }   /* function */
+  .ty { color: #f472b6; }   /* type */
+
+  /* ===== Diagram (ASCII art) ===== */
+  .diagram {
+    background: var(--code-bg);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius);
+    padding: 24px;
+    font-family: "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-2);
+    overflow-x: auto;
+    white-space: pre;
+    margin: 16px 0;
+  }
+
+  /* ===== KV-list ===== */
+  .kv {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 6px 24px;
+    margin: 16px 0;
+    padding: 18px 22px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .kv dt {
+    color: var(--text-3);
+    font-size: 13px;
+    padding: 4px 0;
+  }
+  .kv dd {
+    margin: 0;
+    color: var(--text-1);
+    padding: 4px 0;
+    font-weight: 500;
+  }
+
+  /* ===== Badges ===== */
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .badge.p0 { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .badge.p1 { background: rgba(245,158,11,0.15); color: #fcd34d; }
+  .badge.p2 { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+  .badge.ok { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+  .badge.danger { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .badge.warn { background: rgba(245,158,11,0.15); color: #fcd34d; }
+
+  /* ===== Module Grid ===== */
+  .module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 20px 0;
+  }
+  .module-card {
+    padding: 20px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: all .25s ease;
+  }
+  .module-card:hover {
+    transform: translateY(-2px);
+    background: var(--surface-hi);
+    border-color: var(--border-hi);
+  }
+  .module-card h4 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    background: linear-gradient(135deg, #fff, #a9b1c4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .module-card .role {
+    font-size: 11px;
+    color: var(--brand-3);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .module-card p {
+    font-size: 13px;
+    margin: 8px 0 0;
+  }
+
+  /* ===== Red Line Banner ===== */
+  .redline {
+    margin: 24px 0;
+    padding: 24px 28px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.03));
+    border: 1px solid rgba(239,68,68,0.4);
+    position: relative;
+  }
+  .redline::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    background: linear-gradient(180deg, #ef4444, #f97316);
+    border-radius: 16px 0 0 16px;
+  }
+  .redline-title {
+    font-weight: 700;
+    color: #fca5a5;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .redline p { margin: 4px 0 0; color: var(--text-1); }
+
+  /* ===== Footer ===== */
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 80px;
+    padding: 40px 0 20px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  footer a {
+    color: var(--brand-3);
+    text-decoration: none;
+  }
+
+  /* ===== Reveal ===== */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .main { padding: 0 32px 60px; }
+  }
+  @media (max-width: 640px) {
+    .doc-hero h1 { font-size: 32px; }
+    .doc-hero h1 .sub { font-size: 16px; }
+    section.chapter > h2 { font-size: 24px; flex-direction: column; align-items: flex-start; gap: 4px; }
+    .main { padding: 0 20px 40px; }
+    .topnav { padding: 12px 20px; }
+    .kv { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<!-- ===== Top Nav ===== -->
+<nav class="topnav">
+  <div class="logo">
+    <div class="logo-mark"></div>
+    DiskMind · TDS
+  </div>
+  <div class="top-meta">
+    <span class="top-chip brand">v1.0 Draft</span>
+    <span class="top-chip">2026-05-25</span>
+    <span class="top-chip">11 章 · 38KB</span>
+  </div>
+</nav>
+
+<div class="layout">
+
+  <!-- ===== Sidebar ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-title">目录</div>
+    <ul class="toc">
+      <li class="toc-item"><a href="#ch0"><span class="toc-num">00</span>文档元信息</a></li>
+      <li class="toc-item"><a href="#ch1"><span class="toc-num">01</span>引言</a></li>
+      <li class="toc-item">
+        <a href="#ch2"><span class="toc-num">02</span>总体架构</a>
+        <ul class="toc-sub">
+          <li><a href="#ch2-1">2.1 系统上下文</a></li>
+          <li><a href="#ch2-2">2.2 容器图</a></li>
+          <li><a href="#ch2-3">2.3 进程模型</a></li>
+          <li><a href="#ch2-4">2.4 跨平台抽象</a></li>
+        </ul>
+      </li>
+      <li class="toc-item">
+        <a href="#ch3"><span class="toc-num">03</span>模块详细设计</a>
+        <ul class="toc-sub">
+          <li><a href="#ch3-1">3.1 Scanner</a></li>
+          <li><a href="#ch3-2">3.2 Classifier</a></li>
+          <li><a href="#ch3-3">3.3 AIEngine</a></li>
+          <li><a href="#ch3-4">3.4 Policy</a></li>
+          <li><a href="#ch3-5">3.5 Cleaner</a></li>
+          <li><a href="#ch3-6">3.6 Reporter</a></li>
+          <li><a href="#ch3-7">3.7 前端模块</a></li>
+        </ul>
+      </li>
+      <li class="toc-item"><a href="#ch4"><span class="toc-num">04</span>数据模型</a></li>
+      <li class="toc-item"><a href="#ch5"><span class="toc-num">05</span>接口设计</a></li>
+      <li class="toc-item"><a href="#ch6"><span class="toc-num">06</span>关键算法</a></li>
+      <li class="toc-item"><a href="#ch7"><span class="toc-num">07</span>UI/UX 设计</a></li>
+      <li class="toc-item"><a href="#ch8"><span class="toc-num">08</span>安全与隐私</a></li>
+      <li class="toc-item"><a href="#ch9"><span class="toc-num">09</span>部署与发布</a></li>
+      <li class="toc-item"><a href="#ch10"><span class="toc-num">10</span>工程规范</a></li>
+      <li class="toc-item"><a href="#ch11"><span class="toc-num">11</span>风险与未决</a></li>
+      <li class="toc-item"><a href="#appendix"><span class="toc-num">A</span>附录</a></li>
+    </ul>
+  </aside>
+
+  <!-- ===== Main ===== -->
+  <main class="main">
+
+    <!-- ===== Hero ===== -->
+    <div class="doc-hero">
+      <div class="doc-tag">Technical Design Spec · TDS</div>
+      <h1>
+        DiskMind 技术设计文档
+        <span class="sub">承接可行性报告,把"做什么"细化为"怎么做"</span>
+      </h1>
+      <div class="doc-meta">
+        <div class="meta-card"><div class="lbl">主语言</div><div class="val">Rust + TypeScript</div></div>
+        <div class="meta-card"><div class="lbl">框架</div><div class="val">Tauri 2.0 + Vue 3</div></div>
+        <div class="meta-card"><div class="lbl">数据库</div><div class="val">SQLite + DuckDB</div></div>
+        <div class="meta-card"><div class="lbl">目标平台</div><div class="val">macOS 12+ / Win 10+</div></div>
+      </div>
+    </div>
+
+    <!-- ===== Ch 0 ===== -->
+    <section class="chapter" id="ch0">
+      <h2><span class="num">00</span>文档元信息</h2>
+      <p class="lead">基础元数据,作为评审与版本追踪的锚点。</p>
+      <dl class="kv">
+        <dt>项目代号</dt><dd>DiskMind</dd>
+        <dt>目标平台</dt><dd>Windows 10+ / macOS 12+</dd>
+        <dt>主语言</dt><dd>Rust(后端) · TypeScript(前端)</dd>
+        <dt>桌面框架</dt><dd>Tauri 2.0 + Vue 3 + Naive UI</dd>
+        <dt>数据库</dt><dd>SQLite(嵌入) + DuckDB(分析查询)</dd>
+        <dt>LLM 后端</dt><dd>DeepSeek-V3 / GPT-4o-mini / 本地 Ollama</dd>
+        <dt>文档状态</dt><dd>Draft — 等待评审</dd>
+      </dl>
+    </section>
+
+    <!-- ===== Ch 1 ===== -->
+    <section class="chapter" id="ch1">
+      <h2><span class="num">01</span>引言</h2>
+      <p class="lead">承接可行性报告,聚焦"怎么做",作为后续工程实施的单一真相来源。</p>
+
+      <h3>1.1 文档目的</h3>
+      <p>本文档将<strong>"做什么"</strong>细化为<strong>"怎么做"</strong>。覆盖系统架构、模块边界、数据模型、关键算法、安全设计、工程规范,作为后续工程实施的 <strong>Single Source of Truth</strong>。</p>
+
+      <h3>1.2 范围</h3>
+      <div class="module-grid">
+        <div class="card ok">
+          <div class="card-label">✓ 本文档覆盖</div>
+          <ul style="margin: 8px 0 0; padding-left: 18px;">
+            <li>系统整体架构与模块详细设计</li>
+            <li>数据库 Schema 与配置文件结构</li>
+            <li>IPC 接口契约</li>
+            <li>关键算法(去重、风险评分、增量扫描)</li>
+            <li>UI 信息架构与设计语言基线</li>
+            <li>安全/隐私/合规的工程实现</li>
+            <li>部署、签名、自动更新流程</li>
+          </ul>
+        </div>
+        <div class="card warn">
+          <div class="card-label">✗ 本文档不覆盖</div>
+          <ul style="margin: 8px 0 0; padding-left: 18px;">
+            <li>详尽的 UI 视觉稿(由设计交付)</li>
+            <li>财务模型与 GTM 策略(见可行性报告)</li>
+            <li>具体代码实现细节</li>
+            <li>单条 LLM Prompt 的内容优化</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>1.3 术语表</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>术语</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>Scanner</code></td><td>扫描引擎,负责文件遍历与元数据采集</td></tr>
+            <tr><td><code>Classifier</code></td><td>分类器,基于规则库 + 应用映射做粗分</td></tr>
+            <tr><td><code>AIEngine</code></td><td>AI 引擎,LLM 调用、Prompt 编排、结果校验</td></tr>
+            <tr><td><code>Policy</code></td><td>决策引擎,根据用户策略生成清理建议</td></tr>
+            <tr><td><code>Cleaner</code></td><td>清理执行器,沙箱化删除与回滚</td></tr>
+            <tr><td><code>Trash</code></td><td>DiskMind 自管理的应用内回收站(独立于系统回收站)</td></tr>
+            <tr><td><code>Fingerprint</code></td><td>文件指纹(BLAKE3 哈希,用于去重)</td></tr>
+            <tr><td><code>Risk Score</code></td><td>删除风险评分(0–100)</td></tr>
+            <tr><td><code>Bundle</code></td><td>一次扫描的产物快照</td></tr>
+            <tr><td><code>Rule Pack</code></td><td>规则库的最小发行单位,可热更新</td></tr>
+            <tr><td><code>IPC</code></td><td>Tauri 的 invoke/event 双向通信</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Ch 2 ===== -->
+    <section class="chapter" id="ch2">
+      <h2><span class="num">02</span>总体架构</h2>
+      <p class="lead">单进程 + 内部 Tokio 多任务,UI/扫描/AI/清理隔离,通过 channel 异步通信。</p>
+
+      <h3 id="ch2-1">2.1 系统上下文 (C4 Level 1)</h3>
+      <div class="diagram">
+                  ┌────────────────────┐
+                  │      用户           │
+                  │ (个人 / 家庭 / 企业) │
+                  └─────────┬──────────┘
+                            │ 桌面 GUI
+                            ▼
+        ┌────────────────────────────────────┐
+        │         DiskMind Desktop App        │
+        │      (Tauri + Rust + Vue 3)         │
+        └─────┬─────────────────┬─────────────┘
+              │ HTTPS           │ Local IPC
+              ▼                 ▼
+   ┌──────────────────┐  ┌──────────────────┐
+   │  云端 LLM 网关    │  │ 本地 Ollama      │
+   │ DeepSeek/GPT/    │  │ Qwen2.5 / Phi    │
+   │ Claude           │  │                  │
+   └──────────────────┘  └──────────────────┘
+
+   ┌──────────────────┐  ┌──────────────────┐
+   │  规则库 CDN       │  │  使用统计上报     │
+   │ (Rule Pack 增量) │  │ (匿名 · 可关闭)  │
+   └──────────────────┘  └──────────────────┘
+      </div>
+
+      <h3 id="ch2-2">2.2 容器图 (C4 Level 2)</h3>
+      <div class="diagram">
+┌──────────────── DiskMind App Process ────────────────┐
+│                                                       │
+│  ┌─────────── UI Layer (Vue 3 + TS) ───────────┐     │
+│  │   Scan View │ Disk Map │ AI Chat │ Trash    │     │
+│  │   Report    │ Settings │  ...                │     │
+│  └───────────────────┬─────────────────────────┘     │
+│                      │ Tauri IPC                       │
+│  ┌───────────────────▼─────────────────────────┐     │
+│  │       Core Engine (Rust, async-first)        │     │
+│  │  Scanner│Classifier│AIEngine│Policy│Cleaner  │     │
+│  │  ─────────────────────────────────────────   │     │
+│  │      Storage (SQLite + DuckDB)               │     │
+│  │  ─────────────────────────────────────────   │     │
+│  │  Platform Abstraction (FsAdapter / OsHooks)  │     │
+│  └────────────┬────────────────────┬───────────┘     │
+│         ┌─────▼─────┐         ┌────▼─────┐           │
+│         │  macOS FS │         │Windows FS│           │
+│         └───────────┘         └──────────┘           │
+└───────────────────────────────────────────────────────┘
+      </div>
+
+      <h3 id="ch2-3">2.3 进程模型</h3>
+      <p>DiskMind 是<strong>单应用进程</strong>架构,内部使用 Tokio 多任务调度。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>角色</th><th>实现</th><th>数量</th><th>职责</th></tr></thead>
+          <tbody>
+            <tr><td>UI Process</td><td>WebView2 / WKWebView</td><td>1</td><td>渲染 Vue 应用</td></tr>
+            <tr><td>Main Process</td><td>Rust (Tauri)</td><td>1</td><td>IPC 路由、状态管理</td></tr>
+            <tr><td>Scan Worker</td><td>Tokio / rayon</td><td>N (CPU 核数)</td><td>并发遍历文件</td></tr>
+            <tr><td>AI Worker</td><td>Tokio task</td><td>1–2</td><td>LLM 异步请求队列</td></tr>
+            <tr><td>Cleaner Worker</td><td>Tokio task</td><td>1</td><td>串行执行删除(保证一致性)</td></tr>
+            <tr><td>Watcher</td><td>notify crate</td><td>1 (可选)</td><td>实时变更监控</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card info">
+        <div class="card-label">关键决策</div>
+        <p style="margin: 0;">扫描与清理 <strong>不放在 UI 线程</strong>,通过 channel 异步通信,避免 UI 卡顿。</p>
+      </div>
+
+      <h3 id="ch2-4">2.4 跨平台抽象层</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>抽象</th><th>macOS 实现</th><th>Windows 实现</th></tr></thead>
+          <tbody>
+            <tr><td>用户目录</td><td><code>~/Library/</code></td><td><code>%APPDATA%</code></td></tr>
+            <tr><td>应用产物路径</td><td>Bundle 同名扫描</td><td>注册表 + AppData</td></tr>
+            <tr><td>系统保护目录</td><td>SIP 保护清单</td><td>WRP 清单</td></tr>
+            <tr><td>删除操作</td><td><code>NSFileManager.trashItem</code></td><td><code>SHFileOperation</code></td></tr>
+            <tr><td>通知</td><td>UNUserNotificationCenter</td><td>Toast Notifications</td></tr>
+            <tr><td>自动更新</td><td>Sparkle 协议</td><td>Tauri Updater</td></tr>
+            <tr><td>文件监控</td><td>FSEvents</td><td>ReadDirectoryChangesW</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>实现策略:<code>trait FsAdapter { fn trash(&self, path: &Path) -> Result&lt;()&gt;; ... }</code>,在 <code>cfg(target_os)</code> 下提供不同实现。</p>
+    </section>
+
+    <!-- ===== Ch 3 ===== -->
+    <section class="chapter" id="ch3">
+      <h2><span class="num">03</span>模块详细设计</h2>
+      <p class="lead">7 个核心模块,每一层都可独立演进:规则库可扩展、AI 模型可切换、清理策略可自定义。</p>
+
+      <div class="module-grid">
+        <div class="module-card"><div class="role">Module · 3.1</div><h4>Scanner</h4><p>多线程文件遍历,产出元数据流,分级哈希去重。</p></div>
+        <div class="module-card"><div class="role">Module · 3.2</div><h4>Classifier</h4><p>规则库 + 应用归属推断,未知文件送 AI。</p></div>
+        <div class="module-card"><div class="role">Module · 3.3</div><h4>AIEngine</h4><p>云/端双轨,批量打包,JSON Schema 强校验。</p></div>
+        <div class="module-card"><div class="role">Module · 3.4</div><h4>Policy</h4><p>三档策略 + 白名单 + 用户偏好学习。</p></div>
+        <div class="module-card"><div class="role">Module · 3.5</div><h4>Cleaner</h4><p>沙箱 Trash + 30 天回滚 + 异步真删。</p></div>
+        <div class="module-card"><div class="role">Module · 3.6</div><h4>Reporter</h4><p>单次报告 + DuckDB 趋势分析。</p></div>
+        <div class="module-card"><div class="role">Module · 3.7</div><h4>Frontend</h4><p>Vue 3 + Pinia + Naive UI,模块化视图。</p></div>
+      </div>
+
+      <h3 id="ch3-1">3.1 Scanner — 扫描引擎</h3>
+      <h4>3.1.1 职责</h4>
+      <ul>
+        <li>遍历指定目录,产出文件元数据流</li>
+        <li>计算文件指纹(分级哈希)</li>
+        <li>写入本地元数据索引</li>
+        <li>支持取消、暂停、增量</li>
+      </ul>
+
+      <h4>3.1.2 调度策略</h4>
+      <p>根据存储介质区分(<strong>关键设计</strong>):</p>
+      <ul>
+        <li><strong>SSD</strong>:并行度 = <code>num_cpus</code>,最大化吞吐</li>
+        <li><strong>HDD</strong>:并行度 = 1–2,避免随机读放大延迟</li>
+      </ul>
+<pre data-lang="rust"><span class="c">// 伪代码</span>
+<span class="k">let</span> strategy = <span class="k">match</span> <span class="fn">probe_disk_type</span>(&amp;root) {
+    DiskType::<span class="ty">Ssd</span> =&gt; <span class="ty">ScanStrategy</span> { parallelism: <span class="fn">num_cpus</span>(), chunk_size: <span class="n">4096</span> },
+    DiskType::<span class="ty">Hdd</span> =&gt; <span class="ty">ScanStrategy</span> { parallelism: <span class="n">2</span>,           chunk_size: <span class="n">1024</span> },
+};</pre>
+
+      <h4>3.1.3 遍历策略</h4>
+      <ul>
+        <li>BFS 优先,内存中维护队列上限(防爆栈)</li>
+        <li>跳过清单(硬编码 + 用户白名单):
+          <ul>
+            <li>macOS: <code>/System</code>, <code>/private</code>, <code>/Volumes</code></li>
+            <li>Windows: <code>C:\Windows\System32</code>, <code>C:\$Recycle.Bin</code>, <code>pagefile.sys</code></li>
+          </ul>
+        </li>
+        <li>软链接处理:<strong>默认不跟随</strong>,避免循环</li>
+      </ul>
+
+      <h4>3.1.4 哈希策略(分级)</h4>
+      <div class="diagram">
+文件 ≤ 4 KB     →  全量 BLAKE3 (快)
+4 KB < ≤ 64 MB →  头部 4KB SHA-1 + 尾部 4KB SHA-1 → 命中再算 BLAKE3
+> 64 MB         →  头/中/尾各 4KB SHA-1 + size   → 命中再 BLAKE3
+      </div>
+      <p>理由:绝大多数重复文件大小不同,二阶哈希可避免不必要的全量计算。</p>
+
+      <h4>3.1.5 增量扫描</h4>
+      <ul>
+        <li>上次扫描的 <code>(mtime, size)</code> 作为 cache key</li>
+        <li>未变 → 复用上次的指纹与分类结果</li>
+        <li>变化 → 重新计算</li>
+      </ul>
+
+      <h4>3.1.7 输出数据结构</h4>
+<pre data-lang="rust"><span class="k">pub struct</span> <span class="ty">FileEntry</span> {
+    <span class="k">pub</span> path: <span class="ty">PathBuf</span>,
+    <span class="k">pub</span> size: <span class="ty">u64</span>,
+    <span class="k">pub</span> mtime: <span class="ty">i64</span>,
+    <span class="k">pub</span> atime: <span class="ty">i64</span>,
+    <span class="k">pub</span> fingerprint: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;,   <span class="c">// BLAKE3 hex</span>
+    <span class="k">pub</span> mime_guess: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;,
+    <span class="k">pub</span> owner_app: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;,     <span class="c">// 通过路径推断的归属应用</span>
+    <span class="k">pub</span> category: <span class="ty">Option</span>&lt;<span class="ty">Category</span>&gt;,    <span class="c">// 由 Classifier 填充</span>
+}</pre>
+
+      <h3 id="ch3-2">3.2 Classifier — 分类器</h3>
+      <h4>3.2.1 分类标签集</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>标签</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>SystemJunk</code></td><td>系统垃圾</td></tr>
+            <tr><td><code>AppCache</code></td><td>应用缓存</td></tr>
+            <tr><td><code>AppLog</code></td><td>应用日志</td></tr>
+            <tr><td><code>TempFile</code></td><td>临时文件</td></tr>
+            <tr><td><code>LargeFile</code></td><td>大文件 > 100MB</td></tr>
+            <tr><td><code>DuplicateFile</code></td><td>重复文件</td></tr>
+            <tr><td><code>DownloadedInstaller</code></td><td>旧的安装包</td></tr>
+            <tr><td><code>BrowserCache</code></td><td>浏览器缓存</td></tr>
+            <tr><td><code>DeveloperJunk</code></td><td>Xcode/IDE 缓存</td></tr>
+            <tr><td><code>MediaCache</code></td><td>Adobe/DaVinci 等媒体缓存</td></tr>
+            <tr><td><code>Unknown</code></td><td>送 AIEngine 判定</td></tr>
+            <tr><td><code>Protected</code></td><td>受保护,永不建议删除</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>3.2.2 规则库结构(可热更新)</h4>
+<pre data-lang="json">{
+  <span class="n">"version"</span>: <span class="s">"2026.05.001"</span>,
+  <span class="n">"rules"</span>: [
+    {
+      <span class="n">"id"</span>: <span class="s">"macos-photoshop-cache"</span>,
+      <span class="n">"category"</span>: <span class="s">"MediaCache"</span>,
+      <span class="n">"platform"</span>: [<span class="s">"macos"</span>],
+      <span class="n">"match"</span>: {
+        <span class="n">"path_glob"</span>: [<span class="s">"**/Library/Caches/com.adobe.Photoshop/**"</span>],
+        <span class="n">"owner_app"</span>: <span class="s">"Adobe Photoshop"</span>
+      },
+      <span class="n">"default_risk"</span>: <span class="k">15</span>,
+      <span class="n">"user_facing_name"</span>: <span class="s">"Photoshop 缓存"</span>
+    }
+  ]
+}</pre>
+      <div class="card info">
+        <div class="card-label">热更新机制</div>
+        <p style="margin: 0;">启动时从 CDN 拉取版本号,有更新则下载新 Pack 并热加载(用户可关闭)。</p>
+      </div>
+
+      <h3 id="ch3-3">3.3 AIEngine — AI 引擎</h3>
+      <h4>3.3.1 双轨切换</h4>
+<pre data-lang="rust"><span class="k">enum</span> <span class="ty">AiBackend</span> {
+    <span class="ty">Cloud</span>(<span class="ty">CloudConfig</span>),   <span class="c">// DeepSeek / GPT / Claude</span>
+    <span class="ty">Local</span>(<span class="ty">OllamaConfig</span>),  <span class="c">// ollama HTTP API</span>
+    <span class="ty">Hybrid</span>,               <span class="c">// 元数据本地预筛 → 复杂决策上云</span>
+}</pre>
+      <p>用户在设置中切换,默认 <strong>Hybrid</strong>。</p>
+
+      <h4>3.3.2 批量打包策略</h4>
+      <p>为降低 token 成本,单次请求评估 <strong>50 个文件</strong>:</p>
+      <div class="diagram">
+请求体 ≈ system_prompt (固定 800 tokens) + 50 × 80 tokens = ~4800 tokens
+响应体 ≈ 50 × 120 tokens = ~6000 tokens
+单次成本 ≈ ¥0.03  (DeepSeek-V3)
+      </div>
+
+      <h4>3.3.3 Prompt 模板(System,节选)</h4>
+<pre data-lang="text">你是 DiskMind 的文件分析助手。基于以下文件元数据,判断每个文件的类别、
+删除风险与用户面向解释。严格输出 JSON,符合 schema。
+
+【输入】文件数组:[{path, size_mb, mtime, owner_app_guess, mime}]
+
+【输出 Schema】:
+[{
+  "path": string,
+  "category": "AppCache" | "AppLog" | "TempFile" | "MediaCache"
+            | "DeveloperJunk" | "DownloadedInstaller" | "Unknown",
+  "risk_score": 0-100,
+  "risk_level": "low" | "medium" | "high",
+  "explanation": string (≤ 60 字中文),
+  "action": "safe_to_delete" | "review" | "keep" | "unknown"
+}]
+
+【规则】
+1. 证据不足返回 category="Unknown" + action="unknown",不要臆造
+2. 系统目录、用户文档目录 → risk_score >= 80
+3. 解释要让普通用户看得懂,避免技术黑话
+4. 严禁建议删除任何与近 7 天访问相关的文件</pre>
+
+      <h4>3.3.4 JSON Schema 校验</h4>
+      <p>使用 <code>schemars</code> + <code>jsonschema</code> crate 做硬约束。校验失败 → 重试一次 → 仍失败 → 降级为规则模式默认值。</p>
+
+      <h4>3.3.5 降级链</h4>
+      <div class="diagram">
+Cloud LLM 失败 → 自动重试 1 次 → 切换备选 LLM → 降级为本地 Ollama
+              → 仍失败 → 仅返回规则库结果,UI 提示"AI 暂不可用"
+      </div>
+
+      <h3 id="ch3-4">3.4 Policy — 决策引擎</h3>
+      <h4>3.4.1 三档策略</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>策略</th><th>默认勾选</th><th>适用</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Safe(安全)</strong></td><td><code>risk_score ≤ 20</code></td><td>默认推荐给新手</td></tr>
+            <tr><td><strong>Balanced(谨慎)</strong></td><td><code>risk_score ≤ 50</code></td><td>推荐给中级用户</td></tr>
+            <tr><td><strong>Aggressive(激进)</strong></td><td><code>risk_score ≤ 80</code> 但逐项确认</td><td>极客使用</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>3.4.2 白名单(永不删除)</h4>
+      <ul>
+        <li>系统受保护目录</li>
+        <li>用户近 7 天打开过的文件</li>
+        <li>用户手动 pin 的文件</li>
+        <li>标记为"重要"的文件</li>
+        <li>路径包含 <code>key</code> / <code>license</code> / <code>token</code> 等关键字的小文件</li>
+      </ul>
+
+      <h3 id="ch3-5">3.5 Cleaner — 清理执行器</h3>
+
+      <div class="redline">
+        <div class="redline-title">⚠ 产品红线</div>
+        <p><strong>DiskMind 自己不直接调用 unlink/DeleteFile,而是先移入应用内 Trash。</strong></p>
+      </div>
+
+      <h4>3.5.1 沙箱机制</h4>
+      <div class="diagram">
+用户点击"清理"
+   → Cleaner 在 ~/.diskmind/trash/&lt;bundle_id&gt;/ 下创建硬链接(或移动)
+   → 在 SQLite 中记录 trash_manifest:
+        { original_path, trash_path, deleted_at, scan_bundle_id }
+   → 显示"已清理 X.XX GB,可在 Trash 中恢复"
+   → 30 天后,后台 worker 异步真删
+      </div>
+
+      <h4>3.5.2 回滚</h4>
+      <ul>
+        <li>UI 提供"Trash"视图,列出 30 天内所有"已清理"项</li>
+        <li>单项恢复:<code>rename</code> 回原路径,若原路径已被占用 → 提示用户重命名</li>
+        <li>批量恢复:按 scan_bundle_id 一次回滚整个扫描会话</li>
+      </ul>
+
+      <h4>3.5.4 异常处理</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>异常</th><th>行为</th></tr></thead>
+          <tbody>
+            <tr><td>文件被占用</td><td>标记 <code>pending</code>,下次重试</td></tr>
+            <tr><td>权限不足</td><td>UI 提示需提权,引导用户授权</td></tr>
+            <tr><td>路径不存在</td><td>视为已清理,从 manifest 移除</td></tr>
+            <tr><td>跨卷失败</td><td>改用复制+删除策略</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="ch3-6">3.6 Reporter — 报告与统计</h3>
+      <h4>单次扫描报告示例</h4>
+<pre data-lang="json">{
+  <span class="n">"scan_id"</span>: <span class="s">"uuid"</span>,
+  <span class="n">"started_at"</span>: <span class="s">"2026-05-25T10:00:00Z"</span>,
+  <span class="n">"duration_ms"</span>: <span class="k">84000</span>,
+  <span class="n">"total_files"</span>: <span class="k">1248302</span>,
+  <span class="n">"scanned_bytes"</span>: <span class="k">850000000000</span>,
+  <span class="n">"categories"</span>: {
+    <span class="n">"AppCache"</span>: { <span class="n">"files"</span>: <span class="k">8200</span>, <span class="n">"bytes"</span>: <span class="k">45000000000</span> },
+    <span class="n">"AppLog"</span>:   { <span class="n">"files"</span>: <span class="k">1200</span>, <span class="n">"bytes"</span>: <span class="k">2000000000</span> }
+  },
+  <span class="n">"ai_calls"</span>: <span class="k">23</span>,
+  <span class="n">"ai_cost_cny"</span>: <span class="k">0.69</span>,
+  <span class="n">"suggestions"</span>: {
+    <span class="n">"safe"</span>:       <span class="k">36000000000</span>,
+    <span class="n">"balanced"</span>:   <span class="k">80000000000</span>,
+    <span class="n">"aggressive"</span>: <span class="k">120000000000</span>
+  }
+}</pre>
+
+      <h3 id="ch3-7">3.7 前端模块拆分</h3>
+<pre data-lang="text">src/
+├─ views/
+│  ├─ Dashboard.vue       (首页:磁盘地图 + 一键扫描)
+│  ├─ ScanResult.vue      (扫描结果列表 + 筛选 + 批量勾选)
+│  ├─ DiskMap.vue         (Treemap 可视化)
+│  ├─ AiChat.vue          (对话式问答面板)
+│  ├─ Trash.vue           (沙箱回收站)
+│  ├─ Reports.vue         (历史报告 + 趋势)
+│  └─ Settings.vue        (AI 配置 / 白名单 / 上传审计)
+├─ stores/                (Pinia)
+│  ├─ scan.ts
+│  ├─ ai.ts
+│  └─ user.ts
+├─ composables/           (VueUse 风格)
+└─ api/                   (Tauri invoke 封装)</pre>
+    </section>
+
+    <!-- ===== Ch 4 ===== -->
+    <section class="chapter" id="ch4">
+      <h2><span class="num">04</span>数据模型</h2>
+      <p class="lead">SQLite 存事务型元数据,DuckDB 跑分析查询,跨 scan 文件元数据共享。</p>
+
+      <h3>4.1 ER 概览</h3>
+      <div class="diagram">
++---------+     +---------------+      +----------+
+| scans   |1---*| file_entries  |*---1 | files    |
++---------+     +-------+-------+      +----------+
+                        |
+                        |
+                   +----+----+   +-----------+
+                   |ai_cache |   |trash_items|
+                   +---------+   +-----------+
+      </div>
+
+      <h3>4.2 SQLite DDL(核心表)</h3>
+<pre data-lang="sql"><span class="c">-- 扫描会话</span>
+<span class="k">CREATE TABLE</span> scans (
+  id            <span class="ty">TEXT PRIMARY KEY</span>,
+  started_at    <span class="ty">INTEGER NOT NULL</span>,
+  finished_at   <span class="ty">INTEGER</span>,
+  root_paths    <span class="ty">TEXT NOT NULL</span>,        <span class="c">-- JSON</span>
+  status        <span class="ty">TEXT NOT NULL</span>,        <span class="c">-- running/completed/cancelled/failed</span>
+  total_files   <span class="ty">INTEGER</span>,
+  scanned_bytes <span class="ty">INTEGER</span>
+);
+
+<span class="c">-- 文件元数据(主表,跨 scan 共享)</span>
+<span class="k">CREATE TABLE</span> files (
+  fingerprint   <span class="ty">TEXT PRIMARY KEY</span>,
+  path          <span class="ty">TEXT UNIQUE NOT NULL</span>,
+  size          <span class="ty">INTEGER NOT NULL</span>,
+  mtime         <span class="ty">INTEGER NOT NULL</span>,
+  atime         <span class="ty">INTEGER</span>,
+  mime_guess    <span class="ty">TEXT</span>,
+  owner_app     <span class="ty">TEXT</span>
+);
+<span class="k">CREATE INDEX</span> idx_files_path <span class="k">ON</span> files(path);
+<span class="k">CREATE INDEX</span> idx_files_size <span class="k">ON</span> files(size);
+
+<span class="c">-- 扫描中的文件实例</span>
+<span class="k">CREATE TABLE</span> file_entries (
+  scan_id       <span class="ty">TEXT NOT NULL</span>,
+  fingerprint   <span class="ty">TEXT NOT NULL</span>,
+  category      <span class="ty">TEXT NOT NULL</span>,
+  risk_score    <span class="ty">INTEGER</span>,
+  risk_level    <span class="ty">TEXT</span>,
+  explanation   <span class="ty">TEXT</span>,
+  action        <span class="ty">TEXT</span>,
+  source        <span class="ty">TEXT NOT NULL</span>,        <span class="c">-- rule/ai/cache</span>
+  <span class="k">PRIMARY KEY</span> (scan_id, fingerprint),
+  <span class="k">FOREIGN KEY</span> (scan_id) <span class="k">REFERENCES</span> scans(id),
+  <span class="k">FOREIGN KEY</span> (fingerprint) <span class="k">REFERENCES</span> files(fingerprint)
+);
+
+<span class="c">-- AI 结果缓存</span>
+<span class="k">CREATE TABLE</span> ai_cache (
+  cache_key     <span class="ty">TEXT PRIMARY KEY</span>,     <span class="c">-- sha1(fingerprint + model + prompt_hash)</span>
+  result_json   <span class="ty">TEXT NOT NULL</span>,
+  model         <span class="ty">TEXT NOT NULL</span>,
+  created_at    <span class="ty">INTEGER NOT NULL</span>
+);
+
+<span class="c">-- Trash 沙箱</span>
+<span class="k">CREATE TABLE</span> trash_items (
+  id            <span class="ty">TEXT PRIMARY KEY</span>,
+  scan_id       <span class="ty">TEXT</span>,
+  original_path <span class="ty">TEXT NOT NULL</span>,
+  trash_path    <span class="ty">TEXT NOT NULL</span>,
+  size          <span class="ty">INTEGER NOT NULL</span>,
+  deleted_at    <span class="ty">INTEGER NOT NULL</span>,
+  hard_delete_after <span class="ty">INTEGER NOT NULL</span>,
+  status        <span class="ty">TEXT NOT NULL</span>          <span class="c">-- in_trash / hard_deleted / restored / pending</span>
+);</pre>
+
+      <h3>4.3 DuckDB 分析视图</h3>
+<pre data-lang="sql"><span class="c">-- 跨 scan 趋势</span>
+<span class="k">CREATE VIEW</span> v_scan_trends <span class="k">AS</span>
+<span class="k">SELECT</span>
+    date_trunc(<span class="s">'day'</span>, to_timestamp(started_at)) <span class="k">AS</span> day,
+    <span class="k">SUM</span>(scanned_bytes) / <span class="n">1024</span> / <span class="n">1024</span> / <span class="n">1024</span> <span class="k">AS</span> scanned_gb,
+    <span class="k">COUNT</span>(*) <span class="k">AS</span> scan_count
+<span class="k">FROM</span> scans
+<span class="k">WHERE</span> status = <span class="s">'completed'</span>
+<span class="k">GROUP BY</span> day;
+
+<span class="c">-- Top 占用应用</span>
+<span class="k">CREATE VIEW</span> v_top_apps <span class="k">AS</span>
+<span class="k">SELECT</span>
+    f.owner_app,
+    <span class="k">SUM</span>(f.size) <span class="k">AS</span> total_bytes,
+    <span class="k">COUNT</span>(*) <span class="k">AS</span> file_count
+<span class="k">FROM</span> files f
+<span class="k">WHERE</span> owner_app <span class="k">IS NOT NULL</span>
+<span class="k">GROUP BY</span> owner_app
+<span class="k">ORDER BY</span> total_bytes <span class="k">DESC</span>
+<span class="k">LIMIT</span> <span class="n">50</span>;</pre>
+
+      <h3>4.4 配置文件结构</h3>
+<pre data-lang="toml"><span class="c"># ~/.diskmind/config.toml</span>
+[app]
+version = <span class="s">"1.0.0"</span>
+language = <span class="s">"zh-CN"</span>
+theme = <span class="s">"system"</span>
+
+[scan]
+default_paths = [<span class="s">"~"</span>]
+exclude_globs = [<span class="s">"**/node_modules/.cache/**"</span>]
+follow_symlinks = <span class="k">false</span>
+
+[ai]
+backend = <span class="s">"hybrid"</span>            <span class="c"># cloud / local / hybrid</span>
+cloud_provider = <span class="s">"deepseek"</span>
+api_key = <span class="s">"***"</span>               <span class="c"># 加密存储</span>
+local_model = <span class="s">"qwen2.5:3b"</span>
+batch_size = <span class="n">50</span>
+cache_ttl_days = <span class="n">90</span>
+
+[privacy]
+allow_telemetry = <span class="k">false</span>
+upload_fields = [<span class="s">"path"</span>, <span class="s">"size"</span>, <span class="s">"mtime"</span>, <span class="s">"mime"</span>]
+
+[cleaner]
+default_policy = <span class="s">"safe"</span>
+trash_retention_days = <span class="n">30</span></pre>
+    </section>
+
+    <!-- ===== Ch 5 ===== -->
+    <section class="chapter" id="ch5">
+      <h2><span class="num">05</span>接口设计</h2>
+      <p class="lead">Tauri IPC 命令 + 事件总线 + 严格的 LLM 出站字段白名单。</p>
+
+      <h3>5.1 Tauri IPC 命令清单</h3>
+<pre data-lang="typescript"><span class="c">// Scanner</span>
+<span class="fn">invoke</span>&lt;<span class="ty">ScanHandle</span>&gt;(<span class="s">'scanner.start'</span>, {
+  rootPaths: <span class="ty">string</span>[];
+  incremental: <span class="ty">boolean</span>;
+})
+
+<span class="fn">invoke</span>&lt;<span class="ty">void</span>&gt;(<span class="s">'scanner.cancel'</span>, { scanId: <span class="ty">string</span> })
+<span class="fn">invoke</span>&lt;<span class="ty">ScanProgress</span>&gt;(<span class="s">'scanner.progress'</span>, { scanId: <span class="ty">string</span> })
+
+<span class="c">// Classifier / AI</span>
+<span class="fn">invoke</span>&lt;<span class="ty">Suggestion</span>[]&gt;(<span class="s">'classify.suggestions'</span>, {
+  scanId: <span class="ty">string</span>;
+  policy: <span class="s">'safe'</span> | <span class="s">'balanced'</span> | <span class="s">'aggressive'</span>;
+})
+
+<span class="fn">invoke</span>&lt;<span class="ty">ChatResponse</span>&gt;(<span class="s">'ai.ask'</span>, {
+  scanId: <span class="ty">string</span>;
+  fingerprint: <span class="ty">string</span>;
+  question: <span class="ty">string</span>;
+})    <span class="c">// 流式通过 event 返回</span>
+
+<span class="c">// Cleaner</span>
+<span class="fn">invoke</span>&lt;<span class="ty">CleanResult</span>&gt;(<span class="s">'cleaner.clean'</span>, {
+  scanId: <span class="ty">string</span>;
+  fingerprints: <span class="ty">string</span>[];
+})
+
+<span class="fn">invoke</span>&lt;<span class="ty">RestoreResult</span>&gt;(<span class="s">'trash.restore'</span>, { trashItemIds: <span class="ty">string</span>[] })
+<span class="fn">invoke</span>&lt;<span class="ty">void</span>&gt;(<span class="s">'trash.empty'</span>, {})       <span class="c">// 需二次确认</span>
+
+<span class="c">// 报告</span>
+<span class="fn">invoke</span>&lt;<span class="ty">ScanReport</span>&gt;(<span class="s">'report.byScan'</span>, { scanId: <span class="ty">string</span> })
+<span class="fn">invoke</span>&lt;<span class="ty">TrendData</span>&gt;(<span class="s">'report.trend'</span>, { range: <span class="s">'30d'</span> | <span class="s">'90d'</span> | <span class="s">'1y'</span> })</pre>
+
+      <h3>5.2 事件(Event Bus)</h3>
+<pre data-lang="typescript"><span class="fn">listen</span>(<span class="s">'scan.progress'</span>, (e: <span class="ty">ScanProgress</span>) =&gt; {...});
+<span class="fn">listen</span>(<span class="s">'scan.completed'</span>, (e: <span class="ty">ScanCompleted</span>) =&gt; {...});
+<span class="fn">listen</span>(<span class="s">'ai.chunk'</span>, (e: <span class="ty">AiChunk</span>) =&gt; {...});       <span class="c">// 流式 AI 输出</span>
+<span class="fn">listen</span>(<span class="s">'clean.item'</span>, (e: <span class="ty">CleanItemResult</span>) =&gt; {...});
+<span class="fn">listen</span>(<span class="s">'updater.available'</span>, (e: <span class="ty">UpdaterInfo</span>) =&gt; {...});</pre>
+
+      <h3>5.3 LLM HTTP API 出站字段白名单</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>是否上传</th><th>备注</th></tr></thead>
+          <tbody>
+            <tr><td>文件路径</td><td><span class="badge ok">✓ 用户可关</span></td><td>用于推断归属</td></tr>
+            <tr><td>文件大小</td><td><span class="badge ok">✓</span></td><td>关键判断依据</td></tr>
+            <tr><td>修改时间</td><td><span class="badge ok">✓</span></td><td>活跃度判断</td></tr>
+            <tr><td>MIME 类型</td><td><span class="badge ok">✓</span></td><td>关键判断依据</td></tr>
+            <tr><td><strong>文件内容</strong></td><td><span class="badge danger">✗ 绝不上传</span></td><td><strong>红线</strong></td></tr>
+            <tr><td>设备标识</td><td><span class="badge danger">✗</span></td><td>不收集</td></tr>
+            <tr><td>用户邮箱</td><td><span class="badge warn">仅 Pro 校验</span></td><td>订阅验证时</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Ch 6 ===== -->
+    <section class="chapter" id="ch6">
+      <h2><span class="num">06</span>关键算法</h2>
+      <p class="lead">去重、风险评分、批量编排、增量扫描 — 性能与准确性的核心。</p>
+
+      <h3>6.1 分级哈希(去重)</h3>
+      <div class="diagram">
+1. 若文件大小 ≤ 4KB     → 直接 BLAKE3 全量
+2. 否则:
+   a. 读取头部 4KB        → SHA-1 → 写入 quick_hash 索引
+   b. 命中重复            → 读取尾部 4KB → SHA-1 → 写入 quick_hash_2
+   c. 仍命中              → 全量 BLAKE3 → 作为最终 fingerprint
+3. 写入 files 表
+      </div>
+      <div class="card ok">
+        <div class="card-label">收益</div>
+        <p style="margin: 0;">99% 的文件只读 4KB 即可判定不重复,大幅降低 IO。</p>
+      </div>
+
+      <h3>6.2 风险评分公式</h3>
+<pre data-lang="text">risk_score = clamp(
+    rule_base                        // 规则库给的基础分(0-100)
+  + system_path_bonus                // 在系统目录 +30
+  + recent_access_bonus              // 近 7 天访问过 +25
+  + user_pinned_bonus                // 用户 pin +50
+  - ai_safe_signal                   // AI 判定为缓存类 -20
+  - explicit_cache_signal,           // 路径包含 'cache' / 'tmp' -15
+  0, 100
+)</pre>
+      <p>最终映射:</p>
+      <ul>
+        <li><span class="badge ok">0–20 low</span> · 默认勾选</li>
+        <li><span class="badge warn">21–60 medium</span> · 需用户确认</li>
+        <li><span class="badge danger">61–100 high</span> · 默认不动</li>
+      </ul>
+
+      <h3>6.3 LLM 批量编排</h3>
+      <div class="diagram">
+1. 收集所有 Unknown / Ambiguous 文件,按归属应用聚类
+2. 同一应用的文件优先打包(LLM 一次理解一组上下文)
+3. 每包 50 文件,并发度 4(避免触发供应商 RPM 限制)
+4. 失败重试:指数退避(1s/3s/9s)
+5. 全部完成 → 批量写入 ai_cache + file_entries
+      </div>
+
+      <h3>6.4 增量扫描</h3>
+<pre data-lang="text">扫描前: SELECT path, size, mtime FROM files INTO HashMap
+
+遍历每个文件:
+  if hashmap.contains((path, size, mtime)):
+      复用上次的 fingerprint 与分类
+  else:
+      重新哈希 + 分类 + (必要时)AI 判定</pre>
+
+      <h3>6.5 重复文件分组</h3>
+<pre data-lang="sql"><span class="k">SELECT</span> fingerprint, <span class="k">COUNT</span>(*) c, <span class="k">SUM</span>(size) total
+<span class="k">FROM</span> files
+<span class="k">GROUP BY</span> fingerprint
+<span class="k">HAVING</span> c &gt; <span class="n">1</span>
+<span class="k">ORDER BY</span> total <span class="k">DESC</span>;</pre>
+      <p>UI 呈现"保留 1 个最新,其余建议清理"。</p>
+    </section>
+
+    <!-- ===== Ch 7 ===== -->
+    <section class="chapter" id="ch7">
+      <h2><span class="num">07</span>UI/UX 设计</h2>
+      <p class="lead">信息架构 + 主界面线框 + 状态机 + 设计语言基线。</p>
+
+      <h3>7.1 信息架构</h3>
+<pre data-lang="text">DiskMind
+├─ 首页 (Dashboard)
+│   ├─ 磁盘可视化 Treemap
+│   ├─ 一键扫描 CTA
+│   └─ 上次清理摘要
+├─ 扫描结果
+│   ├─ 列表视图(按分类筛选)
+│   ├─ 应用视图(按归属应用聚合)
+│   └─ 重复文件
+├─ AI 对话
+├─ 沙箱回收站
+├─ 报告
+│   ├─ 单次扫描详情
+│   └─ 趋势分析
+└─ 设置
+    ├─ AI 配置
+    ├─ 隐私(上传字段审计)
+    ├─ 白名单
+    └─ 高级</pre>
+
+      <h3>7.2 主界面线框</h3>
+      <div class="diagram">
+┌────────────────────────────────────────────────────────────────┐
+│  [Logo] DiskMind          Dashboard  Scan  AI  Trash  Settings  │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   你的磁盘还有 28.4 GB 空间。                                   │
+│   ┌──────────────────────────────────────────────────────────┐ │
+│   │ [Treemap: 大块用渐变色块表示各应用占用]                  │ │
+│   │  Adobe   Xcode   Chrome   Photos   Documents             │ │
+│   │  42.1GB  31.8GB  18.4GB   12.1GB   8.9GB                 │ │
+│   └──────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│   [  扫描磁盘  ]    [  从某个应用开始  ]                       │
+│                                                                 │
+│   上次扫描: 2026-05-20 · 释放 5.2 GB · 12 次 AI 分析            │
+└────────────────────────────────────────────────────────────────┘
+      </div>
+
+      <h3>7.3 关键状态机</h3>
+      <div class="diagram">
+[空闲 Idle]
+    ↓ 用户点击扫描
+[扫描中 Scanning] ──取消──→ [空闲]
+    ↓ 完成
+[结果浏览 Reviewing] ── 勾选 → [待清理 Pending]
+    ↓ 用户确认
+[清理中 Cleaning]
+    ↓
+[完成 Done] → 弹窗 [清理报告]
+    ↓
+[空闲]
+      </div>
+
+      <h3>7.4 设计语言基线</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>项</th><th>值</th></tr></thead>
+          <tbody>
+            <tr><td>主色</td><td>Indigo <code>#6366f1</code></td></tr>
+            <tr><td>辅色</td><td>Cyan <code>#06b6d4</code> · Violet <code>#8b5cf6</code></td></tr>
+            <tr><td>背景</td><td>深色 <code>#0a0e1a</code> · 浅色 <code>#f9fafb</code></td></tr>
+            <tr><td>字体</td><td>macOS SF Pro / Windows Segoe UI · 中文 PingFang SC / Microsoft YaHei</td></tr>
+            <tr><td>圆角</td><td>标准 12px · 大卡片 16px</td></tr>
+            <tr><td>间距</td><td>8px 网格</td></tr>
+            <tr><td>动效</td><td>进入 220ms ease-out · 退出 160ms ease-in</td></tr>
+            <tr><td>不要</td><td>卡通插画 · emoji 滥用 · 跑马灯式弹窗</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Ch 8 ===== -->
+    <section class="chapter" id="ch8">
+      <h2><span class="num">08</span>安全与隐私设计</h2>
+      <p class="lead">五条不可触碰的产品红线,加上完整的隐私透明度。</p>
+
+      <div class="redline">
+        <div class="redline-title">⚠ 五大安全红线</div>
+        <ol style="margin: 8px 0 0; padding-left: 20px;">
+          <li>DiskMind 绝不直接 <code>unlink</code>,所有删除先入应用 Trash</li>
+          <li>30 天保留期不可缩短(产品红线)</li>
+          <li>文件内容绝不上传 — 仅元数据(路径/大小/时间/MIME)</li>
+          <li>删除路径代码必须 2 人评审</li>
+          <li>Trash retention 修改需 CTO 审批</li>
+        </ol>
+      </div>
+
+      <h3>8.1 白名单(硬编码 + 用户)</h3>
+      <p><strong>硬编码不可删除清单</strong>(部分):</p>
+      <ul>
+        <li>macOS:<code>/System</code>, <code>/Library/Apple</code>, <code>~/Library/Keychains</code>, <code>~/Library/Mobile Documents</code>,任何 <code>.app</code> Bundle 自身</li>
+        <li>Windows:<code>C:\Windows</code>, <code>C:\Program Files</code>(应用本体),注册表 hive 文件, <code>pagefile.sys</code>, <code>hiberfil.sys</code></li>
+      </ul>
+
+      <h3>8.2 数据上传透明审计</h3>
+      <ul>
+        <li>Settings → 隐私 → 「上传字段」页面,列出所有发往云端 LLM 的字段</li>
+        <li>用户可逐项关闭(关闭后 AI 准确率会下降,明确提示)</li>
+        <li>每次扫描的"AI 调用日志"完整保留,可查询历史外发记录</li>
+      </ul>
+
+      <h3>8.3 API Key 加密存储</h3>
+      <ul>
+        <li>使用平台 keychain:
+          <ul>
+            <li>macOS: Keychain Services</li>
+            <li>Windows: Credential Manager</li>
+          </ul>
+        </li>
+        <li>内存中只在请求时短暂解密</li>
+        <li>应用退出时清空</li>
+      </ul>
+
+      <h3>8.4 权限模型(macOS)</h3>
+      <ul>
+        <li>Full Disk Access:<strong>仅在用户主动扫描受保护路径时引导授权</strong></li>
+        <li>不申请通讯录、相机、麦克风等无关权限</li>
+      </ul>
+
+      <h3>8.5 自动更新签名</h3>
+      <ul>
+        <li>macOS:Apple Developer ID 签名 + Notarization</li>
+        <li>Windows:EV Code Signing 证书签名</li>
+        <li>更新包通过 HTTPS 下载,本地校验 <code>ed25519</code> 签名后才安装</li>
+      </ul>
+    </section>
+
+    <!-- ===== Ch 9 ===== -->
+    <section class="chapter" id="ch9">
+      <h2><span class="num">09</span>部署与发布</h2>
+      <p class="lead">CI/CD 流水线 + 自动更新 + 错误上报 + 多渠道分发。</p>
+
+      <h3>9.1 构建流水线</h3>
+<pre data-lang="text">GitHub Actions / 自建 CI
+  ├─ macOS Runner
+  │   ├─ cargo build --release
+  │   ├─ pnpm build (前端)
+  │   ├─ tauri build  → .dmg + .pkg
+  │   ├─ codesign (Apple Developer ID)
+  │   └─ notarytool submit → 等待 Apple 公证
+  ├─ Windows Runner
+  │   ├─ cargo build --release
+  │   ├─ tauri build  → .msi + .exe
+  │   └─ signtool (EV Cert) → 签名
+  └─ Linux Runner (后续,本期不交付)</pre>
+
+      <h3>9.2 自动更新流程</h3>
+      <ol>
+        <li>启动后 5 分钟检查 <code>updates.diskmind.app/latest.json</code></li>
+        <li>有新版 → UI 红点提示 + Setting 中"现在更新"按钮</li>
+        <li>下载到临时目录 → 验证签名 → 退出应用 → 自动安装 → 重启</li>
+      </ol>
+
+      <h3>9.3 错误上报</h3>
+      <ul>
+        <li>集成 Sentry 桌面 SDK(可关闭)</li>
+        <li>仅上报:错误堆栈、操作系统、应用版本</li>
+        <li><strong>不上报</strong>:任何文件路径、用户内容</li>
+      </ul>
+
+      <h3>9.4 渠道矩阵</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>渠道</th><th>平台</th><th>优先级</th></tr></thead>
+          <tbody>
+            <tr><td>官网直接下载</td><td>Mac / Win</td><td><span class="badge p0">P0</span></td></tr>
+            <tr><td>Mac App Store</td><td>macOS</td><td><span class="badge p1">P1</span></td></tr>
+            <tr><td>Microsoft Store</td><td>Windows</td><td><span class="badge p1">P1</span></td></tr>
+            <tr><td>Homebrew Cask</td><td>macOS</td><td><span class="badge p2">P2</span></td></tr>
+            <tr><td>WinGet</td><td>Windows</td><td><span class="badge p2">P2</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Ch 10 ===== -->
+    <section class="chapter" id="ch10">
+      <h2><span class="num">10</span>工程规范</h2>
+      <p class="lead">项目结构、命名、测试策略、CI Gate、评审纪律。</p>
+
+      <h3>10.1 项目结构</h3>
+<pre data-lang="text">DiskMind/
+├─ apps/
+│  ├─ desktop/                     (Tauri 应用)
+│  │  ├─ src-tauri/                (Rust 后端)
+│  │  │  ├─ src/
+│  │  │  │  ├─ scanner/
+│  │  │  │  ├─ classifier/
+│  │  │  │  ├─ ai/
+│  │  │  │  ├─ policy/
+│  │  │  │  ├─ cleaner/
+│  │  │  │  ├─ storage/
+│  │  │  │  ├─ platform/           (cfg target_os 抽象)
+│  │  │  │  ├─ ipc/                (Tauri commands)
+│  │  │  │  └─ main.rs
+│  │  │  └─ Cargo.toml
+│  │  ├─ src/                      (Vue 前端)
+│  │  │  ├─ views/
+│  │  │  ├─ components/
+│  │  │  ├─ stores/
+│  │  │  └─ main.ts
+│  │  └─ package.json
+│  └─ website/                     (品牌站,后续)
+├─ packages/
+│  ├─ rule-pack/                   (规则库 JSON,独立版本)
+│  └─ shared-types/                (Rust / TS 共享类型)
+├─ design/                         (本目录:设计文档)
+├─ docs/                           (用户文档)
+├─ scripts/
+└─ .github/workflows/</pre>
+
+      <h3>10.2 命名规范</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>对象</th><th>规则</th></tr></thead>
+          <tbody>
+            <tr><td>Rust 函数</td><td><code>snake_case</code></td></tr>
+            <tr><td>Rust 类型</td><td><code>CamelCase</code></td></tr>
+            <tr><td>Rust 常量</td><td><code>SCREAMING_SNAKE_CASE</code></td></tr>
+            <tr><td>TypeScript 函数</td><td><code>camelCase</code></td></tr>
+            <tr><td>TypeScript 组件</td><td><code>PascalCase</code></td></tr>
+            <tr><td>TypeScript 文件名</td><td><code>kebab-case</code></td></tr>
+            <tr><td>数据库</td><td><code>snake_case</code> 表名与列名</td></tr>
+            <tr><td>IPC 命令</td><td><code>module.action</code> 格式</td></tr>
+            <tr><td>事件</td><td><code>module.event_name</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>10.3 测试策略</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>层</th><th>工具</th><th>目标覆盖率</th></tr></thead>
+          <tbody>
+            <tr><td>Rust 单元</td><td><code>cargo test</code></td><td>≥ 70%</td></tr>
+            <tr><td>Rust 集成</td><td><code>cargo test --test</code></td><td>关键路径 100%</td></tr>
+            <tr><td>前端单元</td><td>Vitest</td><td>≥ 60%</td></tr>
+            <tr><td>前端组件</td><td>Vitest + Vue Test Utils</td><td>核心组件</td></tr>
+            <tr><td>E2E</td><td>Playwright</td><td>核心场景 5 条</td></tr>
+            <tr><td>跨平台烟雾</td><td>手动 + CI(macOS 12/13/14, Win 10/11)</td><td>每发布前</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>10.4 代码评审纪律</h3>
+      <div class="card warn">
+        <div class="card-label">⚠ 高风险变更</div>
+        <ul style="margin: 8px 0 0; padding-left: 18px;">
+          <li>涉及删除路径的代码 → <strong>必须 2 人评审</strong></li>
+          <li>涉及 LLM Prompt 的修改 → <strong>必须附测试样例集</strong></li>
+          <li>任何修改 trash retention 的 PR → <strong>CTO 审批</strong></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== Ch 11 ===== -->
+    <section class="chapter" id="ch11">
+      <h2><span class="num">11</span>风险与未决事项</h2>
+      <p class="lead">直面未决问题,在评审会上一一决议。</p>
+
+      <h3>11.1 未决技术问题</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>议题</th><th>说明</th><th>计划</th></tr></thead>
+          <tbody>
+            <tr><td>本地 Ollama 在低配设备的体验</td><td>4GB 内存设备能否流畅运行 3B 模型</td><td>9 月内测前完成基准测试</td></tr>
+            <tr><td>Windows 7 是否支持</td><td>体量小但兼容成本高</td><td><strong>决定:不支持</strong>,最低 Win 10</td></tr>
+            <tr><td>浏览器历史/Cookie 删除的法律风险</td><td>多国对此有限制</td><td>默认关闭,需用户主动开启</td></tr>
+            <tr><td>是否提供命令行版本</td><td>极客需求,但增加维护</td><td>v1.1 评估</td></tr>
+            <tr><td>移动端是否做</td><td>iOS/Android 体系不同</td><td><strong>不做</strong>,与产品定位冲突</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>11.2 后续待产出的设计文档</h3>
+      <div class="module-grid">
+        <div class="module-card"><div class="role">P0 · 优先</div><h4>Prompt 设计</h4><p><code>2026-05-25-03-DiskMind-Prompt设计.md</code></p></div>
+        <div class="module-card"><div class="role">P1</div><h4>品牌视觉规范</h4><p>设计师交付</p></div>
+        <div class="module-card"><div class="role">P1</div><h4>付费/订阅鉴权</h4><p>后端 + Stripe / 支付宝</p></div>
+        <div class="module-card"><div class="role">P1</div><h4>数据合规白皮书</h4><p>GDPR / 个保法</p></div>
+        <div class="module-card"><div class="role">P2</div><h4>企业版集中管控台</h4><p>架构设计</p></div>
+      </div>
+    </section>
+
+    <!-- ===== Appendix ===== -->
+    <section class="chapter" id="appendix">
+      <h2><span class="num">A</span>附录</h2>
+      <p class="lead">第三方依赖、平台差异速查、文档关联。</p>
+
+      <h3>A. 第三方依赖清单(关键)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>依赖</th><th>用途</th><th>许可证</th></tr></thead>
+          <tbody>
+            <tr><td><code>tauri</code></td><td>桌面框架</td><td>Apache-2.0 / MIT</td></tr>
+            <tr><td><code>tokio</code></td><td>异步运行时</td><td>MIT</td></tr>
+            <tr><td><code>rayon</code></td><td>数据并行</td><td>MIT / Apache-2.0</td></tr>
+            <tr><td><code>rusqlite</code></td><td>SQLite</td><td>MIT</td></tr>
+            <tr><td><code>duckdb</code></td><td>分析查询</td><td>MIT</td></tr>
+            <tr><td><code>blake3</code></td><td>文件哈希</td><td>CC0 / Apache-2.0</td></tr>
+            <tr><td><code>notify</code></td><td>文件监控</td><td>MIT</td></tr>
+            <tr><td><code>reqwest</code></td><td>HTTP 客户端</td><td>MIT / Apache-2.0</td></tr>
+            <tr><td><code>schemars</code> + <code>jsonschema</code></td><td>JSON Schema</td><td>MIT</td></tr>
+            <tr><td><code>keyring</code></td><td>安全凭证存储</td><td>MIT / Apache-2.0</td></tr>
+            <tr><td><code>vue</code></td><td>前端框架</td><td>MIT</td></tr>
+            <tr><td><code>naive-ui</code></td><td>UI 组件</td><td>MIT</td></tr>
+            <tr><td><code>pinia</code></td><td>状态管理</td><td>MIT</td></tr>
+            <tr><td><code>echarts</code></td><td>Treemap 可视化</td><td>Apache-2.0</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>B. 平台差异速查表</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>维度</th><th>macOS</th><th>Windows</th></tr></thead>
+          <tbody>
+            <tr><td>应用元数据</td><td>Bundle.app/Info.plist</td><td>注册表 Uninstall key</td></tr>
+            <tr><td>用户缓存目录</td><td><code>~/Library/Caches</code></td><td><code>%LOCALAPPDATA%</code></td></tr>
+            <tr><td>应用日志</td><td><code>~/Library/Logs</code></td><td><code>%APPDATA%\&lt;App&gt;\logs</code></td></tr>
+            <tr><td>临时文件</td><td><code>/private/var/folders</code></td><td><code>%TEMP%</code></td></tr>
+            <tr><td>系统更新缓存</td><td><code>/Library/Updates</code></td><td><code>C:\Windows\SoftwareDistribution</code></td></tr>
+            <tr><td>受保护机制</td><td>SIP + TCC</td><td>Windows Resource Protection</td></tr>
+            <tr><td>删除到回收站 API</td><td><code>NSFileManager.trashItem</code></td><td><code>SHFileOperation</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>C/D · 详细文档(单独产出)</h3>
+      <ul>
+        <li><strong>C. Prompt 模板基线</strong> — 详见 <code>2026-05-25-03-DiskMind-Prompt设计.md</code></li>
+        <li><strong>D. 数据库 DDL 完整版</strong> — 详见 <code>apps/desktop/src-tauri/migrations/0001_init.sql</code></li>
+      </ul>
+
+      <div class="redline" style="margin-top: 60px;">
+        <div class="redline-title">⚠ 评审纪律</div>
+        <p>本文档是工程实施前的最后一道关口。任何模块在动工前,负责人需逐节通读对应章节,
+        并在评审会上对未决事项给出明确决议。</p>
+      </div>
+    </section>
+
+    <footer>
+      © 2026 DiskMind · 技术设计文档 v1.0 · Draft 2026-05-25
+      <br />
+      <a href="./2026-05-25-DiskMind可行性分析报告.html">← 回到可行性分析报告</a>
+    </footer>
+  </main>
+</div>
+
+<script>
+  const progress = document.getElementById('progress');
+  function onScroll() {
+    const h = document.documentElement;
+    const max = h.scrollHeight - h.clientHeight;
+    progress.style.width = ((h.scrollTop / max) * 100) + '%';
+  }
+  document.addEventListener('scroll', onScroll, { passive: true });
+
+  const tocLinks = document.querySelectorAll('.toc a');
+  const sections = Array.from(tocLinks).map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function highlightToc() {
+    const y = window.scrollY + 120;
+    let activeIdx = 0;
+    sections.forEach((sec, i) => {
+      if (sec && sec.offsetTop <= y) activeIdx = i;
+    });
+    tocLinks.forEach(l => l.classList.remove('active'));
+    tocLinks[activeIdx]?.classList.add('active');
+  }
+  document.addEventListener('scroll', highlightToc, { passive: true });
+  highlightToc();
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -50px 0px' });
+  document.querySelectorAll('section.chapter').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
