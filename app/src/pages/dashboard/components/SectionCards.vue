@@ -198,8 +198,6 @@ const reclaimableExceedsUsed = computed(() => {
       <CardFooter class="flex-col items-start gap-1.5 text-sm">
         <div class="line-clamp-1 font-medium">
           {{ t('dashboard.todayCalls', { n: ai.todayCalls }) }}
-          <span class="text-muted-foreground">·</span>
-          <span class="text-muted-foreground">{{ t('dashboard.todayCost', { amount: ai.todayCostCNY.toFixed(2) }) }}</span>
         </div>
       </CardFooter>
     </Card>

@@ -1,3 +1,4 @@
+mod ai;
 mod classifier;
 mod db;
 mod scanner;
@@ -9,12 +10,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use ai::{
+    AiOrchestrator, ChatDelta, ChatMessage, ExplainFileInput, ExplainFileOutput, Role,
+};
 use classifier::ScanResultRow;
-use db::{Db, ScanRunMeta, StoredDirSummary, StoredScanRun};
+use db::{AiCallLog, AiTodayStats, Db, DbStats, ScanRunMeta, StoredDirSummary, StoredScanRun};
 use scanner::{FileEntry, ScanProgress};
+
+/// 应用内回收站沙箱中的项目自动清理前的保留天数,对应 TODO 1.6 的
+/// “30 天自动清理”,参见 `trash::cleanup_expired`。
+const TRASH_RETENTION_DAYS: u64 = 30;
+
+/// 后台任务扫描过期回收站项目的间隔。由于保留粒度是“天”,每小时一次足够。
+const TRASH_CLEANUP_INTERVAL_SECS: u64 = 3600;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +39,9 @@ pub struct ScanState {
     cancel_flag: Arc<AtomicBool>,
     is_scanning: Arc<AtomicBool>,
     db: Arc<Db>,
+    db_path: PathBuf,
     sandbox_root: PathBuf,
+    ai: Arc<AiOrchestrator>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -53,6 +67,10 @@ struct ScanCompletePayload {
     cancelled: bool,
     #[serde(rename = "dirSummary")]
     dir_summary: Vec<DirSummary>,
+    /// 当 `save_scan` 通过指纹匹配到上一次扫描、只刷新了 `finished_at`
+    /// (没有写入新行)时为 true。
+    #[serde(rename = "deduped", default)]
+    deduped: bool,
 }
 
 fn build_dir_summary(entries: &[FileEntry], roots: &[PathBuf]) -> Vec<DirSummary> {
@@ -181,12 +199,16 @@ fn start_scan(
         .collect();
 
     if roots.is_empty() {
+        eprintln!("[diskmind] start_scan rejected: no resolvable roots from {:?}", args.roots);
         return Err("没有可用的扫描目标".to_string());
     }
 
     if state.is_scanning.swap(true, Ordering::SeqCst) {
+        eprintln!("[diskmind] start_scan rejected: previous scan still in flight");
         return Err("已有扫描在运行".to_string());
     }
+
+    eprintln!("[diskmind] start_scan accepted: {} root(s), follow_symlinks={}", roots.len(), args.follow_symlinks);
     state.cancel_flag.store(false, Ordering::SeqCst);
 
     let cancel = state.cancel_flag.clone();
@@ -230,7 +252,7 @@ fn start_scan(
                     .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                if let Err(e) = db.save_scan(
+                let save_outcome = db.save_scan(
                     started_at_ms,
                     finished_at_ms,
                     duration_ms as i64,
@@ -240,9 +262,14 @@ fn start_scan(
                     &roots_str,
                     &results,
                     &stored_dirs,
-                ) {
-                    eprintln!("[diskmind] save_scan failed: {e}");
-                }
+                );
+                let deduped = match &save_outcome {
+                    Ok(s) => s.deduped,
+                    Err(e) => {
+                        eprintln!("[diskmind] save_scan failed: {e}");
+                        false
+                    }
+                };
 
                 let payload = ScanCompletePayload {
                     total_files,
@@ -251,10 +278,20 @@ fn start_scan(
                     duration_ms,
                     cancelled,
                     dir_summary,
+                    deduped,
                 };
-                let _ = app_handle.emit("scan:complete", payload);
+                let total_files_log = payload.total_files;
+                let results_count_log = payload.results.len();
+                match app_handle.emit("scan:complete", payload) {
+                    Ok(()) => eprintln!(
+                        "[diskmind] scan:complete emitted (files={}, results={}, deduped={}, cancelled={})",
+                        total_files_log, results_count_log, deduped, cancelled
+                    ),
+                    Err(e) => eprintln!("[diskmind] scan:complete emit failed: {e}"),
+                }
             }
             Err(e) => {
+                eprintln!("[diskmind] scanner returned Err: {e}");
                 let _ = app_handle.emit(
                     "scan:error",
                     ScanErrorPayload {
@@ -339,7 +376,7 @@ fn pick_disk_for(path: Option<String>) -> Result<DiskUsageInfo, String> {
         .and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)));
 
     let chosen = if let Some(target) = resolved_path {
-        // longest-prefix match against mount_point
+        // 与 mount_point 做最长前缀匹配
         let mut best: Option<&sysinfo::Disk> = None;
         let mut best_len: usize = 0;
         for d in disks.iter() {
@@ -419,12 +456,381 @@ fn trash_empty(state: State<'_, ScanState>) -> Result<trash::TrashMoveResult, St
     Ok(trash::empty_all(&state.db))
 }
 
+#[tauri::command]
+fn provider_list(state: State<'_, ScanState>) -> Result<Vec<db::Provider>, String> {
+    state.db.provider_list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn provider_save(
+    provider: db::ProviderUpsert,
+    state: State<'_, ScanState>,
+) -> Result<db::Provider, String> {
+    state.db.provider_upsert(provider).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn provider_delete(id: String, state: State<'_, ScanState>) -> Result<u64, String> {
+    state.db.provider_delete(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn provider_set_default(id: String, state: State<'_, ScanState>) -> Result<u64, String> {
+    state
+        .db
+        .provider_set_default(&id)
+        .map_err(|e| e.to_string())
+}
+
+// ---------- AI 相关命令 ----------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiChatArgs {
+    /// 当前对话历史。orchestrator 会在最前面追加 chat 用的 system prompt。
+    messages: Vec<AiChatMessage>,
+    /// 前端选择的 stream id,便于多路并发对话通过 event payload 区分。
+    stream_id: String,
+    /// 用户挂载到上下文的可选文件路径。
+    #[serde(default)]
+    context_paths: Vec<String>,
+    /// 最近一次扫描结果的 markdown 摘要(Top 候选 / 目录聚合 / 总览)。
+    /// 作为额外的 system message 注入,使 chat 模型能直接回答“最大的
+    /// 文件有哪些”这类问题,无需用户手工粘贴。
+    #[serde(default)]
+    scan_summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+struct AiChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiChatStartPayload {
+    stream_id: String,
+    provider_name: String,
+    provider_id: String,
+    model: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiChatChunkPayload {
+    stream_id: String,
+    delta: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiChatDonePayload {
+    stream_id: String,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiChatErrorPayload {
+    stream_id: String,
+    message: String,
+}
+
+#[tauri::command]
+async fn ai_chat(
+    args: AiChatArgs,
+    app: AppHandle,
+    state: State<'_, ScanState>,
+) -> Result<(), String> {
+    let ai = state.ai.clone();
+    let stream_id = args.stream_id.clone();
+
+    let mut messages: Vec<ChatMessage> = Vec::with_capacity(args.messages.len() + 2);
+    messages.push(ChatMessage {
+        role: Role::System,
+        content: ai::prompts::CHAT_SYSTEM.to_string(),
+    });
+    if let Some(summary) = args.scan_summary.as_ref() {
+        if !summary.trim().is_empty() {
+            messages.push(ChatMessage {
+                role: Role::System,
+                content: summary.clone(),
+            });
+        }
+    }
+    if !args.context_paths.is_empty() {
+        let ctx = format!(
+            "用户当前选中的上下文文件路径(供你引用):\n{}",
+            args.context_paths.iter().map(|p| format!("- {}", p)).collect::<Vec<_>>().join("\n")
+        );
+        messages.push(ChatMessage { role: Role::System, content: ctx });
+    }
+    for m in args.messages {
+        let role = match m.role.as_str() {
+            "system" => Role::System,
+            "assistant" => Role::Assistant,
+            _ => Role::User,
+        };
+        messages.push(ChatMessage { role, content: m.content });
+    }
+
+    let app_handle = app.clone();
+    let stream_id_for_task = stream_id.clone();
+
+    tauri::async_runtime::spawn(async move {
+        match ai.chat_stream("chat".to_string(), messages).await {
+            Ok((mut stream, provider_name, provider_id, model)) => {
+                let _ = app_handle.emit("ai:chat:start", AiChatStartPayload {
+                    stream_id: stream_id_for_task.clone(),
+                    provider_name,
+                    provider_id,
+                    model,
+                });
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(ChatDelta::Token(t)) => {
+                            let _ = app_handle.emit(
+                                "ai:chat:chunk",
+                                AiChatChunkPayload {
+                                    stream_id: stream_id_for_task.clone(),
+                                    delta: t,
+                                },
+                            );
+                        }
+                        Ok(ChatDelta::Done(u)) => {
+                            let _ = app_handle.emit(
+                                "ai:chat:done",
+                                AiChatDonePayload {
+                                    stream_id: stream_id_for_task.clone(),
+                                    prompt_tokens: u.prompt_tokens,
+                                    completion_tokens: u.completion_tokens,
+                                },
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            let _ = app_handle.emit(
+                                "ai:chat:error",
+                                AiChatErrorPayload {
+                                    stream_id: stream_id_for_task.clone(),
+                                    message: e.to_string(),
+                                },
+                            );
+                            return;
+                        }
+                    }
+                }
+                // 流结束但没有显式 Done — 仍补发一次 done,避免前端 UI 卡住。
+                let _ = app_handle.emit(
+                    "ai:chat:done",
+                    AiChatDonePayload {
+                        stream_id: stream_id_for_task.clone(),
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "ai:chat:error",
+                    AiChatErrorPayload {
+                        stream_id: stream_id_for_task.clone(),
+                        message: e.to_string(),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn ai_explain_file(
+    input: ExplainFileInput,
+    state: State<'_, ScanState>,
+) -> Result<ExplainFileOutput, String> {
+    state
+        .ai
+        .explain_file(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_cleaning_advice(
+    run_summary: String,
+    state: State<'_, ScanState>,
+) -> Result<serde_json::Value, String> {
+    state
+        .ai
+        .cleaning_advice(run_summary)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_test_provider(
+    provider_id: String,
+    state: State<'_, ScanState>,
+) -> Result<i64, String> {
+    state
+        .ai
+        .test_provider(&provider_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 对编辑表单直接提交的草稿 Provider 发起 ping,让用户在落盘之前先验
+/// 证凭证。草稿**不**会被持久化,仅在 `ai_call_log` 中留下一条测试记录。
+#[tauri::command]
+async fn ai_test_provider_draft(
+    draft: crate::db::Provider,
+    state: State<'_, ScanState>,
+) -> Result<i64, String> {
+    state
+        .ai
+        .test_provider_draft(draft)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 从 Provider 的 API 拉取可用模型列表。也支持草稿,以便编辑器在保存
+/// 之前就能展示候选模型。
+#[tauri::command]
+async fn ai_list_models(
+    draft: crate::db::Provider,
+    state: State<'_, ScanState>,
+) -> Result<Vec<String>, String> {
+    state
+        .ai
+        .list_models_for_draft(draft)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn ai_today_stats(state: State<'_, ScanState>) -> Result<AiTodayStats, String> {
+    state.db.ai_today_stats().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn ai_list_call_logs(
+    limit: Option<i64>,
+    state: State<'_, ScanState>,
+) -> Result<Vec<AiCallLog>, String> {
+    let lim = limit.unwrap_or(100).clamp(1, 1000);
+    state.db.ai_log_list(lim).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_stats(state: State<'_, ScanState>) -> Result<DbStats, String> {
+    state.db.db_stats(&state.db_path).map_err(|e| e.to_string())
+}
+
+/// 按平台返回推荐扫描路径。返回值包含当前 OS,以及一组**可能存在**且
+/// 值得默认扫描的路径。每个候选路径都会基于 `dirs::home_dir()` 做规范化
+/// 并校验是否真实存在,确保首次启动时在 Windows / Linux / macOS 任意
+/// locale 下都不会出现“失效路径”。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformInfo {
+    /// 取值: "macos" | "windows" | "linux" | "unknown"
+    os: &'static str,
+    /// 路径分隔符 (`"/"` 或 `"\\"`)。
+    sep: &'static str,
+    /// 已经做过存在性校验的推荐扫描目标。每条记录包含平台原生分隔符的
+    /// 绝对路径字符串,以及一个便于展示的简短 label。
+    suggested_targets: Vec<SuggestedTarget>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SuggestedTarget {
+    path: String,
+    /// 供前端做 i18n 映射用的稳定标识 (home / downloads / documents /
+    /// desktop / applications / appdata / temp),前端据此查表得到本地化
+    /// 显示文案。
+    kind: &'static str,
+}
+
+#[tauri::command]
+fn platform_info() -> PlatformInfo {
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
+    };
+
+    let sep = if cfg!(target_os = "windows") {
+        "\\"
+    } else {
+        "/"
+    };
+
+    let mut suggested: Vec<SuggestedTarget> = Vec::new();
+    let mut push = |kind: &'static str, p: Option<PathBuf>| {
+        if let Some(p) = p {
+            if p.exists() {
+                suggested.push(SuggestedTarget {
+                    path: p.to_string_lossy().into_owned(),
+                    kind,
+                });
+            }
+        }
+    };
+
+    push("home", dirs::home_dir());
+    push("downloads", dirs::download_dir());
+    push("documents", dirs::document_dir());
+    push("desktop", dirs::desktop_dir());
+    push("pictures", dirs::picture_dir());
+    push("videos", dirs::video_dir());
+
+    #[cfg(target_os = "macos")]
+    {
+        let apps = PathBuf::from("/Applications");
+        if apps.exists() {
+            suggested.push(SuggestedTarget {
+                path: apps.to_string_lossy().into_owned(),
+                kind: "applications",
+            });
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 上 AppData 是清理候选的高价值目录。
+        if let Some(local) = dirs::data_local_dir() {
+            if local.exists() {
+                suggested.push(SuggestedTarget {
+                    path: local.to_string_lossy().into_owned(),
+                    kind: "appdata",
+                });
+            }
+        }
+    }
+
+    PlatformInfo {
+        os,
+        sep,
+        suggested_targets: suggested,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
 
-    // Enforce single instance on desktop. If a second instance is launched,
-    // the plugin closes it and surfaces the existing window instead.
+    // 在桌面端强制单实例。第二个实例启动时,插件会关闭它并把已存在的
+    // 窗口前置展示。
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -446,12 +852,36 @@ pub fn run() {
             let db_path = app_data.join("diskmind.sqlite");
             let sandbox_root = app_data.join("trash");
             let _ = std::fs::create_dir_all(&sandbox_root);
-            let db = Db::open(db_path).expect("open db failed");
+            let db = Arc::new(Db::open(db_path.clone()).expect("open db failed"));
+            let ai = Arc::new(AiOrchestrator::new(db.clone()));
             app.manage(ScanState {
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 is_scanning: Arc::new(AtomicBool::new(false)),
-                db: Arc::new(db),
+                db: db.clone(),
+                db_path,
                 sandbox_root,
+                ai,
+            });
+
+            // 应用内回收站沙箱的 30 天滚动清理。启动时立刻跑一遍(让一个
+            // 月没打开应用的用户在启动瞬间就看到沙箱被清理过),之后每小时
+            // 巡检一次。间隔故意放宽 — 回收站的保留粒度本来就是按天的。
+            let cleanup_db = db.clone();
+            tauri::async_runtime::spawn(async move {
+                let purged = trash::cleanup_expired(&cleanup_db, TRASH_RETENTION_DAYS);
+                if purged > 0 {
+                    log::info!("[diskmind] startup trash cleanup purged {} items", purged);
+                }
+                let mut tick =
+                    tokio::time::interval(std::time::Duration::from_secs(TRASH_CLEANUP_INTERVAL_SECS));
+                tick.tick().await; // skip the initial fire (we just ran above)
+                loop {
+                    tick.tick().await;
+                    let purged = trash::cleanup_expired(&cleanup_db, TRASH_RETENTION_DAYS);
+                    if purged > 0 {
+                        log::info!("[diskmind] periodic trash cleanup purged {} items", purged);
+                    }
+                }
             });
 
             if cfg!(debug_assertions) {
@@ -476,7 +906,21 @@ pub fn run() {
             trash_move,
             trash_restore,
             trash_delete,
-            trash_empty
+            trash_empty,
+            provider_list,
+            provider_save,
+            provider_delete,
+            provider_set_default,
+            ai_chat,
+            ai_explain_file,
+            ai_cleaning_advice,
+            ai_test_provider,
+            ai_test_provider_draft,
+            ai_list_models,
+            ai_today_stats,
+            ai_list_call_logs,
+            db_stats,
+            platform_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

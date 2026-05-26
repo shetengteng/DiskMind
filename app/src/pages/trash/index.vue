@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { useTrashStore } from '@/stores/trash'
 import { humanizeBytes } from '@/lib/buildTree'
+import { notify } from '@/lib/notify'
 import TrashSandboxNotice from './components/TrashSandboxNotice.vue'
 import TrashTable from './components/TrashTable.vue'
 import TrashConfirmDialog, { type TrashAction } from './components/TrashConfirmDialog.vue'
@@ -14,7 +15,6 @@ const { t } = useI18n()
 const selected = ref<Set<number>>(new Set())
 const confirmOpen = ref(false)
 const confirmAction = ref<TrashAction>('restore')
-const banner = ref<{ kind: 'ok' | 'warn'; text: string } | null>(null)
 
 onMounted(() => trash.ensureLoaded())
 
@@ -52,19 +52,17 @@ function openConfirm(action: TrashAction) {
 function reportResult(actionKey: string, ok: number, failures: { message: string }[]) {
   const action = t(actionKey)
   if (failures.length === 0) {
-    banner.value = { kind: 'ok', text: t('trash.bannerOk', { action, n: ok }) }
+    notify.success(t('trash.bannerOk', { action, n: ok }))
   } else {
-    banner.value = {
-      kind: 'warn',
-      text: t('trash.bannerWarn', {
+    notify.warn(
+      t('trash.bannerWarn', {
         action,
         ok,
         fail: failures.length,
         first: failures[0]!.message,
       }),
-    }
+    )
   }
-  setTimeout(() => (banner.value = null), 5000)
 }
 
 async function onConfirm() {
@@ -132,16 +130,6 @@ async function onConfirm() {
           {{ t('trash.emptyAll') }}
         </Button>
       </div>
-    </div>
-
-    <div
-      v-if="banner"
-      class="rounded-md border px-3 py-2 text-sm"
-      :class="banner.kind === 'ok'
-        ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300'
-        : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300'"
-    >
-      {{ banner.text }}
     </div>
 
     <TrashSandboxNotice />

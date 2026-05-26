@@ -13,8 +13,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { usePathMask } from '@/composables/usePathMask'
 
 use([TreemapChart, TooltipComponent, CanvasRenderer])
+
+const { maskName } = usePathMask()
 
 interface TreemapNode {
   name: string
@@ -49,13 +52,12 @@ if (typeof window !== 'undefined') {
 
 provide(THEME_KEY, computed(() => (isDarkMode.value ? 'dark' : 'light')))
 
-// Sequential color scale inspired by ColorBrewer 2 "YlOrRd" (yellow → orange → red).
-// Industry standard for "magnitude" treemaps (Tableau, Power BI, D3 schemes):
-// small → cool / pale, large → hot / saturated. We sample 6 stops and pick by
-// quantile rank rather than linear ratio so a single huge folder doesn't crush
-// every other tile to the lowest stop. Hex strings are stable for canvas
-// rendering — using `var(--chart-N)` tokens caused echarts hover-flicker on
-// retina, so we keep this palette literal.
+// 借鉴 ColorBrewer 2 "YlOrRd" 的顺序色阶(黄 → 橙 → 红)。在“量级”
+// treemap 中是行业标配(Tableau / Power BI / D3 配色):小 → 冷淡 /
+// 浅色,大 → 温暖 / 饱和。采样 6 个色档,按 quantile 排名而非线性比
+// 例分配,避免一个巨大目录把其他 tile 都挤到最浅档。色值用 hex 字
+// 面量是为了 canvas 渲染稳定 — 用 `var(--chart-N)` token 会在 retina
+// 上引发 echarts hover 闪烁。
 const PALETTE_LIGHT = [
   '#fff7ec',
   '#fee8c8',
@@ -79,8 +81,8 @@ function paletteFor(rank: number): string {
   return palette[idx]
 }
 
-// Build rank index (0..1) by sorted size, so the biggest tile gets palette[max]
-// and the smallest gets palette[0].
+// 按大小排序构造 rank index (0..1):最大 tile 取 palette[max],最小取
+// palette[0]。
 const rankByName = computed<Map<string, number>>(() => {
   const sorted = [...props.nodes].sort((a, b) => a.size - b.size)
   const m = new Map<string, number>()
@@ -100,7 +102,7 @@ function colorOf(node: TreemapNode): string {
 }
 
 function labelColorOf(node: TreemapNode): string {
-  // Top half (warm) → white, bottom (pale) → near-black, for accessible contrast.
+  // 上半色档(暖色)→ 白色文字,下半(浅色)→ 近黑文字,保证对比度可访问。
   const rank = rankByName.value.get(node.name) ?? 0
   if (isDarkMode.value) return '#f8fafc'
   return rank >= 0.5 ? '#ffffff' : '#1f2937'
@@ -108,7 +110,7 @@ function labelColorOf(node: TreemapNode): string {
 
 const dataset = computed(() =>
   props.nodes.map(n => ({
-    name: n.name,
+    name: maskName(n.name),
     value: n.size,
     itemStyle: {
       color: colorOf(n),

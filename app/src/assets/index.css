@@ -120,12 +120,12 @@
     @apply border-border outline-ring/50;
   }
   html {
-    /* Always reserve room for a vertical scrollbar so opening a popover / select
-       (which locks scroll on the body and removes the scrollbar) cannot cause
-       the layout to shift horizontally. The reserved gutter is the same width
-       as our custom thin scrollbar (8px) and stays invisible because the track
-       is transparent. */
-    scrollbar-gutter: stable;
+    /* Scroll lives inside <main> (see AppLayout.vue), so <html>/<body> never
+       scroll. Reserving a scrollbar gutter here would leave a permanent ~8px
+       grey strip on the right of every page — the user reported this as
+       "right-side empty space that won't go away". Disable the reservation
+       and let the layout span the full viewport. */
+    scrollbar-gutter: auto;
   }
   html,
   body {

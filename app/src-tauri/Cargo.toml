@@ -1,10 +1,12 @@
 [package]
-name = "app"
+name = "diskmind"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "DiskMind — AI-powered macOS / Windows disk cleaner with a local-first sandbox."
+authors = ["Terrell She <shetengteng@github>"]
+license = "MIT"
+repository = "https://github.com/shetengteng/DiskMind"
+homepage = "https://github.com/shetengteng/DiskMind"
+readme = "../README.md"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -30,3 +32,12 @@ glob = "0.3"
 anyhow = "1.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sysinfo = "0.32"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "socks"] }
+futures-util = "0.3"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+thiserror = "2"
+async-stream = "0.3"
+tauri-plugin-dialog = "2.7.1"

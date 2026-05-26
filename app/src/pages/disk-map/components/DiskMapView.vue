@@ -6,11 +6,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useAiStore } from '@/stores/ai'
 import { useScanStore } from '@/stores/scan'
 import { buildTree, type TreeNode } from '@/lib/buildTree'
+import { usePathMask } from '@/composables/usePathMask'
 import DiskMapTreemap from './DiskMapTreemap.vue'
 import DiskMapDetailPanel from './DiskMapDetailPanel.vue'
 
 const ai = useAiStore()
 const scan = useScanStore()
+const { maskName, mask } = usePathMask()
 
 interface TreemapNode {
   name: string
@@ -23,13 +25,12 @@ interface TreemapNode {
 
 const rows = computed(() => scan.results.map(r => ({ ...r, selected: false })))
 
-// Full multi-level tree of scan candidates. Cached and rebuilt only when results change.
+// 扫描候选的多层全树。带缓存,仅在 results 变化时重建。
 const fullTree = computed<TreeNode>(() => buildTree(rows.value))
 
-// Stack of TreeNodes representing the current drill path. The first element is
-// always the implicit root (the whole scan result set). After drilling into
-// "Library" it becomes [root, libraryNode]; the displayed treemap is always the
-// children of the last element in the stack.
+// 当前下钻路径的 TreeNode 栈。首元素永远是隐式 root(完整扫描结果
+// 集合)。下钻到 "Library" 后变成 [root, libraryNode];渲染的 treemap
+// 永远是栈顶元素的子节点。
 const drillStack = ref<TreeNode[]>([])
 
 watch(
@@ -44,7 +45,7 @@ const currentNode = computed<TreeNode | undefined>(
   () => drillStack.value[drillStack.value.length - 1],
 )
 
-// Convert direct children of currentNode into the shape expected by DiskMapTreemap.
+// 把 currentNode 的直接子节点转成 DiskMapTreemap 期望的结构。
 const nodes = computed<TreemapNode[]>(() => {
   const c = currentNode.value
   if (!c) return []
@@ -73,18 +74,17 @@ watch(
   { immediate: true },
 )
 
-// Breadcrumb segments derived from the drill stack. The first stop is the
-// virtual root (labeled with the scan path label).
+// 基于下钻栈派生的面包屑段。首段是虚拟 root(用扫描路径 label 显示)。
 const breadcrumbs = computed(() =>
   drillStack.value.map((node, idx) => ({
-    label: idx === 0 ? '/' : node.name,
+    label: idx === 0 ? '/' : maskName(node.name),
     index: idx,
   })),
 )
 
 const pathLabel = computed(() => {
   if (drillStack.value.length <= 1) return '/'
-  return '/' + drillStack.value.slice(1).map(n => n.name).join('/')
+  return mask('/' + drillStack.value.slice(1).map(n => n.name).join('/'))
 })
 
 function selectNode(node: TreemapNode) {

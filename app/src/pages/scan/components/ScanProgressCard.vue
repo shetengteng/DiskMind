@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Folder } from 'lucide-vue-next'
+import { Folder, HelpCircle } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import {
   Card,
@@ -16,8 +16,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useScanStore } from '@/stores/scan'
+import { usePathMask } from '@/composables/usePathMask'
 
 const scan = useScanStore()
+const { mask } = usePathMask()
 const { t } = useI18n()
 
 function formatBytes(bytes: number) {
@@ -81,7 +83,19 @@ const reclaimableGb = computed(() => scan.totalReclaimableGb.toFixed(2))
             </div>
           </div>
           <div>
-            <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressCandidates') }}</div>
+            <div class="flex items-center gap-1 text-[10px] uppercase tracking-wider">
+              {{ t('scan.progressCandidates') }}
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button type="button" class="cursor-help text-muted-foreground/60 hover:text-muted-foreground">
+                    <HelpCircle class="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="max-w-xs text-[11px] leading-relaxed">
+                  {{ t('scan.candidatesHint') }}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
               {{ scan.results.length }}
             </div>
@@ -100,11 +114,11 @@ const reclaimableGb = computed(() => scan.totalReclaimableGb.toFixed(2))
         <Tooltip v-if="scan.currentPath">
           <TooltipTrigger as-child>
             <div class="min-w-0 cursor-default truncate font-mono" dir="rtl">
-              {{ scan.currentPath }}
+              {{ mask(scan.currentPath) }}
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
-            {{ scan.currentPath }}
+            {{ mask(scan.currentPath) }}
           </TooltipContent>
         </Tooltip>
         <div v-else class="min-w-0 truncate font-mono">{{ t('scan.progressPreparing') }}</div>

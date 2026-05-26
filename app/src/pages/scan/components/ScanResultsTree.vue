@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   askAi: [row: ScanResultRow]
+  askExplain: [row: ScanResultRow]
   askAiFolder: [name: string, fileIds: number[]]
   trashFolder: [name: string, fileIds: number[]]
   toggleRow: [id: number, value: boolean]
@@ -59,6 +60,7 @@ const selectedIds = computed(() => {
         :default-open="tree.children.length <= 3"
         :selected-ids="selectedIds"
         @ask-ai="(row) => emit('askAi', row)"
+        @ask-explain="(row) => emit('askExplain', row)"
         @ask-ai-folder="(n, ids) => emit('askAiFolder', n, ids)"
         @trash-folder="(n, ids) => emit('trashFolder', n, ids)"
         @toggle-row="(id, v) => emit('toggleRow', id, v)"

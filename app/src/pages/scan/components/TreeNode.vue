@@ -5,6 +5,7 @@ import {
   Folder,
   FolderOpen,
   FileText,
+  Brain,
   Sparkles,
   ShieldAlert,
   ShieldQuestion,
@@ -22,6 +23,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { ScanResultRow } from '@/api/tauri'
 import type { TreeNode as TreeNodeData } from '@/lib/buildTree'
 import { humanizeBytes } from '@/lib/buildTree'
+import { usePathMask } from '@/composables/usePathMask'
+
+const { mask, maskName } = usePathMask()
 
 const props = defineProps<{
   node: TreeNodeData
@@ -32,6 +36,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   askAi: [row: ScanResultRow]
+  askExplain: [row: ScanResultRow]
   askAiFolder: [name: string, fileIds: number[]]
   trashFolder: [name: string, fileIds: number[]]
   toggleRow: [id: number, value: boolean]
@@ -150,7 +155,7 @@ async function copyPath() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ node.name }}</span>
+            <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ maskName(node.name) }}</span>
           </TooltipTrigger>
           <TooltipContent
             side="top"
@@ -158,7 +163,7 @@ async function copyPath() {
             class="max-w-[min(80vw,720px)] p-0"
           >
             <div class="flex items-start gap-2 px-2.5 py-1.5">
-              <span class="break-all font-mono text-xs leading-relaxed">{{ node.fullPath }}</span>
+              <span class="break-all font-mono text-xs leading-relaxed">{{ mask(node.fullPath) }}</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -196,19 +201,34 @@ async function copyPath() {
       </div>
 
       <div class="flex items-center justify-end gap-0.5">
-        <Tooltip v-if="node.isFile && node.row">
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              :aria-label="t('scan.askAi')"
-              @click.stop="emit('askAi', node.row!)"
-            >
-              <Sparkles class="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{{ t('scan.askAi') }}</TooltipContent>
-        </Tooltip>
+        <template v-if="node.isFile && node.row">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="t('aiExplain.menuItem')"
+                @click.stop="emit('askExplain', node.row!)"
+              >
+                <Brain class="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{{ t('aiExplain.menuItem') }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="t('scan.askAi')"
+                @click.stop="emit('askAi', node.row!)"
+              >
+                <Sparkles class="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{{ t('scan.askAi') }}</TooltipContent>
+          </Tooltip>
+        </template>
 
         <template v-else-if="!node.isFile && node.fileIds.length > 0">
           <Tooltip>
@@ -251,6 +271,7 @@ async function copyPath() {
         :default-open="false"
         :selected-ids="selectedIds"
         @ask-ai="(row) => emit('askAi', row)"
+        @ask-explain="(row) => emit('askExplain', row)"
         @ask-ai-folder="(n, ids) => emit('askAiFolder', n, ids)"
         @trash-folder="(n, ids) => emit('trashFolder', n, ids)"
         @toggle-row="(id, v) => emit('toggleRow', id, v)"

@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { Play, Map as MapIcon, Trash2 } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { useScanStore } from '@/stores/scan'
-import { overviewStats } from '@/data/mock'
+import { useTrashStore } from '@/stores/trash'
 
 const router = useRouter()
+const { t } = useI18n()
 const scan = useScanStore()
+const trash = useTrashStore()
 
-function goScan() {
-  router.push('/scan')
-  scan.startScan()
+async function goScan() {
+  await router.push('/scan')
+  await scan.startScan()
 }
 </script>
 
@@ -25,8 +28,8 @@ function goScan() {
           <Play class="size-5" />
         </div>
         <div class="flex-1">
-          <div class="font-medium">立即扫描</div>
-          <p class="text-xs text-muted-foreground">全盘 + AI 智能分类</p>
+          <div class="font-medium">{{ t('dashboard.quickActions.scanTitle') }}</div>
+          <p class="text-xs text-muted-foreground">{{ t('dashboard.quickActions.scanDesc') }}</p>
         </div>
       </CardContent>
     </Card>
@@ -40,8 +43,8 @@ function goScan() {
           <MapIcon class="size-5" />
         </div>
         <div class="flex-1">
-          <div class="font-medium">磁盘地图</div>
-          <p class="text-xs text-muted-foreground">Treemap 可视化目录</p>
+          <div class="font-medium">{{ t('dashboard.quickActions.mapTitle') }}</div>
+          <p class="text-xs text-muted-foreground">{{ t('dashboard.quickActions.mapDesc') }}</p>
         </div>
       </CardContent>
     </Card>
@@ -55,9 +58,9 @@ function goScan() {
           <Trash2 class="size-5" />
         </div>
         <div class="flex-1">
-          <div class="font-medium">回收站</div>
+          <div class="font-medium">{{ t('dashboard.quickActions.trashTitle') }}</div>
           <p class="text-xs text-muted-foreground">
-            {{ overviewStats.trashCount }} 项 · 30 天可恢复
+            {{ t('dashboard.quickActions.trashDesc', { count: trash.count }) }}
           </p>
         </div>
       </CardContent>

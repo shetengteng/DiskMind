@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ShieldCheck, Cpu, Wallet } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+import { ShieldCheck, Cpu, Wallet, EyeOff } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -19,6 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { usePrivacyStore } from '@/stores/privacy'
+
+const { t } = useI18n()
+const privacy = usePrivacyStore()
 
 const privacySettings = ref({
   hashOnly: true,
@@ -59,6 +64,27 @@ const uploadToggles = [
             我们不会上传任何文件内容到云端,只发送脱敏元数据 (路径模式、大小、扩展名、修改时间)。
             所有 API Key 通过系统钥匙串加密存储。完整源码开源 (MIT 协议),用户可审计每一行代码。
           </p>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader class="pb-2">
+        <CardTitle class="flex items-center gap-2 text-base">
+          <EyeOff class="size-4" />
+          {{ t('settings.privacy.pathMaskTitle') }}
+        </CardTitle>
+        <CardDescription class="text-xs">
+          {{ t('settings.privacy.pathMaskDesc') }}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="flex items-center justify-between gap-3">
+          <Label class="text-sm">{{ t('settings.privacy.pathMaskTitle') }}</Label>
+          <Switch
+            :model-value="privacy.pathMask"
+            @update:model-value="(v) => privacy.setPathMask(!!v)"
+          />
         </div>
       </CardContent>
     </Card>

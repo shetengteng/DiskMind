@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { isTauri, platformInfo, type SuggestedTargetKind } from '@/api/tauri'
 
 export interface ScanTarget {
   path: string
@@ -19,13 +20,19 @@ const STORAGE_KEY = 'diskmind:scanSettings'
 interface PersistedShape {
   targets: ScanTarget[]
   options: ScanOptions
+  bootstrapped?: boolean
 }
 
-const DEFAULT_TARGETS: ScanTarget[] = [
-  { path: '~', selected: true, sizeHint: '家目录' },
-  { path: '/Applications', selected: false, sizeHint: '应用' },
-  { path: '/Library', selected: false, sizeHint: '系统库' },
-]
+const KIND_HINT_KEY: Record<SuggestedTargetKind, string> = {
+  home: 'scanTargets.kindHome',
+  downloads: 'scanTargets.kindDownloads',
+  documents: 'scanTargets.kindDocuments',
+  desktop: 'scanTargets.kindDesktop',
+  pictures: 'scanTargets.kindPictures',
+  videos: 'scanTargets.kindVideos',
+  applications: 'scanTargets.kindApplications',
+  appdata: 'scanTargets.kindAppdata',
+}
 
 const DEFAULT_OPTIONS: ScanOptions = {
   computeHash: false,
@@ -40,23 +47,25 @@ function loadFromStorage(): PersistedShape {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedShape>
       return {
-        targets: parsed.targets?.length ? parsed.targets : DEFAULT_TARGETS,
+        targets: parsed.targets ?? [],
         options: { ...DEFAULT_OPTIONS, ...(parsed.options ?? {}) },
+        bootstrapped: parsed.bootstrapped === true,
       }
     }
   } catch {
     /* ignore */
   }
-  return { targets: DEFAULT_TARGETS, options: DEFAULT_OPTIONS }
+  return { targets: [], options: DEFAULT_OPTIONS, bootstrapped: false }
 }
 
 export const useScanSettingsStore = defineStore('scanSettings', () => {
   const initial = loadFromStorage()
   const targets = ref<ScanTarget[]>(initial.targets)
   const options = ref<ScanOptions>(initial.options)
+  const bootstrapped = ref(initial.bootstrapped ?? false)
 
   watch(
-    [targets, options],
+    [targets, options, bootstrapped],
     () => {
       try {
         localStorage.setItem(
@@ -64,6 +73,7 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
           JSON.stringify({
             targets: targets.value,
             options: options.value,
+            bootstrapped: bootstrapped.value,
           }),
         )
       } catch {
@@ -72,6 +82,44 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
     },
     { deep: true },
   )
+
+  /**
+   * 首次启动时,用平台推荐的默认目录初始化扫描目标。幂等 — 多次调
+   * 用安全。仅在用户尚未配置时才写入默认值(首次运行,或清空列表
+   * 后的下次启动会重新 seed)。为了不覆盖用户“显式选择不要”的状
+   * 态,会读取持久化的 `bootstrapped` 标志。
+   */
+  async function bootstrapDefaults(): Promise<void> {
+    if (bootstrapped.value) return
+    if (!isTauri()) {
+      bootstrapped.value = true
+      return
+    }
+    try {
+      const info = await platformInfo()
+      if (info.suggestedTargets.length === 0) {
+        bootstrapped.value = true
+        return
+      }
+      const seeded: ScanTarget[] = info.suggestedTargets.map((s, i) => ({
+        path: s.path,
+        selected: i === 0,
+        sizeHint: KIND_HINT_KEY[s.kind] ?? 'scanTargets.kindCustom',
+      }))
+      if (targets.value.length === 0) {
+        targets.value = seeded
+      } else {
+        const existing = new Set(targets.value.map(t => t.path))
+        for (const s of seeded) {
+          if (!existing.has(s.path)) targets.value.push(s)
+        }
+      }
+      bootstrapped.value = true
+    } catch (e) {
+      console.warn('[scanSettings] platform_info failed', e)
+      bootstrapped.value = true
+    }
+  }
 
   function selectedRoots(): string[] {
     return targets.value
@@ -83,6 +131,8 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
   return {
     targets,
     options,
+    bootstrapped,
     selectedRoots,
+    bootstrapDefaults,
   }
 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Edit2, Trash2, CheckCircle2, XCircle } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { Edit2, Trash2, CheckCircle2, XCircle, Star, Zap, Loader2 } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -16,28 +16,99 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { providers as mockProviders, type ProviderRow } from '@/data/mock'
-import ProviderEditDialog from './ProviderEditDialog.vue'
+import { useProvidersStore } from '@/stores/providers'
+import type { Provider } from '@/api/tauri'
+import { notify } from '@/lib/notify'
+import ProviderEditDialog, { type EditingProvider } from './ProviderEditDialog.vue'
 
-const providers = ref<ProviderRow[]>(mockProviders.map(p => ({ ...p })))
+const providers = useProvidersStore()
+
+onMounted(async () => {
+  await providers.reload()
+})
 
 const editOpen = ref(false)
-const editing = ref<Partial<ProviderRow>>({ type: 'OpenAI 兼容' })
+const editing = ref<EditingProvider>({ kind: 'OpenAI 兼容', enabled: true })
 
-const enabledCount = computed(() => providers.value.filter(p => p.enabled).length)
+const enabledCount = computed(() => providers.enabledCount)
 
 function openAdd() {
-  editing.value = { type: 'OpenAI 兼容', enabled: true }
+  editing.value = { kind: 'OpenAI 兼容', enabled: true }
   editOpen.value = true
 }
 
-function openEdit(p: ProviderRow) {
-  editing.value = { ...p }
+function openEdit(p: Provider) {
+  editing.value = {
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    baseUrl: p.baseUrl,
+    model: p.model,
+    apiKey: p.apiKey,
+    enabled: p.enabled,
+    isDefault: p.isDefault,
+    status: p.status,
+    latencyMs: p.latencyMs,
+  }
   editOpen.value = true
 }
 
-function removeProvider(id: string) {
-  providers.value = providers.value.filter(p => p.id !== id)
+async function handleSave() {
+  const e = editing.value
+  if (!e.name?.trim() || !e.baseUrl?.trim() || !e.model?.trim()) return
+  const id = e.id ?? `prov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  await providers.save({
+    id,
+    name: e.name,
+    kind: e.kind ?? 'OpenAI 兼容',
+    baseUrl: e.baseUrl,
+    model: e.model,
+    apiKey: e.apiKey ?? '',
+    enabled: e.enabled ?? true,
+    isDefault: e.isDefault ?? false,
+    status: e.status ?? 'untested',
+    latencyMs: e.latencyMs ?? null,
+  })
+  editOpen.value = false
+}
+
+async function toggleEnabled(p: Provider, value: boolean) {
+  await providers.save({
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    baseUrl: p.baseUrl,
+    model: p.model,
+    apiKey: p.apiKey,
+    enabled: value,
+    isDefault: p.isDefault,
+    status: p.status,
+    latencyMs: p.latencyMs,
+  })
+}
+
+async function setDefault(id: string) {
+  await providers.setDefault(id)
+}
+
+async function removeProvider(id: string) {
+  await providers.remove(id)
+}
+
+async function testProvider(p: Provider) {
+  const r = await providers.test(p.id)
+  if (r.ok) {
+    notify.success(`${p.name} 连接成功 · ${r.latencyMs}ms`)
+  } else {
+    notify.error(`${p.name} 连接失败:${r.error}`)
+  }
+}
+
+function statusLabel(s: string): string {
+  if (s === 'ok') return '正常'
+  if (s === 'error') return '失败'
+  if (s === 'local') return '本地'
+  return '未测试'
 }
 </script>
 
@@ -47,27 +118,34 @@ function removeProvider(id: string) {
       <div>
         <CardTitle class="text-base">已配置 Provider</CardTitle>
         <CardDescription class="text-xs">
-          {{ providers.length }} 个,其中 {{ enabledCount }} 个已启用
+          {{ providers.items.length }} 个,其中 {{ enabledCount }} 个已启用
         </CardDescription>
       </div>
       <ProviderEditDialog
         v-model:open="editOpen"
         v-model:editing="editing"
         @add="openAdd"
+        @save="handleSave"
       />
     </CardHeader>
     <CardContent class="space-y-2">
       <div
-        v-for="p in providers"
+        v-if="providers.items.length === 0"
+        class="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground"
+      >
+        还没有配置 Provider,点击右上角 "添加" 开始
+      </div>
+      <div
+        v-for="p in providers.items"
         :key="p.id"
         class="flex items-center gap-3 rounded-lg border px-3 py-3 transition-colors hover:bg-accent/40"
       >
-        <Switch v-model="p.enabled" />
+        <Switch :model-value="p.enabled" @update:model-value="(v) => toggleEnabled(p, v === true)" />
         <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex items-center gap-2">
             <span class="font-medium">{{ p.name }}</span>
             <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">默认</Badge>
-            <Badge variant="outline" class="text-[10px]">{{ p.type }}</Badge>
+            <Badge variant="outline" class="text-[10px]">{{ p.kind }}</Badge>
           </div>
           <Tooltip>
             <TooltipTrigger as-child>
@@ -85,16 +163,43 @@ function removeProvider(id: string) {
           variant="outline"
           class="gap-1 text-[10px]"
           :class="{
-            'border-emerald-500/30 text-emerald-500': p.status === '正常',
-            'border-sky-500/30 text-sky-500': p.status === '本地',
-            'border-rose-500/30 text-rose-500': p.status === '失败',
+            'border-emerald-500/30 text-emerald-500': p.status === 'ok',
+            'border-sky-500/30 text-sky-500': p.status === 'local',
+            'border-rose-500/30 text-rose-500': p.status === 'error',
           }"
         >
-          <CheckCircle2 v-if="p.status === '正常' || p.status === '本地'" class="size-3" />
-          <XCircle v-else-if="p.status === '失败'" class="size-3" />
-          {{ p.status }}
+          <CheckCircle2 v-if="p.status === 'ok' || p.status === 'local'" class="size-3" />
+          <XCircle v-else-if="p.status === 'error'" class="size-3" />
+          {{ statusLabel(p.status) }}
           <span v-if="p.latencyMs" class="opacity-70">· {{ p.latencyMs }}ms</span>
         </Badge>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-8 text-muted-foreground hover:text-sky-500"
+              :aria-label="`测试 ${p.name} 连接`"
+              :disabled="providers.isTesting(p.id)"
+              @click="testProvider(p)"
+            >
+              <Loader2 v-if="providers.isTesting(p.id)" class="size-3.5 animate-spin" />
+              <Zap v-else class="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">测试连接</TooltipContent>
+        </Tooltip>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-8"
+          :class="p.isDefault ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500'"
+          :aria-label="p.isDefault ? '当前默认' : '设为默认'"
+          :disabled="p.isDefault"
+          @click="setDefault(p.id)"
+        >
+          <Star class="size-3.5" :class="p.isDefault ? 'fill-current' : ''" />
+        </Button>
         <Button variant="ghost" size="icon" class="size-8" aria-label="编辑 Provider" @click="openEdit(p)">
           <Edit2 class="size-3.5" />
         </Button>

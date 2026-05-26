@@ -22,7 +22,7 @@ interface CategoryDatum {
   name: string
   bytes: number
   count: number
-  /** Size in GB, what the bars actually plot. */
+  /** 单位 GB,柱状图的实际度量值。 */
   gb: number
 }
 
@@ -56,9 +56,9 @@ const chartConfig = computed<ChartConfig>(() => ({
 
 const xAccessor = (_d: CategoryDatum, i: number) => i
 const yAccessor = (d: CategoryDatum) => d.gb
-// Single-tone bar chart using the shadcn primary token. shadcn's stock chart-1
-// is a warm red/orange that the user said felt "too red"; --primary tracks the
-// app's brand neutral so it never clashes with the surrounding UI.
+// 用 shadcn 的 primary token 做单色柱状图。shadcn 自带的 chart-1 是偏
+// 红的暖色,用户反馈“太红了”;改用 --primary,与应用品牌中性色一
+// 致,与周围 UI 始终不冲突。
 const colorAccessor = () => 'var(--primary)'
 const xTickFormat = (i: number) => data.value[i]?.name ?? ''
 

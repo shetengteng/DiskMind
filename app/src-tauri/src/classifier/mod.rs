@@ -29,19 +29,24 @@ const LARGE_FILE_THRESHOLD: u64 = 500 * 1024 * 1024;
 const LOG_THRESHOLD: u64 = 10 * 1024 * 1024;
 const FALLBACK_LARGE_FILE: u64 = 1024 * 1024 * 1024;
 
+/// 单次扫描保留的候选文件上限。按物理大小降序排序后,超出此数量的部分
+/// 在写入 SQLite / 推到 UI 之前直接丢弃。设置上限是为了让结果表保持响
+/// 应、并约束滚动历史窗口内的 DB 增长;调大会以渲染开销换取可见性。
+const MAX_CANDIDATES_PER_RUN: usize = 2000;
+
 pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
     let mut next_id: u64 = 1;
     let mut rows: Vec<ScanResultRow> = Vec::new();
 
     for entry in entries {
         if let Some((category, risk, reason)) = match_rule(&entry) {
-            // Filter by logical size (what the user thinks the file is).
+            // 按逻辑大小(用户感知)过滤。
             if entry.size < MIN_REPORT_SIZE {
                 continue;
             }
 
-            // Reportable bytes = physical (on-disk) usage. This is what gets
-            // freed if the file is removed and matches "Used" reported by the OS.
+            // 上报字节数 = 物理(磁盘实际)占用。这是删除文件后可释放的
+            // 数据量,也对应操作系统“已用空间”的口径。
             let report_bytes = if entry.phys_size > 0 {
                 entry.phys_size
             } else {
@@ -62,7 +67,7 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
     }
 
     rows.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
-    rows.truncate(500);
+    rows.truncate(MAX_CANDIDATES_PER_RUN);
     rows
 }
 

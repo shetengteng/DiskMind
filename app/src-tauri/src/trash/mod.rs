@@ -54,7 +54,7 @@ fn sandbox_filename(id: i64, original: &Path) -> String {
 
 fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     if let Err(_) = std::fs::rename(src, dst) {
-        // cross-volume / permission fallback
+        // 跨卷 / 权限失败时回退为 copy + remove
         std::fs::copy(src, dst)?;
         std::fs::remove_file(src)?;
     }
@@ -81,7 +81,7 @@ pub fn move_to_sandbox(
             continue;
         }
 
-        // pre-insert with placeholder sandbox_path to obtain id
+        // 先用占位 sandbox_path 插入,以获得自增 id
         let placeholder = sandbox_root.join("__pending__");
         let id = match db.trash_insert(
             &req.path,
@@ -104,7 +104,7 @@ pub fn move_to_sandbox(
 
         let dst = sandbox_root.join(sandbox_filename(id, &src));
         if let Err(e) = move_file(&src, &dst) {
-            // rollback row
+            // 回滚刚才占位插入的行
             let _ = db.trash_mark_deleted(id, ts);
             failures.push(TrashFailure {
                 path: req.path,
@@ -113,7 +113,7 @@ pub fn move_to_sandbox(
             continue;
         }
 
-        // update sandbox_path with real one
+        // 用真实路径覆盖 sandbox_path
         if let Err(e) = db.trash_set_sandbox_path(id, &dst.to_string_lossy()) {
             failures.push(TrashFailure {
                 path: req.path,
@@ -262,4 +262,29 @@ pub fn empty_all(db: &Arc<Db>) -> TrashMoveResult {
 
 pub fn stats(db: &Arc<Db>) -> rusqlite::Result<TrashStats> {
     db.trash_stats()
+}
+
+/// 删除沙箱中早于 `retention_days` 的项目。返回成功清理的条目数。
+/// 由 `lib.rs::run` 中的后台任务周期性调用,并在应用启动时执行一次。
+pub fn cleanup_expired(db: &Arc<Db>, retention_days: u64) -> u64 {
+    let cutoff = now_ms() - (retention_days as i64) * 24 * 3600 * 1000;
+    let stale = match db.trash_list_stale(cutoff) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[diskmind] trash_list_stale failed: {e}");
+            return 0;
+        }
+    };
+    if stale.is_empty() {
+        return 0;
+    }
+    let ids: Vec<i64> = stale.iter().map(|i| i.id).collect();
+    let result = delete_items(db, ids);
+    let purged = result.items.len() as u64;
+    if !result.failures.is_empty() {
+        for f in &result.failures {
+            eprintln!("[diskmind] cleanup failure for {}: {}", f.path, f.message);
+        }
+    }
+    purged
 }

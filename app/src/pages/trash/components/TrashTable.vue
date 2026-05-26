@@ -26,6 +26,9 @@ import {
 } from '@/components/ui/tooltip'
 import { humanizeBytes } from '@/lib/buildTree'
 import type { TrashItem } from '@/api/tauri'
+import { usePathMask } from '@/composables/usePathMask'
+
+const { mask } = usePathMask()
 
 type Row = TrashItem & { selected: boolean }
 
@@ -102,10 +105,10 @@ function daysLeft(movedAtMs: number): number {
             <TableCell class="font-mono text-xs">
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <div class="min-w-0 cursor-default truncate">{{ item.originalPath }}</div>
+                  <div class="min-w-0 cursor-default truncate">{{ mask(item.originalPath) }}</div>
                 </TooltipTrigger>
                 <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
-                  {{ item.originalPath }}
+                  {{ mask(item.originalPath) }}
                 </TooltipContent>
               </Tooltip>
             </TableCell>

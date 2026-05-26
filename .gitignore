@@ -56,3 +56,8 @@ coverage/
 
 # Project local
 prompts.txt
+userinput.py
+# Ad-hoc debug screenshots dropped at the repo root by the AI workflow
+/image.png
+/image-*.png
+/Screenshot*.png

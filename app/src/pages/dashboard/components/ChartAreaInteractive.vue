@@ -23,6 +23,9 @@ import {
 } from '@/components/ui/tooltip'
 import { useScanStore } from '@/stores/scan'
 import type { FileRisk } from '@/api/tauri'
+import { usePathMask } from '@/composables/usePathMask'
+
+const { mask } = usePathMask()
 import CategoryBarChart from './CategoryBarChart.vue'
 import RiskDonutChart from './RiskDonutChart.vue'
 
@@ -37,7 +40,7 @@ const isEmpty = computed(() => scan.results.length === 0)
 const selectedCategory = ref<string | null>(null)
 const selectedRisk = ref<FileRisk | null>(null)
 
-// Resetting filters when switching tab so they don't leak across views.
+// 切换 tab 时重置筛选器,避免跨视图泄露。
 watch(view, () => {
   selectedCategory.value = null
   selectedRisk.value = null
@@ -167,14 +170,14 @@ function clearDrilldown() {
                 <span
                   dir="rtl"
                   class="min-w-0 flex-1 cursor-default truncate text-left font-mono [unicode-bidi:plaintext]"
-                >{{ r.path }}</span>
+                >{{ mask(r.path) }}</span>
               </TooltipTrigger>
               <TooltipContent
                 side="top"
                 align="start"
                 class="max-w-[80vw] break-all font-mono"
               >
-                {{ r.path }}
+                {{ mask(r.path) }}
               </TooltipContent>
             </Tooltip>
             <span class="shrink-0 font-mono tabular-nums text-muted-foreground">{{ r.size }}</span>

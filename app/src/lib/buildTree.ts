@@ -1,4 +1,5 @@
 import type { FileRisk, ScanResultRow } from '@/api/tauri'
+import { joinSegments, pathSegments } from '@/lib/pathSep'
 
 export interface TreeNode {
   name: string
@@ -12,8 +13,6 @@ export interface TreeNode {
   row?: ScanResultRow & { selected: boolean }
   fileIds: number[]
 }
-
-const SEP = '/'
 
 function ensureChild(parent: TreeNode, name: string, fullPath: string, isFile: boolean): TreeNode {
   let child = parent.children.find(c => c.name === name)
@@ -61,17 +60,18 @@ export function buildTree(rows: (ScanResultRow & { selected: boolean })[]): Tree
   }
 
   for (const row of rows) {
-    const segments = row.path.split(SEP).filter(Boolean)
+    const { sep, segments } = pathSegments(row.path)
     if (segments.length === 0) continue
 
     let cursor = root
-    let acc = ''
+    const accSegs: string[] = []
     bumpAggregates(cursor, row.sizeBytes, row.risk, row.category, row.id)
 
     for (let i = 0; i < segments.length; i++) {
-      acc += SEP + segments[i]
+      accSegs.push(segments[i]!)
       const isLeaf = i === segments.length - 1
-      cursor = ensureChild(cursor, segments[i], acc, isLeaf)
+      const fullPath = joinSegments(sep, accSegs)
+      cursor = ensureChild(cursor, segments[i]!, fullPath, isLeaf)
       bumpAggregates(cursor, row.sizeBytes, row.risk, row.category, row.id)
       if (isLeaf) cursor.row = row
     }
@@ -87,14 +87,15 @@ function collapseSingleChildDirs(node: TreeNode): void {
     while (
       !child.isFile &&
       child.children.length === 1 &&
-      !child.children[0].isFile
+      !child.children[0]!.isFile
     ) {
-      const only = child.children[0]
-      child.name = `${child.name}${SEP}${only.name}`
+      const only = child.children[0]!
+      const inferredSep = /\\/.test(only.fullPath) ? '\\' : '/'
+      child.name = `${child.name}${inferredSep}${only.name}`
       child.fullPath = only.fullPath
       child.children = only.children
     }
-    child.name = child.name.replace(/^\/+|\/+$/g, '')
+    child.name = child.name.replace(/^[\\/]+|[\\/]+$/g, '')
     collapseSingleChildDirs(child)
   }
 }

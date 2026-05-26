@@ -13,6 +13,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { usePathMask } from '@/composables/usePathMask'
+
+const { maskName } = usePathMask()
 
 interface TreemapNode {
   name: string
@@ -48,11 +51,11 @@ const uniqueChildren = computed(() => {
         <Tooltip>
           <TooltipTrigger as-child>
             <CardTitle class="min-w-0 flex-1 cursor-default truncate text-base">
-              {{ props.node.name }}
+              {{ maskName(props.node.name) }}
             </CardTitle>
           </TooltipTrigger>
           <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
-            {{ props.node.name }}
+            {{ maskName(props.node.name) }}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -74,10 +77,10 @@ const uniqueChildren = computed(() => {
           >
             <Tooltip>
               <TooltipTrigger as-child>
-                <span class="min-w-0 flex-1 cursor-default truncate font-mono">{{ child }}</span>
+                <span class="min-w-0 flex-1 cursor-default truncate font-mono">{{ maskName(child) }}</span>
               </TooltipTrigger>
               <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
-                {{ child }}
+                {{ maskName(child) }}
               </TooltipContent>
             </Tooltip>
           </div>

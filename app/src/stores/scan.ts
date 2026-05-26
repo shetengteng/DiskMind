@@ -13,6 +13,7 @@ import {
   type ScanResultRow,
 } from '@/api/tauri'
 import { useScanSettingsStore } from '@/stores/scanSettings'
+import { notify } from '@/lib/notify'
 
 export type ScanPhase = 'idle' | 'discovering' | 'classifying' | 'done' | 'error'
 
@@ -27,6 +28,7 @@ export const useScanStore = defineStore('scan', () => {
   const totalFiles = ref(0)
   const totalBytes = ref(0)
   const wasCancelled = ref(false)
+  const wasDeduped = ref(false)
   const dirSummary = ref<DirSummary[]>([])
   const lastScanRoots = ref<string[]>([])
 
@@ -45,7 +47,8 @@ export const useScanStore = defineStore('scan', () => {
       case 'classifying':
         return 'scan.phaseClassifying'
       case 'done':
-        return wasCancelled.value ? 'scan.phasePartial' : 'scan.phaseDone'
+        if (wasCancelled.value) return 'scan.phasePartial'
+        return wasDeduped.value ? 'scan.phaseDoneDedup' : 'scan.phaseDone'
       case 'error':
         return 'scan.phaseError'
       default:
@@ -66,10 +69,17 @@ export const useScanStore = defineStore('scan', () => {
       currentPath.value = p.currentPath
     })
     unlistenComplete = await onScanComplete(async p => {
+      console.info('[scan] scan:complete received', {
+        totalFiles: p.totalFiles,
+        results: p.results.length,
+        cancelled: p.cancelled,
+        deduped: p.deduped,
+      })
       totalFiles.value = p.totalFiles
       totalBytes.value = p.totalBytes
       results.value = p.results
       wasCancelled.value = p.cancelled
+      wasDeduped.value = p.deduped === true
       dirSummary.value = p.dirSummary
       phase.value = 'done'
       lastScanAt.value = Date.now()
@@ -81,23 +91,36 @@ export const useScanStore = defineStore('scan', () => {
       }
     })
     unlistenError = await onScanError(p => {
+      console.error('[scan] scan:error received', p.message)
       errorMessage.value = p.message
       phase.value = 'error'
+      notify.error('扫描失败', p.message)
     })
   }
 
   async function startScan() {
+    // 守卫:已有扫描进行中时直接拒绝。修复了之前那个“点扫描 → 切页
+    // → 再扫描立即 fail”的隐性问题 — 用户在前一次还在 discovering 阶
+    // 段时再次从 dashboard 触发扫描会被吞掉。
+    if (phase.value === 'discovering' || phase.value === 'classifying') {
+      console.warn('[scan] startScan ignored — already in phase', phase.value)
+      notify.warn('扫描正在进行中,请等待完成或取消')
+      return
+    }
+
     errorMessage.value = null
     filesScanned.value = 0
     bytesScanned.value = 0
     currentPath.value = ''
     results.value = []
     wasCancelled.value = false
+    wasDeduped.value = false
     dirSummary.value = []
 
     if (!isTauri()) {
       errorMessage.value = '请通过 `pnpm tauri:dev` 启动桌面端,浏览器模式无法调用扫描。'
       phase.value = 'error'
+      notify.error(errorMessage.value)
       return
     }
 
@@ -106,20 +129,26 @@ export const useScanStore = defineStore('scan', () => {
     if (roots.length === 0) {
       errorMessage.value = '请先在设置 → 扫描中至少勾选一个目标'
       phase.value = 'error'
+      notify.error(errorMessage.value)
       return
     }
 
     await ensureSubscribed()
     phase.value = 'discovering'
     lastScanRoots.value = roots.slice()
+    console.info('[scan] starting', { roots, followSymlinks: settings.options.followSymlinks })
     try {
       await ipcStartScan({
         roots,
         followSymlinks: settings.options.followSymlinks,
       })
+      console.info('[scan] backend accepted start_scan, awaiting events')
     } catch (e) {
-      errorMessage.value = String(e)
+      const msg = String(e)
+      console.error('[scan] start_scan IPC rejected', e)
+      errorMessage.value = msg
       phase.value = 'error'
+      notify.error('扫描启动失败', msg)
     }
   }
 
@@ -158,6 +187,7 @@ export const useScanStore = defineStore('scan', () => {
     errorMessage.value = null
     results.value = []
     wasCancelled.value = false
+    wasDeduped.value = false
     dirSummary.value = []
   }
 
@@ -173,6 +203,7 @@ export const useScanStore = defineStore('scan', () => {
     errorMessage,
     results,
     wasCancelled,
+    wasDeduped,
     dirSummary,
     lastScanRoots,
     isScanning,

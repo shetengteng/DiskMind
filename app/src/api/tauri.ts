@@ -33,6 +33,9 @@ export interface ScanCompletePayload {
   durationMs: number
   cancelled: boolean
   dirSummary: DirSummary[]
+  /** 为 true 时,后端通过指纹匹配认定这次扫描与上一次完全相同,只
+   * 刷新了 `finished_at`,没有写入新行。 */
+  deduped?: boolean
 }
 
 export interface ScanErrorPayload {
@@ -94,8 +97,8 @@ export async function listScanRuns(limit = 60): Promise<ScanRunMeta[]> {
 }
 
 /**
- * Purge scan run history. `retainLatest <= 0` clears all history;
- * a positive value keeps the most recent N runs. Returns number of runs deleted.
+ * 清理扫描历史。`retainLatest <= 0` 清空全部历史;正数则保留最近 N 条 run。
+ * 返回被删除的 run 条数。
  */
 export async function purgeScanHistory(retainLatest = 0): Promise<number> {
   if (!isTauri()) return 0
@@ -133,7 +136,7 @@ export async function diskUsageFor(path: string): Promise<DiskUsageInfo | null> 
   }
 }
 
-// ----- Trash sandbox -----
+// ----- 回收站沙箱 -----
 
 export interface TrashItem {
   id: number
@@ -210,6 +213,241 @@ export async function trashEmpty(): Promise<TrashMoveResult> {
   return await invoke<TrashMoveResult>('trash_empty')
 }
 
+export type ProviderKind = 'OpenAI 兼容' | 'Anthropic' | 'Gemini' | 'Local'
+export type ProviderStatus = 'ok' | 'untested' | 'error' | 'local'
+
+export interface Provider {
+  id: string
+  name: string
+  kind: string
+  baseUrl: string
+  model: string
+  apiKey: string
+  enabled: boolean
+  isDefault: boolean
+  status: string
+  latencyMs: number | null
+  updatedAt: number
+}
+
+export interface ProviderUpsert {
+  id: string
+  name: string
+  kind: string
+  baseUrl: string
+  model: string
+  apiKey?: string
+  enabled?: boolean
+  isDefault?: boolean
+  status?: string
+  latencyMs?: number | null
+}
+
+export async function providerList(): Promise<Provider[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<Provider[]>('provider_list')
+  } catch {
+    return []
+  }
+}
+
+export async function providerSave(provider: ProviderUpsert): Promise<Provider | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<Provider>('provider_save', { provider })
+  } catch {
+    return null
+  }
+}
+
+export async function providerDelete(id: string): Promise<number> {
+  if (!isTauri()) return 0
+  try {
+    return await invoke<number>('provider_delete', { id })
+  } catch {
+    return 0
+  }
+}
+
+export async function providerSetDefault(id: string): Promise<number> {
+  if (!isTauri()) return 0
+  try {
+    return await invoke<number>('provider_set_default', { id })
+  } catch {
+    return 0
+  }
+}
+
+// ----- AI 引擎 -----
+
+export interface AiChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface AiChatArgs {
+  messages: AiChatMessage[]
+  streamId: string
+  contextPaths?: string[]
+  /**
+   * 最近一次扫描结果的 markdown 摘要(可选)。以额外 system message
+   * 发送,让 LLM 能基于真实文件数据推理,无需用户手动粘贴。
+   */
+  scanSummary?: string
+}
+
+export interface AiChatStartPayload {
+  streamId: string
+  providerName: string
+  providerId: string
+  model: string
+}
+
+export interface AiChatChunkPayload {
+  streamId: string
+  delta: string
+}
+
+export interface AiChatDonePayload {
+  streamId: string
+  promptTokens: number
+  completionTokens: number
+}
+
+export interface AiChatErrorPayload {
+  streamId: string
+  message: string
+}
+
+export interface ExplainFileInput {
+  path: string
+  sizeBytes: number
+  category: string
+  risk: string
+}
+
+export interface ExplainFileOutput {
+  summary: string
+  risk_assessment: string
+  recommended_action: 'keep' | 'review' | 'delete'
+  reasons: string[]
+}
+
+export interface CleaningAdviceTier {
+  name: 'safe' | 'balanced' | 'aggressive'
+  label: string
+  total_bytes: number
+  risk_level: 'low' | 'medium' | 'high'
+  description: string
+  categories: string[]
+}
+
+export interface CleaningAdviceOutput {
+  tiers: CleaningAdviceTier[]
+}
+
+export interface AiTodayStats {
+  calls: number
+  successfulCalls: number
+  promptTokens: number
+  completionTokens: number
+  costUsd: number
+}
+
+export interface AiCallLog {
+  id: number
+  providerId: string | null
+  providerName: string | null
+  scenario: string
+  model: string
+  promptTokens: number
+  completionTokens: number
+  costUsd: number
+  durationMs: number
+  success: boolean
+  error: string | null
+  calledAt: number
+}
+
+export async function aiChat(args: AiChatArgs): Promise<void> {
+  if (!isTauri()) throw new Error('需要在桌面端运行')
+  await invoke('ai_chat', { args })
+}
+
+export async function aiExplainFile(input: ExplainFileInput): Promise<ExplainFileOutput> {
+  return await invoke<ExplainFileOutput>('ai_explain_file', { input })
+}
+
+export async function aiCleaningAdvice(runSummary: string): Promise<CleaningAdviceOutput> {
+  return await invoke<CleaningAdviceOutput>('ai_cleaning_advice', { runSummary })
+}
+
+export async function aiTestProvider(providerId: string): Promise<number> {
+  return await invoke<number>('ai_test_provider', { providerId })
+}
+
+export async function aiTestProviderDraft(draft: Provider): Promise<number> {
+  return await invoke<number>('ai_test_provider_draft', { draft })
+}
+
+export async function aiListModels(draft: Provider): Promise<string[]> {
+  return await invoke<string[]>('ai_list_models', { draft })
+}
+
+export async function aiTodayStats(): Promise<AiTodayStats> {
+  if (!isTauri()) {
+    return { calls: 0, successfulCalls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 }
+  }
+  try {
+    return await invoke<AiTodayStats>('ai_today_stats')
+  } catch {
+    return { calls: 0, successfulCalls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 }
+  }
+}
+
+export async function aiListCallLogs(limit = 100): Promise<AiCallLog[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<AiCallLog[]>('ai_list_call_logs', { limit })
+  } catch {
+    return []
+  }
+}
+
+export function onAiChatStart(cb: (p: AiChatStartPayload) => void): Promise<UnlistenFn> {
+  return listen<AiChatStartPayload>('ai:chat:start', evt => cb(evt.payload))
+}
+export function onAiChatChunk(cb: (p: AiChatChunkPayload) => void): Promise<UnlistenFn> {
+  return listen<AiChatChunkPayload>('ai:chat:chunk', evt => cb(evt.payload))
+}
+export function onAiChatDone(cb: (p: AiChatDonePayload) => void): Promise<UnlistenFn> {
+  return listen<AiChatDonePayload>('ai:chat:done', evt => cb(evt.payload))
+}
+export function onAiChatError(cb: (p: AiChatErrorPayload) => void): Promise<UnlistenFn> {
+  return listen<AiChatErrorPayload>('ai:chat:error', evt => cb(evt.payload))
+}
+
+export interface DbStats {
+  scanRunRows: number
+  scanResultRows: number
+  dirSummaryRows: number
+  trashItemRows: number
+  providerRows: number
+  aiCallLogRows: number
+  maxScanHistory: number
+  dbSizeBytes: number
+}
+
+export async function dbStats(): Promise<DbStats | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<DbStats>('db_stats')
+  } catch {
+    return null
+  }
+}
+
 export function onScanProgress(
   cb: (payload: ScanProgressPayload) => void,
 ): Promise<UnlistenFn> {
@@ -230,4 +468,31 @@ export function onScanError(
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+export type PlatformOs = 'macos' | 'windows' | 'linux' | 'unknown'
+
+export type SuggestedTargetKind =
+  | 'home'
+  | 'downloads'
+  | 'documents'
+  | 'desktop'
+  | 'pictures'
+  | 'videos'
+  | 'applications'
+  | 'appdata'
+
+export interface SuggestedTarget {
+  path: string
+  kind: SuggestedTargetKind
+}
+
+export interface PlatformInfo {
+  os: PlatformOs
+  sep: '/' | '\\'
+  suggestedTargets: SuggestedTarget[]
+}
+
+export async function platformInfo(): Promise<PlatformInfo> {
+  return await invoke<PlatformInfo>('platform_info')
 }

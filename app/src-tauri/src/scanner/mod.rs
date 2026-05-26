@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
     pub path: String,
-    /// Logical file size (`st_size`). Shown to the user.
+    /// 逻辑文件大小 (`st_size`),用于展示给用户。
     pub size: u64,
     pub mtime: u64,
     pub extension: String,
@@ -18,8 +18,8 @@ pub struct FileEntry {
     pub dev: u64,
     #[serde(skip)]
     pub inode: u64,
-    /// Physical bytes allocated on disk (`st_blocks * 512`). Used for totals to
-    /// avoid double-counting sparse files / transparent compression.
+    /// 物理占用字节数 (`st_blocks * 512`),用于累计总量,避免稀疏文件 /
+    /// 透明压缩被重复计算。
     #[serde(skip)]
     pub phys_size: u64,
 }
@@ -242,10 +242,9 @@ fn file_id(_m: &std::fs::Metadata) -> (u64, u64) {
     (0, 0)
 }
 
-/// Bytes physically allocated on disk. On Unix uses `st_blocks * 512`, capped
-/// by `st_size` so that holes / transparent compression are not over-counted
-/// (sparse files where logical size >> on-disk usage). On other platforms
-/// falls back to logical size.
+/// 磁盘上实际占用的字节数。Unix 用 `st_blocks * 512`,并以 `st_size` 为
+/// 上限,避免空洞 / 透明压缩(逻辑大小远大于实际占用的稀疏文件)被高
+/// 估。其他平台回退为逻辑大小。
 #[cfg(unix)]
 fn physical_size(m: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
@@ -263,9 +262,8 @@ fn physical_size(m: &std::fs::Metadata) -> u64 {
     m.len()
 }
 
-/// Unique total physical size by (dev, inode) — collapses hardlinks / clones
-/// counted once. Entries with inode == 0 (Windows / unsupported) fall back to
-/// per-entry summation.
+/// 按 (dev, inode) 去重的物理总占用 — 硬链接 / 克隆只算一次。inode 为 0
+/// 的项(Windows / 不支持平台)回退为逐项相加。
 pub fn unique_total_bytes(entries: &[FileEntry]) -> u64 {
     let mut seen: HashSet<(u64, u64)> = HashSet::new();
     let mut total: u64 = 0;
@@ -286,15 +284,40 @@ fn is_definitely_skip(path: &std::path::Path) -> bool {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    matches!(
+
+    // 跨平台:开发工具缓存,没有清理价值,深入遍历会让条目数爆炸。
+    // macOS 专用的 iCloud 镜像也放在这里(历史原因 — 下方路径形式实际
+    // 不会匹配到 file_name(),所以是 no-op,留着只是记录意图)。
+    let cross_platform_skip = matches!(
         name,
-        ".git"
-            | ".svn"
-            | ".hg"
-            | ".idea"
-            | ".vscode"
-            | "Library/Mobile Documents"
-    ) && path.parent().is_some()
+        ".git" | ".svn" | ".hg" | ".idea" | ".vscode" | "Library/Mobile Documents"
+    );
+
+    // 仅 Windows:扫描这些目录会触发 ACL 拒绝、虚拟卷簿记噪音,并虚增
+    // 文件计数。在 filter_entry() 阶段整目录跳过,比让 walkdir 深入后再
+    // 在每个文件上失败要便宜得多。
+    #[cfg(target_os = "windows")]
+    let platform_skip = matches!(
+        name,
+        "$Recycle.Bin"
+            | "System Volume Information"
+            | "WinSxS"
+            | "Windows.old"
+            | "$WINDOWS.~BT"
+            | "$WINDOWS.~WS"
+            | "Recovery"
+            | "MSOCache"
+            | "PerfLogs"
+            | "Config.Msi"
+            | "pagefile.sys"
+            | "hiberfil.sys"
+            | "swapfile.sys"
+            | "DumpStack.log.tmp"
+    );
+    #[cfg(not(target_os = "windows"))]
+    let platform_skip = false;
+
+    (cross_platform_skip || platform_skip) && path.parent().is_some()
 }
 
 #[cfg(test)]

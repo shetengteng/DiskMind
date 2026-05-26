@@ -32,6 +32,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useReportsStore } from '@/stores/reports'
+import { notify } from '@/lib/notify'
 
 const props = withDefaults(defineProps<{
   limit?: number
@@ -61,7 +62,6 @@ const isEmpty = computed(() => items.value.length === 0)
 const purgeOpen = ref(false)
 const purgeRetain = ref(0)
 const purging = ref(false)
-const purgeBanner = ref<{ kind: 'ok' | 'warn'; text: string } | null>(null)
 
 function askPurge(retain: number) {
   purgeRetain.value = retain
@@ -83,19 +83,12 @@ async function confirmPurge() {
   purging.value = true
   try {
     const deleted = await reports.purge(purgeRetain.value)
-    purgeBanner.value = {
-      kind: 'ok',
-      text: t('reports.purgeOk', { n: deleted }),
-    }
+    notify.success(t('reports.purgeOk', { n: deleted }))
   } catch (e) {
-    purgeBanner.value = {
-      kind: 'warn',
-      text: t('reports.purgeFail', { msg: String(e) }),
-    }
+    notify.error(t('reports.purgeFail', { msg: String(e) }))
   } finally {
     purging.value = false
     purgeOpen.value = false
-    setTimeout(() => (purgeBanner.value = null), 4000)
   }
 }
 
@@ -173,15 +166,6 @@ function rootSummary(roots: string[]) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
-      <div
-        v-if="purgeBanner"
-        class="mt-2 rounded-md border px-2.5 py-1.5 text-xs"
-        :class="purgeBanner.kind === 'ok'
-          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300'
-          : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300'"
-      >
-        {{ purgeBanner.text }}
       </div>
     </CardHeader>
     <CardContent>

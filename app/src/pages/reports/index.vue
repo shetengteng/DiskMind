@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Sparkles } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import {
   Tabs,
@@ -7,10 +6,11 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs'
-import { Card, CardContent } from '@/components/ui/card'
 import RecoveryTrendCard from './components/RecoveryTrendCard.vue'
 import CategoryDistributionCard from './components/CategoryDistributionCard.vue'
 import ScanHistoryCard from './components/ScanHistoryCard.vue'
+import AiCleaningAdviceCard from './components/AiCleaningAdviceCard.vue'
+import AiUsageStatsCard from './components/AiUsageStatsCard.vue'
 
 const { t } = useI18n()
 </script>
@@ -29,6 +29,7 @@ const { t } = useI18n()
       </TabsList>
 
       <TabsContent value="overview" class="space-y-4">
+        <AiCleaningAdviceCard />
         <ScanHistoryCard
           :limit="5"
           title-key="reports.recentRuns"
@@ -41,15 +42,7 @@ const { t } = useI18n()
       </TabsContent>
 
       <TabsContent value="ai" class="space-y-4">
-        <Card class="border-dashed">
-          <CardContent class="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <Sparkles class="size-5 text-muted-foreground" />
-            <p class="text-sm font-medium">{{ t('reports.aiUsagePending') }}</p>
-            <p class="text-xs text-muted-foreground">
-              {{ t('reports.aiUsagePendingDesc') }}
-            </p>
-          </CardContent>
-        </Card>
+        <AiUsageStatsCard />
       </TabsContent>
 
       <TabsContent value="history" class="space-y-4">

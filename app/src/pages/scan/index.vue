@@ -11,6 +11,7 @@ import { useScanStore } from '@/stores/scan'
 import { useAiStore } from '@/stores/ai'
 import { useTrashStore } from '@/stores/trash'
 import type { ScanResultRow, FileRisk } from '@/api/tauri'
+import { basename } from '@/lib/pathSep'
 import ScanProgressCard from './components/ScanProgressCard.vue'
 import ScanResultsToolbar from './components/ScanResultsToolbar.vue'
 import ScanResultsTable from './components/ScanResultsTable.vue'
@@ -119,8 +120,25 @@ function toggleMany(ids: number[], value: boolean) {
 
 function askAiAbout(row: ScanResultRow) {
   ai.openDrawer(`请详细分析:\`${row.path}\` (${row.size}) 这个文件是否可以安全删除?`, [
-    { path: row.path, name: row.path.split('/').pop() || row.path, size: row.size, risk: row.risk },
+    { path: row.path, name: basename(row.path) || row.path, size: row.size, risk: row.risk },
   ])
+}
+
+function askAiExplain(row: ScanResultRow) {
+  void ai.explainFile(
+    {
+      path: row.path,
+      sizeBytes: row.sizeBytes,
+      category: row.category,
+      risk: row.risk,
+    },
+    {
+      path: row.path,
+      name: basename(row.path) || row.path,
+      size: row.size,
+      risk: row.risk,
+    },
+  )
 }
 
 function askAiBatch() {
@@ -129,7 +147,7 @@ function askAiBatch() {
     `我选择了 ${selectedRows.value.length} 个文件 (共 ${totalSelectedSize.value} GB),请逐一评估清理风险并给出最终建议。`,
     selectedRows.value.map(r => ({
       path: r.path,
-      name: r.path.split('/').pop() || r.path,
+      name: basename(r.path) || r.path,
       size: r.size,
       risk: r.risk,
     })),
@@ -145,7 +163,7 @@ function askAiFolder(folderName: string, fileIds: number[]) {
     `请评估文件夹 \`${folderName}\` 下的 ${rows.length} 个文件 (共 ${totalGb} GB),逐一分析清理风险并给出整体建议。`,
     rows.map(r => ({
       path: r.path,
-      name: r.path.split('/').pop() || r.path,
+      name: basename(r.path) || r.path,
       size: r.size,
       risk: r.risk,
     })),
@@ -341,6 +359,7 @@ const subtitle = computed(() => {
           v-if="listMode === 'tree'"
           :rows="filtered"
           @ask-ai="askAiAbout"
+          @ask-explain="askAiExplain"
           @ask-ai-folder="askAiFolder"
           @trash-folder="trashFolder"
           @toggle-row="toggleRow"
@@ -352,6 +371,7 @@ const subtitle = computed(() => {
           v-model:sort-key="sortKey"
           v-model:sort-dir="sortDir"
           @ask-ai="askAiAbout"
+          @ask-explain="askAiExplain"
           @toggle-all="toggleAll"
           @toggle-row="toggleRow"
         />

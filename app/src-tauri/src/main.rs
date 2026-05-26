@@ -1,4 +1,4 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// release 模式下隐藏 Windows 的额外控制台窗口,请勿删除
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {

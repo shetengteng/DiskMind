@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import {
   ArrowUpDown,
+  Brain,
   Sparkles,
   ShieldCheck,
   ShieldAlert,
@@ -24,6 +25,9 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ScanResultRow, FileRisk } from '@/api/tauri'
+import { usePathMask } from '@/composables/usePathMask'
+
+const { mask } = usePathMask()
 
 type Row = ScanResultRow & { selected: boolean }
 
@@ -36,6 +40,7 @@ const sortDir = defineModel<'asc' | 'desc'>('sortDir', { default: 'desc' })
 
 const emit = defineEmits<{
   askAi: [row: ScanResultRow]
+  askExplain: [row: ScanResultRow]
   toggleAll: [value: boolean]
   toggleRow: [id: number, value: boolean]
 }>()
@@ -123,7 +128,7 @@ async function copyPath(row: ScanResultRow) {
           <TableCell class="overflow-hidden font-mono text-xs">
             <Tooltip>
               <TooltipTrigger as-child>
-                <div class="truncate" dir="rtl">{{ row.path }}</div>
+                <div class="truncate" dir="rtl">{{ mask(row.path) }}</div>
               </TooltipTrigger>
               <TooltipContent
                 side="top"
@@ -131,7 +136,7 @@ async function copyPath(row: ScanResultRow) {
                 class="max-w-[min(80vw,720px)] p-0"
               >
                 <div class="flex items-start gap-2 px-2.5 py-1.5">
-                  <span class="break-all font-mono text-xs leading-relaxed">{{ row.path }}</span>
+                  <span class="break-all font-mono text-xs leading-relaxed">{{ mask(row.path) }}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -157,19 +162,34 @@ async function copyPath(row: ScanResultRow) {
             </Badge>
           </TableCell>
           <TableCell class="text-right">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="t('scan.askAi')"
-                  @click="emit('askAi', row)"
-                >
-                  <Sparkles class="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">{{ t('scan.askAi') }}</TooltipContent>
-            </Tooltip>
+            <div class="flex items-center justify-end gap-0.5">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    :aria-label="t('aiExplain.menuItem')"
+                    @click="emit('askExplain', row)"
+                  >
+                    <Brain class="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{{ t('aiExplain.menuItem') }}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    :aria-label="t('scan.askAi')"
+                    @click="emit('askAi', row)"
+                  >
+                    <Sparkles class="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{{ t('scan.askAi') }}</TooltipContent>
+              </Tooltip>
+            </div>
           </TableCell>
         </TableRow>
       </TableBody>
