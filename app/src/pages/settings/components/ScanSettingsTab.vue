@@ -1,24 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import ScanTargetsCard, { type ScanTarget } from './ScanTargetsCard.vue'
-import ScanOptionsCard, { type ScanOptions } from './ScanOptionsCard.vue'
+import { storeToRefs } from 'pinia'
+import { useScanSettingsStore } from '@/stores/scanSettings'
+import ScanTargetsCard from './ScanTargetsCard.vue'
+import ScanOptionsCard from './ScanOptionsCard.vue'
 
-const targets = ref<ScanTarget[]>([
-  { path: '/Users/me', selected: true, sizeHint: '~ 290 GB' },
-  { path: '/Applications', selected: true, sizeHint: '~ 87 GB' },
-  { path: '/Library', selected: false, sizeHint: '~ 63 GB' },
-  { path: '/private/var', selected: false, sizeHint: '~ 18 GB' },
-])
-
-const options = ref<ScanOptions>({
-  computeHash: true,
-  detectDuplicates: true,
-  aiAnalysis: true,
-  followSymlinks: false,
-})
-
-const selectedCount = ref(0)
-selectedCount.value = targets.value.filter(t => t.selected).length
+const settings = useScanSettingsStore()
+const { targets, options } = storeToRefs(settings)
 </script>
 
 <template>

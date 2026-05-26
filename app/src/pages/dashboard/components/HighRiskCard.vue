@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Sparkles,
@@ -15,11 +16,22 @@ import {
 } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { scanResults } from '@/data/mock'
 import { useAiStore } from '@/stores/ai'
+import { useScanStore } from '@/stores/scan'
 
 const router = useRouter()
 const ai = useAiStore()
+const scan = useScanStore()
+
+const topRows = computed(() => {
+  const sorted = scan.results.slice().sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 } as const
+    const cmp = order[a.risk] - order[b.risk]
+    if (cmp !== 0) return cmp
+    return b.sizeBytes - a.sizeBytes
+  })
+  return sorted.slice(0, 5)
+})
 
 function explainResults() {
   ai.openDrawer('帮我解读最近一次扫描的整体情况,有哪些重点关注?')
@@ -41,9 +53,12 @@ function explainResults() {
       </div>
     </CardHeader>
     <CardContent>
-      <div class="space-y-2">
+      <div v-if="topRows.length === 0" class="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">
+        还没有扫描结果,点击右上角"查看全部"去扫描
+      </div>
+      <div v-else class="space-y-2">
         <div
-          v-for="row in scanResults.slice(0, 5)"
+          v-for="row in topRows"
           :key="row.id"
           class="group flex items-center gap-3 rounded-lg border bg-card px-3 py-2 transition-colors hover:bg-accent/50"
         >

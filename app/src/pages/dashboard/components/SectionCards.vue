@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { TrendingDown, TrendingUp } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import { TrendingUp, HardDrive, Recycle, ScanSearch, Sparkles } from 'lucide-vue-next'
 import {
   Card,
   CardAction,
@@ -10,20 +10,92 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { overviewStats, trendData } from '@/data/mock'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { useI18n } from 'vue-i18n'
+import { useScanStore } from '@/stores/scan'
 import { useAiStore } from '@/stores/ai'
+import { diskUsage, diskUsageFor, type DiskUsageInfo } from '@/api/tauri'
 
+const scan = useScanStore()
 const ai = useAiStore()
+const { t } = useI18n()
 
-const reclaimedTotal = computed(() =>
-  trendData.reduce((a, b) => a + b.reclaimed, 0).toFixed(1)
-)
+const disk = ref<DiskUsageInfo | null>(null)
+const diskLoading = ref(true)
 
-const reclaimedDelta = computed(() => {
-  const last = trendData.at(-1)?.reclaimed ?? 0
-  const prev = trendData.at(-2)?.reclaimed ?? 0
-  if (prev === 0) return 0
-  return Number((((last - prev) / prev) * 100).toFixed(1))
+async function refreshDisk() {
+  diskLoading.value = true
+  const root = scan.lastScanRoots[0]
+  disk.value = root ? await diskUsageFor(root) : await diskUsage()
+  diskLoading.value = false
+}
+
+onMounted(refreshDisk)
+watch(() => scan.lastScanRoots[0], refreshDisk)
+
+function humanizeBytes(bytes: number): string {
+  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(2)} TB`
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`
+  return `${bytes} B`
+}
+
+const diskTotalLabel = computed(() => disk.value ? humanizeBytes(disk.value.totalBytes) : '—')
+const diskUsedLabel = computed(() => disk.value ? humanizeBytes(disk.value.usedBytes) : '—')
+const diskFreeLabel = computed(() => disk.value ? humanizeBytes(disk.value.availableBytes) : '—')
+const diskUsedPercent = computed(() => disk.value ? disk.value.usedPercent.toFixed(1) : '—')
+
+const reclaimableLabel = computed(() => {
+  const gb = scan.results.reduce((acc, r) => acc + r.sizeBytes, 0) / 1024 / 1024 / 1024
+  return `${gb.toFixed(2)} GB`
+})
+
+const reclaimablePercent = computed(() => {
+  if (!disk.value) return '—'
+  const reclaimableBytes = scan.results.reduce((acc, r) => acc + r.sizeBytes, 0)
+  return ((reclaimableBytes / disk.value.totalBytes) * 100).toFixed(1)
+})
+
+const candidateCount = computed(() => scan.results.length)
+const highRiskCount = computed(() => scan.results.filter(r => r.risk === 'high').length)
+
+const lastScanLabel = computed(() => {
+  if (!scan.lastScanAt) return t('dashboard.noScanYet')
+  const ts = new Date(scan.lastScanAt)
+  const now = new Date()
+  const diffMs = now.getTime() - ts.getTime()
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return t('common.justNow')
+  if (minutes < 60) return `${minutes} ${t('common.minute')}`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} ${t('common.hour')}`
+  const days = Math.floor(hours / 24)
+  return `${days} ${t('common.day')}`
+})
+
+const lastScanFooter = computed(() => {
+  if (!scan.lastScanAt) return t('dashboard.startScanHint')
+  return t('dashboard.nfilesNbytes', {
+    files: scan.totalFiles.toLocaleString(),
+    bytes: humanizeBytes(scan.totalBytes),
+  })
+})
+
+const diskScopeLabel = computed(() => {
+  if (!disk.value) return ''
+  const root = scan.lastScanRoots[0]
+  if (!root) return disk.value.mountPoint
+  return `${disk.value.mountPoint} (${root})`
+})
+
+const reclaimableExceedsUsed = computed(() => {
+  if (!disk.value) return false
+  const reclaimableBytes = scan.results.reduce((acc, r) => acc + r.sizeBytes, 0)
+  return reclaimableBytes > disk.value.usedBytes
 })
 </script>
 
@@ -33,95 +105,101 @@ const reclaimedDelta = computed(() => {
   >
     <Card class="@container/card">
       <CardHeader>
-        <CardDescription>磁盘使用</CardDescription>
+        <CardDescription class="flex items-center gap-1.5">
+          <HardDrive class="size-3.5" /> {{ t('dashboard.diskUsage') }}
+        </CardDescription>
         <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-          {{ overviewStats.used }}
+          {{ diskUsedLabel }}
         </CardTitle>
         <CardAction>
           <Badge variant="outline">
+            {{ diskUsedPercent }}%
+          </Badge>
+        </CardAction>
+      </CardHeader>
+      <CardFooter class="flex-col items-start gap-1.5 text-sm">
+        <div class="line-clamp-1 flex gap-2 font-medium">
+          <span v-if="diskLoading" class="text-muted-foreground">{{ t('common.loading') }}</span>
+          <span v-else>{{ t('dashboard.used') }} {{ diskUsedLabel }} / {{ diskTotalLabel }}</span>
+        </div>
+        <div class="text-muted-foreground line-clamp-1">
+          {{ t('dashboard.free') }} {{ diskFreeLabel }} · {{ diskScopeLabel }}
+        </div>
+      </CardFooter>
+    </Card>
+
+    <Card class="@container/card">
+      <CardHeader>
+        <CardDescription class="flex items-center gap-1.5">
+          <Recycle class="size-3.5" /> {{ t('dashboard.reclaimable') }}
+        </CardDescription>
+        <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          {{ reclaimableLabel }}
+        </CardTitle>
+        <CardAction>
+          <Badge variant="outline">
+            {{ reclaimablePercent }}%
+          </Badge>
+        </CardAction>
+      </CardHeader>
+      <CardFooter class="flex-col items-start gap-1.5 text-sm">
+        <div class="line-clamp-1 flex gap-2 font-medium">
+          {{ t('dashboard.candidatesNHigh', { count: candidateCount, high: highRiskCount }) }}
+        </div>
+        <div class="text-muted-foreground">
+          <span v-if="reclaimableExceedsUsed" class="text-amber-600 dark:text-amber-400">{{ t('dashboard.crossVolumeNotice') }}</span>
+          <span v-else>{{ t('dashboard.basedOnLastScan') }}</span>
+        </div>
+      </CardFooter>
+    </Card>
+
+    <Card class="@container/card">
+      <CardHeader>
+        <CardDescription class="flex items-center gap-1.5">
+          <ScanSearch class="size-3.5" /> {{ t('dashboard.lastScan') }}
+        </CardDescription>
+        <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          {{ lastScanLabel }}
+        </CardTitle>
+        <CardAction>
+          <Badge v-if="scan.lastScanAt" variant="outline">
             <TrendingUp class="size-3" />
-            {{ overviewStats.usedPercent }}%
+            {{ t('dashboard.completed') }}
           </Badge>
         </CardAction>
       </CardHeader>
       <CardFooter class="flex-col items-start gap-1.5 text-sm">
         <div class="line-clamp-1 flex gap-2 font-medium">
-          已用 {{ overviewStats.usedPercent }}% / 总容量 {{ overviewStats.totalDisk }}
+          {{ lastScanFooter }}
         </div>
         <div class="text-muted-foreground">
-          剩余 {{ overviewStats.free }} 可用空间
+          <span v-if="scan.lastScanAt">{{ t('dashboard.suggestWeekly') }}</span>
+          <span v-else>{{ t('dashboard.startScanHint') }}</span>
         </div>
       </CardFooter>
     </Card>
 
     <Card class="@container/card">
       <CardHeader>
-        <CardDescription>可回收空间</CardDescription>
-        <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-          {{ overviewStats.reclaimable }}
-        </CardTitle>
-        <CardAction>
-          <Badge variant="outline">
-            <TrendingUp class="size-3" />
-            {{ overviewStats.reclaimablePercent }}%
-          </Badge>
-        </CardAction>
+        <CardDescription class="flex items-center gap-1.5">
+          <Sparkles class="size-3.5" /> {{ t('dashboard.aiProvider') }}
+        </CardDescription>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <CardTitle class="cursor-default truncate text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+              {{ ai.currentProvider }}
+            </CardTitle>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="start" class="font-mono">
+            {{ ai.currentProvider }} · {{ ai.statusLabel }}
+          </TooltipContent>
+        </Tooltip>
       </CardHeader>
       <CardFooter class="flex-col items-start gap-1.5 text-sm">
-        <div class="line-clamp-1 flex gap-2 font-medium">
-          AI 已为 15 个候选打分 <TrendingUp class="size-4" />
-        </div>
-        <div class="text-muted-foreground">
-          占总容量 {{ overviewStats.reclaimablePercent }}%
-        </div>
-      </CardFooter>
-    </Card>
-
-    <Card class="@container/card">
-      <CardHeader>
-        <CardDescription>近 7 日回收</CardDescription>
-        <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-          {{ reclaimedTotal }} GB
-        </CardTitle>
-        <CardAction>
-          <Badge variant="outline">
-            <TrendingUp v-if="reclaimedDelta >= 0" class="size-3" />
-            <TrendingDown v-else class="size-3" />
-            {{ reclaimedDelta >= 0 ? '+' : '' }}{{ reclaimedDelta }}%
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardFooter class="flex-col items-start gap-1.5 text-sm">
-        <div class="line-clamp-1 flex gap-2 font-medium">
-          昨日对比 {{ reclaimedDelta >= 0 ? '上升' : '下降' }}
-          <TrendingUp v-if="reclaimedDelta >= 0" class="size-4" />
-          <TrendingDown v-else class="size-4" />
-        </div>
-        <div class="text-muted-foreground">
-          沙箱内 {{ overviewStats.trashCount }} 项 · {{ overviewStats.trashSize }}
-        </div>
-      </CardFooter>
-    </Card>
-
-    <Card class="@container/card">
-      <CardHeader>
-        <CardDescription>AI 提供方</CardDescription>
-        <CardTitle class="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-          {{ ai.currentProvider }}
-        </CardTitle>
-        <CardAction>
-          <Badge variant="outline">
-            <span class="inline-block size-1.5 rounded-full" :class="ai.statusBadgeClass" />
-            {{ ai.statusLabel }}
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardFooter class="flex-col items-start gap-1.5 text-sm">
-        <div class="line-clamp-1 flex gap-2 font-medium">
-          今日 {{ ai.todayCalls }} 次调用
-        </div>
-        <div class="text-muted-foreground">
-          消耗 ¥{{ ai.todayCostCNY.toFixed(2) }}
+        <div class="line-clamp-1 font-medium">
+          {{ t('dashboard.todayCalls', { n: ai.todayCalls }) }}
+          <span class="text-muted-foreground">·</span>
+          <span class="text-muted-foreground">{{ t('dashboard.todayCost', { amount: ai.todayCostCNY.toFixed(2) }) }}</span>
         </div>
       </CardFooter>
     </Card>

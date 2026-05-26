@@ -1,50 +1,196 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Sparkles } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { Sparkles, ScanSearch, ChevronRight, Home, ArrowUp } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { diskMapTreemap } from '@/data/mock'
+import { Card, CardContent } from '@/components/ui/card'
 import { useAiStore } from '@/stores/ai'
+import { useScanStore } from '@/stores/scan'
+import { buildTree, type TreeNode } from '@/lib/buildTree'
 import DiskMapTreemap from './DiskMapTreemap.vue'
 import DiskMapDetailPanel from './DiskMapDetailPanel.vue'
 
 const ai = useAiStore()
+const scan = useScanStore()
 
-const total = computed(() => diskMapTreemap.reduce((acc, t) => acc + t.size, 0))
-const selectedNode = ref(diskMapTreemap[0])
+interface TreemapNode {
+  name: string
+  size: number
+  color?: string
+  children?: string[]
+  hasChildren?: boolean
+  fullPath?: string
+}
 
-function selectNode(node: typeof diskMapTreemap[number]) {
+const rows = computed(() => scan.results.map(r => ({ ...r, selected: false })))
+
+// Full multi-level tree of scan candidates. Cached and rebuilt only when results change.
+const fullTree = computed<TreeNode>(() => buildTree(rows.value))
+
+// Stack of TreeNodes representing the current drill path. The first element is
+// always the implicit root (the whole scan result set). After drilling into
+// "Library" it becomes [root, libraryNode]; the displayed treemap is always the
+// children of the last element in the stack.
+const drillStack = ref<TreeNode[]>([])
+
+watch(
+  fullTree,
+  newTree => {
+    drillStack.value = [newTree]
+  },
+  { immediate: true },
+)
+
+const currentNode = computed<TreeNode | undefined>(
+  () => drillStack.value[drillStack.value.length - 1],
+)
+
+// Convert direct children of currentNode into the shape expected by DiskMapTreemap.
+const nodes = computed<TreemapNode[]>(() => {
+  const c = currentNode.value
+  if (!c) return []
+  return c.children
+    .filter(child => !child.isFile || child.totalBytes > 0)
+    .map(child => ({
+      name: child.name,
+      size: child.totalBytes / 1024 / 1024 / 1024,
+      hasChildren: !child.isFile && child.children.some(g => !g.isFile || g.totalBytes > 0),
+      fullPath: child.fullPath,
+      children: child.children.slice(0, 8).map(g => g.name),
+    }))
+})
+
+const total = computed(() => nodes.value.reduce((acc, t) => acc + t.size, 0))
+
+const selectedNode = ref<TreemapNode | undefined>(nodes.value[0])
+
+watch(
+  nodes,
+  newNodes => {
+    if (!selectedNode.value || !newNodes.find(n => n.name === selectedNode.value?.name)) {
+      selectedNode.value = newNodes[0]
+    }
+  },
+  { immediate: true },
+)
+
+// Breadcrumb segments derived from the drill stack. The first stop is the
+// virtual root (labeled with the scan path label).
+const breadcrumbs = computed(() =>
+  drillStack.value.map((node, idx) => ({
+    label: idx === 0 ? '/' : node.name,
+    index: idx,
+  })),
+)
+
+const pathLabel = computed(() => {
+  if (drillStack.value.length <= 1) return '/'
+  return '/' + drillStack.value.slice(1).map(n => n.name).join('/')
+})
+
+function selectNode(node: TreemapNode) {
   selectedNode.value = node
 }
 
+function drillInto(node: TreemapNode) {
+  const c = currentNode.value
+  if (!c) return
+  const target = c.children.find(child => child.name === node.name && !child.isFile)
+  if (!target) return
+  drillStack.value = [...drillStack.value, target]
+}
+
+function jumpTo(index: number) {
+  if (index < 0 || index >= drillStack.value.length) return
+  drillStack.value = drillStack.value.slice(0, index + 1)
+}
+
+function drillUp() {
+  if (drillStack.value.length <= 1) return
+  drillStack.value = drillStack.value.slice(0, -1)
+}
+
 function askAi() {
+  if (!selectedNode.value) return
   ai.openDrawer(
-    `请帮我分析磁盘上 ${selectedNode.value.name} 目录占用的 ${selectedNode.value.size.toFixed(1)} GB,主要由什么构成?是否有清理空间?`,
+    `请帮我分析磁盘上 ${pathLabel.value}/${selectedNode.value.name} 目录占用的 ${selectedNode.value.size.toFixed(1)} GB,主要由什么构成?是否有清理空间?`,
   )
 }
 </script>
 
 <template>
-  <div class="flex flex-col gap-4">
-    <div class="flex items-center justify-between gap-3">
-      <p class="text-sm text-muted-foreground">
-        Treemap 可视化 · 矩形面积 ∝ 目录占用 · 共 {{ total.toFixed(1) }} GB
-      </p>
-      <Button variant="outline" size="sm" @click="askAi">
+  <Card v-if="rows.length === 0" class="border-dashed">
+    <CardContent class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+      <div class="flex size-12 items-center justify-center rounded-full bg-muted">
+        <ScanSearch class="size-5 text-muted-foreground" />
+      </div>
+      <div>
+        <p class="text-sm font-medium">还没有目录占用数据</p>
+        <p class="mt-1 text-xs text-muted-foreground">完成一次扫描后,这里会展示家目录下各子目录的实际占用</p>
+      </div>
+    </CardContent>
+  </Card>
+
+  <div v-else class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <nav
+        class="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-muted-foreground"
+        aria-label="Breadcrumb"
+      >
+        <Button
+          v-if="drillStack.length > 1"
+          variant="ghost"
+          size="icon-sm"
+          class="size-7"
+          aria-label="返回上一层"
+          @click="drillUp"
+        >
+          <ArrowUp class="size-3.5" />
+        </Button>
+
+        <template v-for="(b, i) in breadcrumbs" :key="i">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs hover:bg-accent hover:text-foreground"
+            :class="i === breadcrumbs.length - 1 ? 'text-foreground font-medium' : ''"
+            @click="jumpTo(i)"
+          >
+            <Home v-if="i === 0" class="size-3.5" />
+            <span v-else>{{ b.label }}</span>
+          </button>
+          <ChevronRight
+            v-if="i !== breadcrumbs.length - 1"
+            class="size-3.5 shrink-0 text-muted-foreground/50"
+          />
+        </template>
+
+        <span class="ml-2 shrink-0 text-xs">
+          · 共 {{ total.toFixed(1) }} GB · Top {{ nodes.length }}
+        </span>
+      </nav>
+
+      <Button
+        v-if="selectedNode"
+        variant="outline"
+        size="sm"
+        @click="askAi"
+      >
         <Sparkles class="mr-1.5 size-3.5" /> 解读当前选区
       </Button>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-[1fr_320px]">
       <DiskMapTreemap
-        :nodes="diskMapTreemap"
+        :nodes="nodes"
         :total="total"
-        :selected-node="selectedNode"
+        :selected-node="selectedNode!"
+        :path-label="pathLabel"
         @select="selectNode"
+        @drill="drillInto"
       />
       <DiskMapDetailPanel
+        v-if="selectedNode"
         :node="selectedNode"
         :total="total"
-        @ask-ai="askAi"
       />
     </div>
   </div>

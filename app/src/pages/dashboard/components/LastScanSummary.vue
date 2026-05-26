@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ScanSearch, ArrowRight, ShieldAlert, ShieldQuestion, ShieldCheck } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import {
   Card,
   CardContent,
@@ -10,21 +11,26 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { scanResults, type FileRisk } from '@/data/mock'
+import type { FileRisk } from '@/api/tauri'
+import { useScanStore } from '@/stores/scan'
 
 const router = useRouter()
+const scan = useScanStore()
+const { t } = useI18n()
 
 const counts = computed(() => {
   const acc: Record<FileRisk, number> = { low: 0, medium: 0, high: 0 }
-  scanResults.forEach(r => {
+  scan.results.forEach(r => {
     acc[r.risk] += 1
   })
   return acc
 })
 
 const totalReclaimable = computed(() =>
-  (scanResults.reduce((acc, r) => acc + r.sizeBytes, 0) / 1024 / 1024 / 1024).toFixed(1),
+  (scan.results.reduce((acc, r) => acc + r.sizeBytes, 0) / 1024 / 1024 / 1024).toFixed(1),
 )
+
+const hasScan = computed(() => scan.results.length > 0)
 
 function goScan() {
   router.push('/scan')
@@ -37,17 +43,22 @@ function goScan() {
       <div>
         <CardTitle class="flex items-center gap-2 text-base">
           <ScanSearch class="size-4 text-muted-foreground" />
-          上次扫描结果
+          {{ t('dashboard.lastResultTitle') }}
         </CardTitle>
         <CardDescription class="text-xs">
-          共 {{ scanResults.length }} 个候选 · 可清理 {{ totalReclaimable }} GB
+          <template v-if="hasScan">
+            {{ t('dashboard.lastResultSummary', { n: scan.results.length, gb: totalReclaimable }) }}
+          </template>
+          <template v-else>
+            {{ t('dashboard.lastResultEmpty') }}
+          </template>
         </CardDescription>
       </div>
       <Button variant="outline" size="sm" class="gap-1.5" @click="goScan">
-        查看完整结果 <ArrowRight class="size-3.5" />
+        {{ hasScan ? t('dashboard.viewFullResults') : t('dashboard.goScan') }} <ArrowRight class="size-3.5" />
       </Button>
     </CardHeader>
-    <CardContent>
+    <CardContent v-if="hasScan">
       <div class="grid gap-3 sm:grid-cols-3">
         <div class="flex items-center gap-3 rounded-lg border bg-card p-3">
           <div class="flex size-9 items-center justify-center rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400">
@@ -55,7 +66,7 @@ function goScan() {
           </div>
           <div>
             <div class="text-xl font-semibold tabular-nums">{{ counts.high }}</div>
-            <div class="text-xs text-muted-foreground">高风险候选</div>
+            <div class="text-xs text-muted-foreground">{{ t('dashboard.riskHighCount') }}</div>
           </div>
         </div>
         <div class="flex items-center gap-3 rounded-lg border bg-card p-3">
@@ -64,7 +75,7 @@ function goScan() {
           </div>
           <div>
             <div class="text-xl font-semibold tabular-nums">{{ counts.medium }}</div>
-            <div class="text-xs text-muted-foreground">中风险候选</div>
+            <div class="text-xs text-muted-foreground">{{ t('dashboard.riskMediumCount') }}</div>
           </div>
         </div>
         <div class="flex items-center gap-3 rounded-lg border bg-card p-3">
@@ -73,7 +84,7 @@ function goScan() {
           </div>
           <div>
             <div class="text-xl font-semibold tabular-nums">{{ counts.low }}</div>
-            <div class="text-xs text-muted-foreground">低风险候选</div>
+            <div class="text-xs text-muted-foreground">{{ t('dashboard.riskLowCount') }}</div>
           </div>
         </div>
       </div>

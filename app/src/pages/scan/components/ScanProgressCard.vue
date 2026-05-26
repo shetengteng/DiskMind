@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Folder } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import {
   Card,
   CardContent,
@@ -8,9 +10,24 @@ import {
 } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useScanStore } from '@/stores/scan'
 
 const scan = useScanStore()
+const { t } = useI18n()
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${bytes} B`
+}
+
+const reclaimableGb = computed(() => scan.totalReclaimableGb.toFixed(2))
 </script>
 
 <template>
@@ -28,41 +45,69 @@ const scan = useScanStore()
               :class="scan.isScanning ? 'bg-primary' : 'bg-emerald-500'"
             />
           </span>
-          {{ scan.phaseLabel }}
+          {{ t(scan.phaseKey) }}
         </CardTitle>
-        <span class="font-mono text-sm tabular-nums">{{ scan.progress.toFixed(1) }}%</span>
+        <span v-if="scan.phase === 'done'" class="font-mono text-sm tabular-nums text-muted-foreground">
+          {{ t('scan.progressDone') }}
+        </span>
       </div>
     </CardHeader>
     <CardContent class="space-y-4">
       <div class="space-y-2">
-        <Progress :model-value="scan.progress" class="h-2" />
+        <Progress
+          v-if="scan.phase === 'done'"
+          :model-value="100"
+          class="h-2"
+        />
+        <div
+          v-else
+          class="relative h-2 w-full overflow-hidden rounded-full bg-primary/20"
+          :aria-label="t('scan.phaseScanning')"
+          role="progressbar"
+        >
+          <div class="absolute inset-y-0 -left-1/3 w-1/3 animate-indeterminate rounded-full bg-primary" />
+        </div>
         <div class="grid grid-cols-2 gap-3 text-xs text-muted-foreground md:grid-cols-4">
           <div>
-            <div class="text-[10px] uppercase tracking-wider">已扫描文件</div>
+            <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressFiles') }}</div>
             <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
               {{ scan.filesScanned.toLocaleString() }}
             </div>
           </div>
           <div>
-            <div class="text-[10px] uppercase tracking-wider">预计总数</div>
+            <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressBytes') }}</div>
             <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
-              {{ scan.totalFiles.toLocaleString() }}
+              {{ formatBytes(scan.bytesScanned) }}
             </div>
           </div>
           <div>
-            <div class="text-[10px] uppercase tracking-wider">速度</div>
-            <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">8,420 文件/s</div>
+            <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressCandidates') }}</div>
+            <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
+              {{ scan.results.length }}
+            </div>
           </div>
           <div>
-            <div class="text-[10px] uppercase tracking-wider">已发现可回收</div>
-            <div class="mt-0.5 font-mono text-sm tabular-nums text-emerald-500">12.4 GB</div>
+            <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressReclaimable') }}</div>
+            <div class="mt-0.5 font-mono text-sm tabular-nums text-emerald-500">
+              {{ reclaimableGb }} GB
+            </div>
           </div>
         </div>
       </div>
       <Separator />
-      <div class="flex items-center gap-2 truncate text-xs text-muted-foreground">
-        <Folder class="size-3.5 shrink-0" />
-        <span class="font-mono">{{ scan.currentPath || '准备中…' }}</span>
+      <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-xs text-muted-foreground">
+        <Folder class="size-3.5" />
+        <Tooltip v-if="scan.currentPath">
+          <TooltipTrigger as-child>
+            <div class="min-w-0 cursor-default truncate font-mono" dir="rtl">
+              {{ scan.currentPath }}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
+            {{ scan.currentPath }}
+          </TooltipContent>
+        </Tooltip>
+        <div v-else class="min-w-0 truncate font-mono">{{ t('scan.progressPreparing') }}</div>
       </div>
     </CardContent>
   </Card>

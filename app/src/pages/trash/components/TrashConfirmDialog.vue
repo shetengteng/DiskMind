@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { AlertTriangle, RotateCcw } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,14 +23,20 @@ const props = defineProps<{
   totalSize: string
 }>()
 
+const emit = defineEmits<{
+  confirm: []
+}>()
+
+const { t } = useI18n()
+
 const dialogTitle = computed(() => {
   switch (props.action) {
     case 'restore':
-      return `恢复 ${props.selectedCount} 个文件`
+      return t('trash.confirm.restoreTitle', { n: props.selectedCount })
     case 'delete-now':
-      return `立即永久删除 ${props.selectedCount} 个文件`
+      return t('trash.confirm.deleteTitle', { n: props.selectedCount })
     case 'empty-all':
-      return '清空所有回收站项目'
+      return t('trash.confirm.emptyTitle')
   }
   return ''
 })
@@ -37,11 +44,11 @@ const dialogTitle = computed(() => {
 const dialogDesc = computed(() => {
   switch (props.action) {
     case 'restore':
-      return '文件将被恢复到原始位置。如果原位置已存在同名文件,会自动追加 (1)、(2) 后缀。'
+      return t('trash.confirm.restoreDesc')
     case 'delete-now':
-      return '此操作不可逆。文件将被立即从磁盘上永久删除,无法恢复。'
+      return t('trash.confirm.deleteDesc')
     case 'empty-all':
-      return `清空 ${props.totalCount} 项,共 ${props.totalSize}。此操作不可逆。`
+      return t('trash.confirm.emptyDesc', { n: props.totalCount, size: props.totalSize })
   }
   return ''
 })
@@ -59,12 +66,12 @@ const dialogDesc = computed(() => {
         <DialogDescription>{{ dialogDesc }}</DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" @click="open = false">取消</Button>
+        <Button variant="ghost" @click="open = false">{{ t('common.cancel') }}</Button>
         <Button
           :variant="action === 'restore' ? 'default' : 'destructive'"
-          @click="open = false"
+          @click="emit('confirm')"
         >
-          {{ action === 'restore' ? '确认恢复' : '确认删除' }}
+          {{ action === 'restore' ? t('trash.confirm.confirmRestore') : t('trash.confirm.confirmDelete') }}
         </Button>
       </DialogFooter>
     </DialogContent>

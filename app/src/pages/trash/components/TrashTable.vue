@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Clock } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import {
   Card,
   CardContent,
@@ -18,10 +19,17 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import type { TrashRow } from '@/data/mock'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { humanizeBytes } from '@/lib/buildTree'
+import type { TrashItem } from '@/api/tauri'
 
-type Row = TrashRow & { selected: boolean }
+type Row = TrashItem & { selected: boolean }
 
+const { t } = useI18n()
 const props = defineProps<{ items: Row[] }>()
 const emit = defineEmits<{
   toggleAll: [value: boolean]
@@ -39,25 +47,44 @@ const allChecked = computed<boolean | 'indeterminate'>(() => {
 function onToggleAll(v: boolean | 'indeterminate') {
   emit('toggleAll', v === true)
 }
+
+const RETENTION_DAYS = 30
+
+function formatRelative(ms: number): string {
+  const diff = Date.now() - ms
+  const m = Math.floor(diff / 60_000)
+  if (m < 1) return t('common.justNow')
+  if (m < 60) return `${m} ${t('common.minute')}`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} ${t('common.hour')}`
+  const d = Math.floor(h / 24)
+  return `${d} ${t('common.day')}`
+}
+
+function daysLeft(movedAtMs: number): number {
+  const elapsedDays = Math.floor((Date.now() - movedAtMs) / 86_400_000)
+  return Math.max(0, RETENTION_DAYS - elapsedDays)
+}
 </script>
 
 <template>
-  <Card class="overflow-hidden">
-    <CardHeader class="pb-2">
-      <CardTitle class="text-base">回收站项目</CardTitle>
-      <CardDescription class="text-xs">按删除时间倒序</CardDescription>
+  <Card class="gap-3 overflow-hidden pb-0">
+    <CardHeader class="pb-0">
+      <CardTitle class="text-base">{{ t('trash.cardTitle') }}</CardTitle>
+      <CardDescription class="text-xs">{{ t('trash.cardDesc') }}</CardDescription>
     </CardHeader>
     <CardContent class="p-0">
-      <Table>
+      <Table class="table-fixed">
         <TableHeader>
           <TableRow>
             <TableHead class="w-10">
               <Checkbox :model-value="allChecked" @update:model-value="onToggleAll" />
             </TableHead>
-            <TableHead>原始路径</TableHead>
-            <TableHead class="w-[110px]">大小</TableHead>
-            <TableHead class="w-[160px]">删除时间</TableHead>
-            <TableHead class="w-[140px]">剩余保留</TableHead>
+            <TableHead>{{ t('trash.columnPath') }}</TableHead>
+            <TableHead class="w-[110px]">{{ t('trash.columnSize') }}</TableHead>
+            <TableHead class="w-[120px]">{{ t('trash.columnCategory') }}</TableHead>
+            <TableHead class="w-[140px]">{{ t('trash.columnMovedAt') }}</TableHead>
+            <TableHead class="w-[120px]">{{ t('trash.columnDaysLeft') }}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -73,18 +100,37 @@ function onToggleAll(v: boolean | 'indeterminate') {
               />
             </TableCell>
             <TableCell class="font-mono text-xs">
-              <div class="max-w-[400px] truncate" :title="item.path">{{ item.path }}</div>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <div class="min-w-0 cursor-default truncate">{{ item.originalPath }}</div>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
+                  {{ item.originalPath }}
+                </TooltipContent>
+              </Tooltip>
             </TableCell>
-            <TableCell class="font-mono tabular-nums">{{ item.size }}</TableCell>
-            <TableCell class="text-xs text-muted-foreground">{{ item.deletedAt }}</TableCell>
+            <TableCell class="font-mono tabular-nums text-sm">
+              {{ humanizeBytes(item.sizeBytes) }}
+            </TableCell>
+            <TableCell>
+              <Badge variant="outline" class="text-[11px]">{{ item.category }}</Badge>
+            </TableCell>
+            <TableCell class="text-xs text-muted-foreground">
+              {{ formatRelative(item.movedAt) }}
+            </TableCell>
             <TableCell>
               <Badge
                 variant="outline"
                 class="gap-1 text-[11px]"
-                :class="item.daysLeft <= 7 ? 'border-rose-500/30 text-rose-500' : ''"
+                :class="daysLeft(item.movedAt) <= 7 ? 'border-rose-500/30 text-rose-500' : ''"
               >
-                <Clock class="size-3" /> 剩 {{ item.daysLeft }} 天
+                <Clock class="size-3" /> {{ t('trash.daysLeft', { n: daysLeft(item.movedAt) }) }}
               </Badge>
+            </TableCell>
+          </TableRow>
+          <TableRow v-if="items.length === 0">
+            <TableCell colspan="6" class="text-center text-sm text-muted-foreground py-10">
+              {{ t('trash.emptyTip') }} <kbd class="rounded border bg-muted px-1.5 py-0.5 text-[10px]">{{ t('trash.emptyTipKbd') }}</kbd>{{ t('trash.emptyTipTail') }}
             </TableCell>
           </TableRow>
         </TableBody>

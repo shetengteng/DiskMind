@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Card,
   CardContent,
@@ -10,7 +11,6 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -19,14 +19,20 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTheme } from '@/composables/useTheme'
+import { setLocale, type Locale } from '@/i18n'
 
 const { mode: themeMode } = useTheme()
-const language = ref<'zh-CN'>('zh-CN')
+const { t, locale } = useI18n()
+
+const language = computed<Locale>({
+  get: () => locale.value as Locale,
+  set: (v) => setLocale(v),
+})
 
 interface ToggleItem {
   key: keyof typeof generalSettings.value
-  label: string
-  desc: string
+  labelKey: string
+  descKey: string
 }
 
 const generalSettings = ref({
@@ -34,15 +40,13 @@ const generalSettings = ref({
   startWithSystem: false,
   hideInTrayWhenMinimized: true,
   scanOnStartup: false,
-  sendCrashReport: true,
 })
 
 const appToggles: ToggleItem[] = [
-  { key: 'autoUpdate', label: '自动检查更新', desc: '每周检查一次新版本' },
-  { key: 'startWithSystem', label: '开机自启动', desc: '系统启动时自动运行 DiskMind' },
-  { key: 'hideInTrayWhenMinimized', label: '最小化到托盘', desc: '关闭主窗口时隐藏到系统托盘' },
-  { key: 'scanOnStartup', label: '启动时自动扫描', desc: '应用启动后立即开始扫描' },
-  { key: 'sendCrashReport', label: '发送匿名崩溃报告', desc: '帮助开发者改进稳定性,不包含个人数据' },
+  { key: 'autoUpdate', labelKey: 'settings.general.autoUpdate', descKey: 'settings.general.autoUpdateDesc' },
+  { key: 'startWithSystem', labelKey: 'settings.general.startWithSystem', descKey: 'settings.general.startWithSystemDesc' },
+  { key: 'hideInTrayWhenMinimized', labelKey: 'settings.general.hideInTray', descKey: 'settings.general.hideInTrayDesc' },
+  { key: 'scanOnStartup', labelKey: 'settings.general.scanOnStartup', descKey: 'settings.general.scanOnStartupDesc' },
 ]
 </script>
 
@@ -50,15 +54,15 @@ const appToggles: ToggleItem[] = [
   <div class="space-y-4">
     <Card>
       <CardHeader class="pb-2">
-        <CardTitle class="text-base">应用</CardTitle>
-        <CardDescription class="text-xs">启动行为和自动更新</CardDescription>
+        <CardTitle class="text-base">{{ t('settings.general.app') }}</CardTitle>
+        <CardDescription class="text-xs">{{ t('settings.general.appDesc') }}</CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
         <template v-for="(item, idx) in appToggles" :key="item.key">
           <div class="flex items-center justify-between gap-3">
             <div class="space-y-0.5">
-              <Label class="text-sm">{{ item.label }}</Label>
-              <p class="text-xs text-muted-foreground">{{ item.desc }}</p>
+              <Label class="text-sm">{{ t(item.labelKey) }}</Label>
+              <p class="text-xs text-muted-foreground">{{ t(item.descKey) }}</p>
             </div>
             <Switch v-model="generalSettings[item.key]" />
           </div>
@@ -69,31 +73,29 @@ const appToggles: ToggleItem[] = [
 
     <Card>
       <CardHeader class="pb-2">
-        <CardTitle class="text-base">外观</CardTitle>
-        <CardDescription class="text-xs">主题和语言</CardDescription>
+        <CardTitle class="text-base">{{ t('settings.general.appearance') }}</CardTitle>
+        <CardDescription class="text-xs">{{ t('settings.general.appearanceDesc') }}</CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="flex items-center justify-between gap-3">
-          <Label class="text-sm">主题</Label>
+          <Label class="text-sm">{{ t('settings.general.theme') }}</Label>
           <Select v-model="themeMode">
             <SelectTrigger class="h-9 w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">跟随系统</SelectItem>
-              <SelectItem value="dark">深色</SelectItem>
-              <SelectItem value="light">浅色</SelectItem>
+              <SelectItem value="auto">{{ t('settings.general.themeAuto') }}</SelectItem>
+              <SelectItem value="dark">{{ t('settings.general.themeDark') }}</SelectItem>
+              <SelectItem value="light">{{ t('settings.general.themeLight') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <Separator />
         <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <Label class="text-sm">语言</Label>
-            <Badge variant="secondary" class="text-[10px]">Coming soon</Badge>
-          </div>
-          <Select v-model="language" disabled>
+          <Label class="text-sm">{{ t('settings.general.language') }}</Label>
+          <Select v-model="language">
             <SelectTrigger class="h-9 w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="zh-CN">简体中文</SelectItem>
+              <SelectItem value="en-US">English</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -11,6 +11,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { providers as mockProviders, type ProviderRow } from '@/data/mock'
 import ProviderEditDialog from './ProviderEditDialog.vue'
 
@@ -64,9 +69,16 @@ function removeProvider(id: string) {
             <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">默认</Badge>
             <Badge variant="outline" class="text-[10px]">{{ p.type }}</Badge>
           </div>
-          <div class="truncate font-mono text-[11px] text-muted-foreground" :title="p.baseUrl">
-            {{ p.baseUrl }} · {{ p.model }}
-          </div>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <div class="cursor-default truncate font-mono text-[11px] text-muted-foreground">
+                {{ p.baseUrl }} · {{ p.model }}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start" class="max-w-[80vw] break-all font-mono">
+              {{ p.baseUrl }}
+            </TooltipContent>
+          </Tooltip>
         </div>
         <Badge
           v-if="p.enabled"

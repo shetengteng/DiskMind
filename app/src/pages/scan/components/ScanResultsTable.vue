@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   ArrowUpDown,
   Sparkles,
   ShieldCheck,
   ShieldAlert,
   ShieldQuestion,
+  Copy,
+  Check,
 } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { Card } from '@/components/ui/card'
 import {
   Table,
@@ -19,7 +22,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import type { ScanResultRow, FileRisk } from '@/data/mock'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { ScanResultRow, FileRisk } from '@/api/tauri'
 
 type Row = ScanResultRow & { selected: boolean }
 
@@ -36,11 +40,13 @@ const emit = defineEmits<{
   toggleRow: [id: number, value: boolean]
 }>()
 
-const riskMap: Record<FileRisk, { label: string; color: string; icon: any }> = {
-  low: { label: '低', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30', icon: ShieldCheck },
-  medium: { label: '中', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30', icon: ShieldQuestion },
-  high: { label: '高', color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30', icon: ShieldAlert },
-}
+const { t } = useI18n()
+
+const riskMap = computed<Record<FileRisk, { label: string; color: string; icon: any }>>(() => ({
+  low: { label: t('common.low'), color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30', icon: ShieldCheck },
+  medium: { label: t('common.medium'), color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30', icon: ShieldQuestion },
+  high: { label: t('common.high'), color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30', icon: ShieldAlert },
+}))
 
 const allChecked = computed<boolean | 'indeterminate'>(() => {
   if (props.rows.length === 0) return false
@@ -62,29 +68,44 @@ function toggleSort(k: 'size' | 'risk' | 'path') {
 function onToggleAll(v: boolean | 'indeterminate') {
   emit('toggleAll', v === true)
 }
+
+const copiedId = ref<number | null>(null)
+let copyTimer: number | null = null
+
+async function copyPath(row: ScanResultRow) {
+  try {
+    await navigator.clipboard.writeText(row.path)
+    copiedId.value = row.id
+    if (copyTimer) window.clearTimeout(copyTimer)
+    copyTimer = window.setTimeout(() => {
+      copiedId.value = null
+      copyTimer = null
+    }, 1400)
+  } catch {
+    /* noop */
+  }
+}
 </script>
 
 <template>
-  <Card class="overflow-hidden">
-    <div class="overflow-x-auto">
-      <Table>
+  <Card class="gap-0 overflow-hidden py-0">
+    <Table class="w-full table-fixed">
       <TableHeader>
         <TableRow>
           <TableHead class="w-10">
             <Checkbox :model-value="allChecked" @update:model-value="onToggleAll" />
           </TableHead>
           <TableHead class="cursor-pointer select-none" @click="toggleSort('path')">
-            路径 <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
+            {{ t('scan.columnPath') }} <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
           </TableHead>
-          <TableHead class="w-[110px]">分类</TableHead>
+          <TableHead class="hidden w-[110px] md:table-cell">{{ t('scan.columnCategory') }}</TableHead>
           <TableHead class="w-[100px] cursor-pointer select-none" @click="toggleSort('size')">
-            大小 <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
+            {{ t('scan.columnSize') }} <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
           </TableHead>
-          <TableHead class="w-[80px] cursor-pointer select-none" @click="toggleSort('risk')">
-            风险 <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
+          <TableHead class="w-[72px] cursor-pointer select-none" @click="toggleSort('risk')">
+            {{ t('scan.columnRisk') }} <ArrowUpDown class="ml-1 inline size-3 text-muted-foreground" />
           </TableHead>
-          <TableHead class="hidden 2xl:table-cell">AI 判断依据</TableHead>
-          <TableHead class="w-[80px] text-right">操作</TableHead>
+          <TableHead class="w-[80px] text-right">{{ t('scan.columnAction') }}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -99,35 +120,59 @@ function onToggleAll(v: boolean | 'indeterminate') {
               @update:model-value="(v) => emit('toggleRow', row.id, v === true)"
             />
           </TableCell>
-          <TableCell class="font-mono text-xs">
-            <div class="max-w-[280px] truncate xl:max-w-[400px]" :title="row.path">{{ row.path }}</div>
+          <TableCell class="overflow-hidden font-mono text-xs">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <div class="truncate" dir="rtl">{{ row.path }}</div>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="start"
+                class="max-w-[min(80vw,720px)] p-0"
+              >
+                <div class="flex items-start gap-2 px-2.5 py-1.5">
+                  <span class="break-all font-mono text-xs leading-relaxed">{{ row.path }}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="-mr-1 h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+                    :aria-label="copiedId === row.id ? t('common.confirm') : t('common.path')"
+                    @click.stop.prevent="copyPath(row)"
+                  >
+                    <Check v-if="copiedId === row.id" class="size-3 text-emerald-500" />
+                    <Copy v-else class="size-3" />
+                  </Button>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           </TableCell>
-          <TableCell>
-            <Badge variant="outline" class="text-[10px]">{{ row.category }}</Badge>
+          <TableCell class="hidden md:table-cell">
+            <Badge variant="outline" class="h-5 px-1.5 py-0 text-[10px] leading-none">{{ row.category }}</Badge>
           </TableCell>
           <TableCell class="font-mono tabular-nums">{{ row.size }}</TableCell>
           <TableCell>
-            <Badge :class="['gap-1 border text-[11px]', riskMap[row.risk].color]">
-              <component :is="riskMap[row.risk].icon" class="size-3" />
+            <Badge :class="['inline-flex h-[18px] items-center gap-1 border px-1.5 text-[10px] leading-none [&>svg]:size-2.5', riskMap[row.risk].color]">
+              <component :is="riskMap[row.risk].icon" />
               {{ riskMap[row.risk].label }}
             </Badge>
           </TableCell>
-          <TableCell class="hidden max-w-[320px] 2xl:table-cell">
-            <p class="line-clamp-2 text-xs text-muted-foreground">{{ row.aiReason }}</p>
-          </TableCell>
           <TableCell class="text-right">
-            <Button
-              variant="ghost"
-              size="sm"
-              class="h-7 gap-1 px-2"
-              @click="emit('askAi', row)"
-            >
-              <Sparkles class="size-3" /> 问 AI
-            </Button>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="t('scan.askAi')"
+                  @click="emit('askAi', row)"
+                >
+                  <Sparkles class="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{{ t('scan.askAi') }}</TooltipContent>
+            </Tooltip>
           </TableCell>
         </TableRow>
       </TableBody>
     </Table>
-    </div>
   </Card>
 </template>

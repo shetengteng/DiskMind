@@ -36,9 +36,9 @@ onBeforeUnmount(() => {
     }"
   >
     <AppSidebar variant="inset" />
-    <SidebarInset>
+    <SidebarInset class="min-w-0 overflow-x-hidden">
       <SiteHeader />
-      <main class="flex flex-1 flex-col gap-4 p-4 md:gap-6 md:p-6">
+      <main class="flex min-w-0 flex-1 flex-col gap-4 overflow-x-hidden p-4 pb-16 md:gap-6 md:p-6 md:pb-20">
         <RouterView v-slot="{ Component, route }">
           <transition name="fade" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
