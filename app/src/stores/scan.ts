@@ -166,7 +166,10 @@ export const useScanStore = defineStore('scan', () => {
     try {
       const last = await loadLastScan()
       if (!last) return
-      results.value = last.results
+      // 过滤掉后端标记 missing 的行 — 这些是已经被本应用沙箱回收站
+      // 移走,或在文件系统层面已经不存在的幽灵记录。保留它们会让用户
+      // 点 "在 Finder 中打开" 时一脸懵。
+      results.value = last.results.filter(r => !r.missing)
       dirSummary.value = last.dirSummary
       totalFiles.value = last.totalFiles
       totalBytes.value = last.totalBytes

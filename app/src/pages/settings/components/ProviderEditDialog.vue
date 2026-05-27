@@ -66,8 +66,7 @@ const providerTemplates = [
   { name: 'Together AI', kind: 'OpenAI 兼容', baseUrl: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B', icon: Cloud },
   { name: 'Groq', kind: 'OpenAI 兼容', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', icon: Zap },
   { name: 'Anthropic Claude', kind: 'Anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-latest', icon: Bot },
-  { name: 'Google Gemini', kind: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash-exp', icon: Bot },
-  { name: 'Ollama 本地', kind: 'OpenAI 兼容', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:3b', icon: Server },
+  { name: 'Ollama 本地', kind: 'Ollama', baseUrl: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', icon: Server },
 ]
 
 const providers = useProvidersStore()
@@ -305,7 +304,7 @@ async function testNow() {
             <SelectContent>
               <SelectItem value="OpenAI 兼容">OpenAI 兼容</SelectItem>
               <SelectItem value="Anthropic">Anthropic</SelectItem>
-              <SelectItem value="Gemini">Gemini</SelectItem>
+              <SelectItem value="Ollama">Ollama</SelectItem>
             </SelectContent>
           </Select>
         </div>

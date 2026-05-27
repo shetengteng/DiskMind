@@ -7,7 +7,6 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs'
 import ProviderListCard from './components/ProviderListCard.vue'
-import RoutingRulesCard from './components/RoutingRulesCard.vue'
 import FallbackChainCard from './components/FallbackChainCard.vue'
 import GeneralSettingsTab from './components/GeneralSettingsTab.vue'
 import ScanSettingsTab from './components/ScanSettingsTab.vue'
@@ -40,7 +39,6 @@ const { t } = useI18n()
 
       <TabsContent value="ai" class="space-y-4">
         <ProviderListCard />
-        <RoutingRulesCard />
         <FallbackChainCard />
       </TabsContent>
 

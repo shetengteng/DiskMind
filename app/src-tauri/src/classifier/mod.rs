@@ -22,6 +22,20 @@ pub struct ScanResultRow {
     pub risk: FileRisk,
     #[serde(rename = "aiReason")]
     pub ai_reason: String,
+    /// 该路径在加载快照时已不在原位 — 要么被 DiskMind 沙箱回收站
+    /// 移走(`trash_item.status = 'in_trash'`),要么被用户在外部
+    /// 直接删除/移动。前端据此过滤或灰显幽灵记录,避免出现 "扫描
+    /// 结果里有,但 Finder 里找不到" 的诡异体验。
+    ///
+    /// 由 `Db::load_latest` 在返回前回填;实时 `scan:complete` 推送
+    /// 时不会出现,因为那是刚刚扫出来的结果。新扫描入库时永远是
+    /// `false`,所以 SQLite 无需新增列,仅在内存中标记。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub missing: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 const MIN_REPORT_SIZE: u64 = 1024 * 1024;
@@ -61,6 +75,7 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
                 size_bytes: report_bytes,
                 risk,
                 ai_reason: reason.to_string(),
+                missing: false,
             });
             next_id += 1;
         }

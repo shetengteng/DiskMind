@@ -11,6 +11,12 @@ export interface ScanResultRow {
   sizeBytes: number
   risk: FileRisk
   aiReason: string
+  /**
+   * 后端在 `load_last_scan` 中回填:文件已被 DiskMind 沙箱回收站
+   * 移走,或在文件系统中已不存在(用户在 Finder 中删除等)。
+   * 实时 `scan:complete` 推送的结果中不会出现此标记。
+   */
+  missing?: boolean
 }
 
 export interface ScanProgressPayload {
@@ -211,6 +217,46 @@ export async function trashDelete(ids: number[]): Promise<TrashMoveResult> {
 export async function trashEmpty(): Promise<TrashMoveResult> {
   if (!isTauri()) return { items: [], failures: [] }
   return await invoke<TrashMoveResult>('trash_empty')
+}
+
+/**
+ * 应用内沙箱目录的绝对路径。Web 预览模式下返回 null,UI 应回退到
+ * "桌面端可见"占位文案。
+ */
+export async function trashSandboxRoot(): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<string>('trash_sandbox_root')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 读取沙箱保留天数。Web 预览模式下返回 30 作为兜底,避免设置页 Select
+ * 空着。
+ */
+export async function trashGetRetentionDays(): Promise<number> {
+  if (!isTauri()) return 30
+  try {
+    return await invoke<number>('trash_get_retention_days')
+  } catch {
+    return 30
+  }
+}
+
+export async function trashSetRetentionDays(days: number): Promise<void> {
+  if (!isTauri()) return
+  await invoke('trash_set_retention_days', { days })
+}
+
+/**
+ * 在系统文件管理器中显示路径(macOS Finder / Windows Explorer /
+ * Linux xdg-open)。失败时抛错,由调用方 toast。
+ */
+export async function revealInExplorer(path: string): Promise<void> {
+  if (!isTauri()) throw new Error('需要在桌面端运行')
+  await invoke('reveal_in_explorer', { path })
 }
 
 export type ProviderKind = 'OpenAI 兼容' | 'Anthropic' | 'Gemini' | 'Local'

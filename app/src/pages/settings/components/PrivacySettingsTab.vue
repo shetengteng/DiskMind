@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ShieldCheck, Cpu, Wallet, EyeOff } from 'lucide-vue-next'
+import { ShieldCheck, Cpu, Wallet, EyeOff, FolderOpen, Copy } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -21,6 +21,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { usePrivacyStore } from '@/stores/privacy'
+import {
+  trashSandboxRoot,
+  trashGetRetentionDays,
+  trashSetRetentionDays,
+  revealInExplorer,
+} from '@/api/tauri'
+import { notify } from '@/lib/notify'
 
 const { t } = useI18n()
 const privacy = usePrivacyStore()
@@ -30,6 +37,52 @@ const privacySettings = ref({
   excludeSshDocs: true,
   encryptKeychain: true,
 })
+
+// ----- 沙箱配置 -----
+// 保留天数与后端 `meta` 表双向绑定。Select 是字符串型,这里维护成 string
+// 以避免 v-model 与 SelectItem 的 value 不匹配。
+const sandboxPath = ref<string | null>(null)
+const retentionDays = ref<string>('30')
+// 首次 mount 时不该把 `30` 当用户修改回写回去,用一个 ready flag 跳过。
+const retentionReady = ref(false)
+
+onMounted(async () => {
+  sandboxPath.value = await trashSandboxRoot()
+  const days = await trashGetRetentionDays()
+  retentionDays.value = String(days)
+  retentionReady.value = true
+})
+
+watch(retentionDays, async (v) => {
+  if (!retentionReady.value) return
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 1 || n > 365) return
+  try {
+    await trashSetRetentionDays(n)
+    notify.success(t('settings.privacy.retentionSaved', { n }))
+  } catch (e) {
+    notify.error(t('settings.privacy.retentionSaveFailed'), String(e))
+  }
+})
+
+async function onRevealSandbox() {
+  if (!sandboxPath.value) return
+  try {
+    await revealInExplorer(sandboxPath.value)
+  } catch (e) {
+    notify.error(t('trash.sandboxRevealFailed'), String(e))
+  }
+}
+
+async function onCopySandbox() {
+  if (!sandboxPath.value) return
+  try {
+    await navigator.clipboard.writeText(sandboxPath.value)
+    notify.success(t('trash.sandboxPathCopied'))
+  } catch (e) {
+    notify.error(t('trash.sandboxPathCopyFailed'), String(e))
+  }
+}
 
 const uploadToggles = [
   {
@@ -110,28 +163,68 @@ const uploadToggles = [
 
     <Card>
       <CardHeader class="pb-2">
-        <CardTitle class="text-base">沙箱与审计</CardTitle>
-        <CardDescription class="text-xs">删除安全机制与可追溯性</CardDescription>
+        <CardTitle class="text-base">{{ t('settings.privacy.sandboxTitle') }}</CardTitle>
+        <CardDescription class="text-xs">
+          {{ t('settings.privacy.sandboxDesc') }}
+        </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
+        <div class="space-y-2">
+          <Label class="text-sm">{{ t('settings.privacy.sandboxLocation') }}</Label>
+          <div class="flex flex-wrap items-center gap-2">
+            <code
+              class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs"
+              :title="sandboxPath ?? ''"
+            >{{ sandboxPath ?? t('settings.privacy.sandboxLocationUnavailable') }}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8"
+              :disabled="!sandboxPath"
+              @click="onRevealSandbox"
+            >
+              <FolderOpen class="mr-1.5 size-3.5" />
+              {{ t('trash.sandboxReveal') }}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-8"
+              :disabled="!sandboxPath"
+              @click="onCopySandbox"
+            >
+              <Copy class="mr-1.5 size-3.5" />
+              {{ t('common.copy') }}
+            </Button>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            {{ t('settings.privacy.sandboxLocationHint') }}
+          </p>
+        </div>
+        <Separator />
         <div class="flex items-center justify-between gap-3">
-          <Label class="text-sm">沙箱保留天数</Label>
-          <Select default-value="30">
+          <div class="space-y-0.5">
+            <Label class="text-sm">{{ t('settings.privacy.retention') }}</Label>
+            <p class="text-xs text-muted-foreground">
+              {{ t('settings.privacy.retentionDesc') }}
+            </p>
+          </div>
+          <Select v-model="retentionDays">
             <SelectTrigger class="h-9 w-[120px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="7">7 天</SelectItem>
-              <SelectItem value="14">14 天</SelectItem>
-              <SelectItem value="30">30 天</SelectItem>
-              <SelectItem value="60">60 天</SelectItem>
+              <SelectItem value="7">{{ t('settings.privacy.retentionDays', { n: 7 }) }}</SelectItem>
+              <SelectItem value="14">{{ t('settings.privacy.retentionDays', { n: 14 }) }}</SelectItem>
+              <SelectItem value="30">{{ t('settings.privacy.retentionDays', { n: 30 }) }}</SelectItem>
+              <SelectItem value="60">{{ t('settings.privacy.retentionDays', { n: 60 }) }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <Separator />
         <Button variant="outline" class="w-full" size="sm">
-          <Cpu class="mr-1.5 size-3.5" /> AI 上传字段审计 (查看实际发送内容)
+          <Cpu class="mr-1.5 size-3.5" /> {{ t('settings.privacy.aiAudit') }}
         </Button>
         <Button variant="outline" class="w-full" size="sm">
-          <Wallet class="mr-1.5 size-3.5" /> 导出全部审计日志
+          <Wallet class="mr-1.5 size-3.5" /> {{ t('settings.privacy.exportAuditLog') }}
         </Button>
       </CardContent>
     </Card>

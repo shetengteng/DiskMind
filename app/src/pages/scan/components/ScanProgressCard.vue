@@ -30,6 +30,18 @@ function formatBytes(bytes: number) {
 }
 
 const reclaimableGb = computed(() => scan.totalReclaimableGb.toFixed(2))
+
+// 扫描进行中:展示 `filesScanned / bytesScanned`(progress 事件实时
+// 推送的递增计数)。
+// 扫描结束(包括应用启动时 `loadLast()` 回填的上次结果):展示
+// `totalFiles / totalBytes`(scan_run 表的最终统计)。
+// 之前的实现总用前者,导致冷启动后看到 "0 / 0 B" 这个误导性占位。
+const displayFiles = computed(() =>
+  scan.phase === 'done' ? scan.totalFiles : scan.filesScanned,
+)
+const displayBytes = computed(() =>
+  scan.phase === 'done' ? scan.totalBytes : scan.bytesScanned,
+)
 </script>
 
 <template>
@@ -73,13 +85,13 @@ const reclaimableGb = computed(() => scan.totalReclaimableGb.toFixed(2))
           <div>
             <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressFiles') }}</div>
             <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
-              {{ scan.filesScanned.toLocaleString() }}
+              {{ displayFiles.toLocaleString() }}
             </div>
           </div>
           <div>
             <div class="text-[10px] uppercase tracking-wider">{{ t('scan.progressBytes') }}</div>
             <div class="mt-0.5 font-mono text-sm tabular-nums text-foreground">
-              {{ formatBytes(scan.bytesScanned) }}
+              {{ formatBytes(displayBytes) }}
             </div>
           </div>
           <div>

@@ -21,9 +21,11 @@ use classifier::ScanResultRow;
 use db::{AiCallLog, AiTodayStats, Db, DbStats, ScanRunMeta, StoredDirSummary, StoredScanRun};
 use scanner::{FileEntry, ScanProgress};
 
-/// 应用内回收站沙箱中的项目自动清理前的保留天数,对应 TODO 1.6 的
-/// “30 天自动清理”,参见 `trash::cleanup_expired`。
-const TRASH_RETENTION_DAYS: u64 = 30;
+/// 沙箱保留天数默认值。实际生效值从 `meta` 表的
+/// `trash_retention_days` 键读取(参见 `Db::trash_retention_days`),允许
+/// 用户在隐私设置里改成 7/14/30/60 天。这里只兜底首次启动 / 解析失败的
+/// 情况,对应 TODO 1.6。
+const DEFAULT_TRASH_RETENTION_DAYS: u64 = 30;
 
 /// 后台任务扫描过期回收站项目的间隔。由于保留粒度是“天”,每小时一次足够。
 const TRASH_CLEANUP_INTERVAL_SECS: u64 = 3600;
@@ -456,6 +458,82 @@ fn trash_empty(state: State<'_, ScanState>) -> Result<trash::TrashMoveResult, St
     Ok(trash::empty_all(&state.db))
 }
 
+/// 应用内沙箱目录的绝对路径。前端用来在 Trash / Privacy 页面上展示
+/// "你的文件被放在这里",并配合 `reveal_in_explorer` 弹出系统文件管理器。
+#[tauri::command]
+fn trash_sandbox_root(state: State<'_, ScanState>) -> String {
+    state.sandbox_root.to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn trash_get_retention_days(state: State<'_, ScanState>) -> u64 {
+    state.db.trash_retention_days(DEFAULT_TRASH_RETENTION_DAYS)
+}
+
+#[tauri::command]
+fn trash_set_retention_days(days: u64, state: State<'_, ScanState>) -> Result<(), String> {
+    // 防止用户(或被篡改的前端)写入 0 / 极端值。30 是默认,允许范围 1..=365。
+    if !(1..=365).contains(&days) {
+        return Err(format!("retention_days out of range: {days}"));
+    }
+    state
+        .db
+        .set_trash_retention_days(days)
+        .map_err(|e| e.to_string())
+}
+
+/// 跨平台地在系统文件管理器里展示 `path`(macOS Finder / Windows Explorer
+/// / Linux 的 xdg-open)。对目录就打开它,对文件就高亮显示。
+/// 不存在或调用失败时返回 `Err(String)`,由前端 toast。
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("路径不存在: {path}"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // `open -R` 在 Finder 里高亮显示目标;对目录则会打开它的父目录
+        // 并高亮,所以这里也作为通用入口使用。
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // `explorer /select,<path>` 高亮显示;对目录改用 `explorer <path>`
+        // 直接打开,避免 explorer 在选中目录时弹出二级窗口。
+        let mut cmd = std::process::Command::new("explorer");
+        if p.is_dir() {
+            cmd.arg(&path);
+        } else {
+            cmd.arg(format!("/select,{}", path));
+        }
+        cmd.spawn().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // freedesktop 没有"高亮文件"通用入口,退化为打开父目录。
+        let target = if p.is_dir() {
+            p.to_path_buf()
+        } else {
+            p.parent().unwrap_or(p).to_path_buf()
+        };
+        std::process::Command::new("xdg-open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 fn provider_list(state: State<'_, ScanState>) -> Result<Vec<db::Provider>, String> {
     state.db.provider_list().map_err(|e| e.to_string())
@@ -844,6 +922,19 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // Autostart 插件仅在桌面端有意义,iOS/Android 不支持。这里
+            // 用 macOS 的 LaunchAgent 而不是 LoginItem 路径,避免要 App
+            // Sandbox 签名授权(目前 alpha 不签名)。不向被启动的进程传
+            // 任何额外参数 — DiskMind 的所有行为都是 UI 触发,启动参数
+            // 留空即可。
+            #[cfg(desktop)]
+            app.handle().plugin(
+                tauri_plugin_autostart::init(
+                    tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                    None::<Vec<&str>>,
+                ),
+            )?;
+
             let app_data = app
                 .path()
                 .app_data_dir()
@@ -868,7 +959,8 @@ pub fn run() {
             // 巡检一次。间隔故意放宽 — 回收站的保留粒度本来就是按天的。
             let cleanup_db = db.clone();
             tauri::async_runtime::spawn(async move {
-                let purged = trash::cleanup_expired(&cleanup_db, TRASH_RETENTION_DAYS);
+                let days = cleanup_db.trash_retention_days(DEFAULT_TRASH_RETENTION_DAYS);
+                let purged = trash::cleanup_expired(&cleanup_db, days);
                 if purged > 0 {
                     log::info!("[diskmind] startup trash cleanup purged {} items", purged);
                 }
@@ -877,7 +969,10 @@ pub fn run() {
                 tick.tick().await; // skip the initial fire (we just ran above)
                 loop {
                     tick.tick().await;
-                    let purged = trash::cleanup_expired(&cleanup_db, TRASH_RETENTION_DAYS);
+                    // 每轮都重新读 DB,这样用户在设置页改了天数能立刻生效,
+                    // 不必重启 app。
+                    let days = cleanup_db.trash_retention_days(DEFAULT_TRASH_RETENTION_DAYS);
+                    let purged = trash::cleanup_expired(&cleanup_db, days);
                     if purged > 0 {
                         log::info!("[diskmind] periodic trash cleanup purged {} items", purged);
                     }
@@ -907,6 +1002,10 @@ pub fn run() {
             trash_restore,
             trash_delete,
             trash_empty,
+            trash_sandbox_root,
+            trash_get_retention_days,
+            trash_set_retention_days,
+            reveal_in_explorer,
             provider_list,
             provider_save,
             provider_delete,

@@ -19,6 +19,8 @@ import {
 import { useProvidersStore } from '@/stores/providers'
 import { useScanStore } from '@/stores/scan'
 import { useTrashStore } from '@/stores/trash'
+import { usePrivacyStore } from '@/stores/privacy'
+import { maskPath } from '@/lib/pathMask'
 import { notify } from '@/lib/notify'
 import { parseAiMessage as parseAiMessageContent } from '@/lib/aiActions'
 import { trashMove as ipcTrashMove, type TrashMoveRequest } from '@/api/tauri'
@@ -236,13 +238,20 @@ export const useAiStore = defineStore('ai', () => {
     const scan = useScanStore()
     if (scan.results.length === 0) return undefined
 
+    // 隐私模式开启时,送给 LLM 的所有路径都先 mask。后端 / 本地动作仍
+    // 使用原始路径 — 这里只影响"发往云端 provider"的字符串。和 UI
+    // 层的 usePathMask 共用同一份 mask cache,保证同一 segment 在多
+    // 处展示中映射一致。
+    const privacy = usePrivacyStore()
+    const m = (p: string) => maskPath(p, privacy.pathMask)
+
     const lines: string[] = []
     lines.push('## 当前扫描结果（系统注入,供 AI 引用）')
     if (scan.lastScanAt) {
       lines.push(`- 扫描时间: ${new Date(scan.lastScanAt).toLocaleString()}`)
     }
     if (scan.lastScanRoots.length > 0) {
-      lines.push(`- 扫描根目录: ${scan.lastScanRoots.join(', ')}`)
+      lines.push(`- 扫描根目录: ${scan.lastScanRoots.map(m).join(', ')}`)
     }
     lines.push(`- 文件总数: ${scan.totalFiles.toLocaleString()}, 总占用: ${(scan.totalBytes / 1024 / 1024 / 1024).toFixed(2)} GB`)
     lines.push(`- 候选数量: ${scan.results.length} 项, 可回收估算: ${scan.totalReclaimableGb.toFixed(2)} GB`)
@@ -254,7 +263,7 @@ export const useAiStore = defineStore('ai', () => {
     lines.push('|---|------|------|------|------|')
     for (let i = 0; i < topN; i++) {
       const r = scan.results[i]!
-      lines.push(`| ${i + 1} | \`${r.path}\` | ${r.size} | ${r.category} | ${r.risk} |`)
+      lines.push(`| ${i + 1} | \`${m(r.path)}\` | ${r.size} | ${r.category} | ${r.risk} |`)
     }
 
     if (scan.dirSummary.length > 0) {
@@ -263,7 +272,7 @@ export const useAiStore = defineStore('ai', () => {
       lines.push('### 主要目录占用 (Top 8)')
       for (const d of topDirs) {
         const gb = (d.totalBytes / 1024 / 1024 / 1024).toFixed(2)
-        lines.push(`- \`${d.path}\` — ${gb} GB · ${d.fileCount.toLocaleString()} 文件`)
+        lines.push(`- \`${m(d.path)}\` — ${gb} GB · ${d.fileCount.toLocaleString()} 文件`)
       }
     }
 
@@ -331,10 +340,11 @@ export const useAiStore = defineStore('ai', () => {
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
     try {
+      const privacy = usePrivacyStore()
       await ipcAiChat({
         messages: ipcMessages,
         streamId: activeStreamId,
-        contextPaths: contextFiles.value.map(f => f.path),
+        contextPaths: contextFiles.value.map(f => maskPath(f.path, privacy.pathMask)),
         scanSummary: buildScanSummary(),
       })
     } catch (e) {
@@ -464,7 +474,15 @@ export const useAiStore = defineStore('ai', () => {
 
     explainLoading.value = true
     try {
-      explainResult.value = await ipcAiExplainFile(input)
+      // 在送 LLM 之前对 path 做最后一次 mask。retryExplain 会复用
+      // explainInput,因此即便 mask 改变,重试用的还是同样的 mask 文本,
+      // 保持一致性。
+      const privacy = usePrivacyStore()
+      const ipcInput: ExplainFileInput = {
+        ...input,
+        path: maskPath(input.path, privacy.pathMask),
+      }
+      explainResult.value = await ipcAiExplainFile(ipcInput)
       void refreshTodayStats()
     } catch (e) {
       explainError.value = String(e)

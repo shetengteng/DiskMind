@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
@@ -358,68 +359,119 @@ impl Db {
     }
 
     pub fn load_latest(&self) -> rusqlite::Result<Option<StoredScanRun>> {
-        let conn = self.conn.lock().expect("db poisoned");
+        // 把所有 SQL 查询塞到一个嵌套 scope 里,出 scope 后立即释放 DB
+        // 锁。下方对每一行做 Path::exists() 的 syscall 在锁外执行,避免
+        // 大量 stat() 阻塞其他 DB 操作。
+        let (
+            run_id,
+            finished_at,
+            duration_ms,
+            cancelled,
+            total_files,
+            total_bytes,
+            roots,
+            mut results,
+            dir_summary,
+            in_trash_paths,
+        ) = {
+            let conn = self.conn.lock().expect("db poisoned");
 
-        let mut run_stmt = conn.prepare(
-            "SELECT id, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json FROM scan_run ORDER BY id DESC LIMIT 1",
-        )?;
-        let run_opt = run_stmt
-            .query_row([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, String>(6)?,
-                ))
-            })
-            .ok();
+            let mut run_stmt = conn.prepare(
+                "SELECT id, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json FROM scan_run ORDER BY id DESC LIMIT 1",
+            )?;
+            let run_opt = run_stmt
+                .query_row([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                })
+                .ok();
 
-        let run = match run_opt {
-            Some(r) => r,
-            None => return Ok(None),
+            let run = match run_opt {
+                Some(r) => r,
+                None => return Ok(None),
+            };
+
+            let (run_id, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json) =
+                run;
+
+            let roots: Vec<String> = serde_json::from_str(&roots_json).unwrap_or_default();
+
+            let mut results_stmt = conn.prepare(
+                "SELECT id, path, category, size, size_bytes, risk, ai_reason FROM scan_result WHERE run_id = ? ORDER BY size_bytes DESC",
+            )?;
+            let results: Vec<ScanResultRow> = results_stmt
+                .query_map([run_id], |row| {
+                    Ok(ScanResultRow {
+                        id: row.get::<_, i64>(0)? as u64,
+                        path: row.get(1)?,
+                        category: row.get(2)?,
+                        size: row.get(3)?,
+                        size_bytes: row.get::<_, i64>(4)? as u64,
+                        risk: str_to_risk(&row.get::<_, String>(5)?),
+                        ai_reason: row.get(6)?,
+                        missing: false,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let mut dir_stmt = conn.prepare(
+                "SELECT name, size_bytes, file_count, top_children_json FROM dir_summary WHERE run_id = ? ORDER BY size_bytes DESC",
+            )?;
+            let dir_summary: Vec<StoredDirSummary> = dir_stmt
+                .query_map([run_id], |row| {
+                    let json: String = row.get(3)?;
+                    Ok(StoredDirSummary {
+                        name: row.get(0)?,
+                        size_bytes: row.get::<_, i64>(1)? as u64,
+                        file_count: row.get::<_, i64>(2)? as u64,
+                        top_children: serde_json::from_str(&json).unwrap_or_default(),
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let mut trash_stmt = conn.prepare(
+                "SELECT original_path FROM trash_item WHERE status = 'in_trash'",
+            )?;
+            let in_trash_paths: HashSet<String> = trash_stmt
+                .query_map([], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            (
+                run_id,
+                finished_at,
+                duration_ms,
+                cancelled,
+                total_files,
+                total_bytes,
+                roots,
+                results,
+                dir_summary,
+                in_trash_paths,
+            )
         };
 
-        let (run_id, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json) =
-            run;
-
-        let roots: Vec<String> = serde_json::from_str(&roots_json).unwrap_or_default();
-
-        let mut results_stmt = conn.prepare(
-            "SELECT id, path, category, size, size_bytes, risk, ai_reason FROM scan_result WHERE run_id = ? ORDER BY size_bytes DESC",
-        )?;
-        let results: Vec<ScanResultRow> = results_stmt
-            .query_map([run_id], |row| {
-                Ok(ScanResultRow {
-                    id: row.get::<_, i64>(0)? as u64,
-                    path: row.get(1)?,
-                    category: row.get(2)?,
-                    size: row.get(3)?,
-                    size_bytes: row.get::<_, i64>(4)? as u64,
-                    risk: str_to_risk(&row.get::<_, String>(5)?),
-                    ai_reason: row.get(6)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let mut dir_stmt = conn.prepare(
-            "SELECT name, size_bytes, file_count, top_children_json FROM dir_summary WHERE run_id = ? ORDER BY size_bytes DESC",
-        )?;
-        let dir_summary: Vec<StoredDirSummary> = dir_stmt
-            .query_map([run_id], |row| {
-                let json: String = row.get(3)?;
-                Ok(StoredDirSummary {
-                    name: row.get(0)?,
-                    size_bytes: row.get::<_, i64>(1)? as u64,
-                    file_count: row.get::<_, i64>(2)? as u64,
-                    top_children: serde_json::from_str(&json).unwrap_or_default(),
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+        // 给每一条 scan_result 打上 missing 标记:在沙箱回收站里 / 或文件
+        // 系统中已不存在的,前端会过滤掉,从而消除 "扫描结果有但 Finder
+        // 找不到" 的不一致。Path::exists() 的 syscall 在 DB 锁外执行。
+        for r in results.iter_mut() {
+            if in_trash_paths.contains(&r.path) {
+                r.missing = true;
+                continue;
+            }
+            if !Path::new(&r.path).exists() {
+                r.missing = true;
+            }
+        }
 
         Ok(Some(StoredScanRun {
             run_id,
@@ -685,6 +737,30 @@ impl Db {
             count: count as u64,
             total_bytes: bytes as u64,
         })
+    }
+
+    /// 沙箱保留天数,持久化在 `meta` 表的 `trash_retention_days` 键里。
+    /// 不存在或解析失败时回退到 `default_days`,让调用方决定默认值
+    /// (避免 db 层硬编码业务常量)。
+    pub fn trash_retention_days(&self, default_days: u64) -> u64 {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.query_row(
+            "SELECT v FROM meta WHERE k = 'trash_retention_days'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(default_days)
+    }
+
+    pub fn set_trash_retention_days(&self, days: u64) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "INSERT INTO meta(k, v) VALUES('trash_retention_days', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![days.to_string()],
+        )?;
+        Ok(())
     }
 }
 
