@@ -271,8 +271,8 @@ export const useAiStore = defineStore('ai', () => {
       lines.push('')
       lines.push('### 主要目录占用 (Top 8)')
       for (const d of topDirs) {
-        const gb = (d.totalBytes / 1024 / 1024 / 1024).toFixed(2)
-        lines.push(`- \`${m(d.path)}\` — ${gb} GB · ${d.fileCount.toLocaleString()} 文件`)
+        const gb = (d.sizeBytes / 1024 / 1024 / 1024).toFixed(2)
+        lines.push(`- \`${m(d.name)}\` — ${gb} GB · ${d.fileCount.toLocaleString()} 文件`)
       }
     }
 

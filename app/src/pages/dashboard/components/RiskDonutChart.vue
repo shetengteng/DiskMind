@@ -36,11 +36,12 @@ const data = computed<RiskDatum[]>(() => {
     acc[r.risk].bytes += r.sizeBytes
     acc[r.risk].count += 1
   }
-  return [
+  const rows: RiskDatum[] = [
     { key: 'high', name: t('common.high'), bytes: acc.high.bytes, count: acc.high.count },
     { key: 'medium', name: t('common.medium'), bytes: acc.medium.bytes, count: acc.medium.count },
     { key: 'low', name: t('common.low'), bytes: acc.low.bytes, count: acc.low.count },
-  ].filter(d => d.count > 0)
+  ]
+  return rows.filter(d => d.count > 0)
 })
 
 const isEmpty = computed(() => data.value.length === 0)

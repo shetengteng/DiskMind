@@ -196,8 +196,12 @@ const chartOption = computed(() => ({
   ],
 }))
 
-function onChartClick(params: { data?: { raw?: TreemapNode } }) {
-  const raw = params?.data?.raw
+function onChartClick(params: unknown) {
+  // ECharts 的 ECElementEvent 把 data 类型化成 OptionDataItem,与我们
+  // 实际塞进去的 `{ raw: TreemapNode }` 对不上,因此这里用 unknown +
+  // 运行时窄化,避免 d.ts 不匹配阻塞构建。
+  const data = (params as { data?: { raw?: TreemapNode } })?.data
+  const raw = data?.raw
   if (!raw) return
   emit('select', raw)
   if (raw.hasChildren) emit('drill', raw)
