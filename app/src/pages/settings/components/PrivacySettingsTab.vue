@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ShieldCheck, Cpu, Wallet, EyeOff, FolderOpen, Copy } from 'lucide-vue-next'
+import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -20,23 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { usePrivacyStore } from '@/stores/privacy'
 import {
   trashSandboxRoot,
   trashGetRetentionDays,
   trashSetRetentionDays,
   revealInExplorer,
+  aiListCallLogs,
+  writeTextFile,
+  isTauri,
 } from '@/api/tauri'
 import { notify } from '@/lib/notify'
 
 const { t } = useI18n()
 const privacy = usePrivacyStore()
-
-const privacySettings = ref({
-  hashOnly: true,
-  excludeSshDocs: true,
-  encryptKeychain: true,
-})
 
 // ----- 沙箱配置 -----
 // 保留天数与后端 `meta` 表双向绑定。Select 是字符串型,这里维护成 string
@@ -84,26 +82,59 @@ async function onCopySandbox() {
   }
 }
 
-const uploadToggles = [
-  {
-    key: 'hashOnly' as const,
-    label: '仅发送脱敏元数据',
-    desc: '绝不上传文件内容,只发送路径模式 + 大小 + 类型',
-    disabled: true,
-  },
-  {
-    key: 'excludeSshDocs' as const,
-    label: '敏感目录排除',
-    desc: '~/.ssh, ~/Documents/private 等不参与 AI 分析',
-    disabled: false,
-  },
-  {
-    key: 'encryptKeychain' as const,
-    label: 'API Key 加密存储',
-    desc: '使用 macOS Keychain / Windows Credential Manager',
-    disabled: true,
-  },
-]
+// ----- 审计日志导出 -----
+const exporting = ref(false)
+
+async function onExportAuditLog() {
+  if (!isTauri()) {
+    notify.warn(t('settings.privacy.exportDesktopOnly'))
+    return
+  }
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const logs = await aiListCallLogs(1000)
+    if (logs.length === 0) {
+      notify.info(t('settings.privacy.exportEmpty'))
+      return
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const target = await saveDialog({
+      title: t('settings.privacy.exportAuditLog'),
+      defaultPath: `diskmind-ai-audit-${ts}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    })
+    if (typeof target !== 'string' || target.length === 0) return
+
+    const header = 'id,called_at_iso,provider_name,provider_id,scenario,model,prompt_tokens,completion_tokens,cost_usd,duration_ms,success,error'
+    const esc = (s: string | null | undefined): string => {
+      const v = s ?? ''
+      return /[,"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+    }
+    const body = logs
+      .map((l) => [
+        l.id,
+        esc(new Date(l.calledAt).toISOString()),
+        esc(l.providerName),
+        esc(l.providerId),
+        esc(l.scenario),
+        esc(l.model),
+        l.promptTokens,
+        l.completionTokens,
+        l.costUsd.toFixed(6),
+        l.durationMs,
+        l.success,
+        esc(l.error),
+      ].join(','))
+      .join('\n')
+    await writeTextFile(target, `${header}\n${body}\n`)
+    notify.success(t('settings.privacy.exportSuccess', { n: logs.length }))
+  } catch (e) {
+    notify.error(t('settings.privacy.exportFailed'), String(e))
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -112,10 +143,9 @@ const uploadToggles = [
       <CardContent class="flex items-start gap-3 p-4">
         <ShieldCheck class="mt-0.5 size-5 shrink-0 text-emerald-500" />
         <div class="text-sm">
-          <div class="font-medium">DiskMind 隐私承诺</div>
+          <div class="font-medium">{{ t('settings.privacy.pledgeTitle') }}</div>
           <p class="mt-1 text-xs text-muted-foreground leading-relaxed">
-            我们不会上传任何文件内容到云端,只发送脱敏元数据 (路径模式、大小、扩展名、修改时间)。
-            所有 API Key 通过系统钥匙串加密存储。完整源码开源 (MIT 协议),用户可审计每一行代码。
+            {{ t('settings.privacy.pledgeBody') }}
           </p>
         </div>
       </CardContent>
@@ -139,25 +169,6 @@ const uploadToggles = [
             @update:model-value="(v) => privacy.setPathMask(!!v)"
           />
         </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader class="pb-2">
-        <CardTitle class="text-base">数据上传控制</CardTitle>
-        <CardDescription class="text-xs">控制发送到云端 AI 的内容</CardDescription>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <template v-for="(item, idx) in uploadToggles" :key="item.key">
-          <div class="flex items-center justify-between gap-3">
-            <div class="space-y-0.5">
-              <Label class="text-sm">{{ item.label }}</Label>
-              <p class="text-xs text-muted-foreground">{{ item.desc }}</p>
-            </div>
-            <Switch v-model="privacySettings[item.key]" :disabled="item.disabled" />
-          </div>
-          <Separator v-if="idx < uploadToggles.length - 1" />
-        </template>
       </CardContent>
     </Card>
 
@@ -220,11 +231,15 @@ const uploadToggles = [
           </Select>
         </div>
         <Separator />
-        <Button variant="outline" class="w-full" size="sm">
-          <Cpu class="mr-1.5 size-3.5" /> {{ t('settings.privacy.aiAudit') }}
-        </Button>
-        <Button variant="outline" class="w-full" size="sm">
-          <Wallet class="mr-1.5 size-3.5" /> {{ t('settings.privacy.exportAuditLog') }}
+        <Button
+          variant="outline"
+          class="w-full"
+          size="sm"
+          :disabled="exporting"
+          @click="onExportAuditLog"
+        >
+          <Wallet class="mr-1.5 size-3.5" />
+          {{ exporting ? t('settings.privacy.exportingAuditLog') : t('settings.privacy.exportAuditLog') }}
         </Button>
       </CardContent>
     </Card>

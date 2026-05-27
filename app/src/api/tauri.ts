@@ -461,6 +461,16 @@ export async function aiListCallLogs(limit = 100): Promise<AiCallLog[]> {
   }
 }
 
+/**
+ * 通用文本写盘命令。`path` 来自 plugin-dialog 的 `save()`,后端只做最
+ * 普通的 `fs::write`,失败时把 Rust 错误透传上来给前端展示 toast。
+ * 返回写入字节数(只是辅助 UI 反馈,前端可以忽略)。
+ */
+export async function writeTextFile(path: string, content: string): Promise<number> {
+  if (!isTauri()) throw new Error('需要在桌面端运行')
+  return await invoke<number>('write_text_file', { path, content })
+}
+
 export function onAiChatStart(cb: (p: AiChatStartPayload) => void): Promise<UnlistenFn> {
   return listen<AiChatStartPayload>('ai:chat:start', evt => cb(evt.payload))
 }

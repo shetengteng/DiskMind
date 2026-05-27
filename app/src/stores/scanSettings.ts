@@ -21,6 +21,8 @@ interface PersistedShape {
   targets: ScanTarget[]
   options: ScanOptions
   bootstrapped?: boolean
+  /** 应用启动后是否自动用当前 selected roots 触发一次扫描。默认 false。 */
+  scanOnStartup?: boolean
 }
 
 const KIND_HINT_KEY: Record<SuggestedTargetKind, string> = {
@@ -50,12 +52,13 @@ function loadFromStorage(): PersistedShape {
         targets: parsed.targets ?? [],
         options: { ...DEFAULT_OPTIONS, ...(parsed.options ?? {}) },
         bootstrapped: parsed.bootstrapped === true,
+        scanOnStartup: parsed.scanOnStartup === true,
       }
     }
   } catch {
     /* ignore */
   }
-  return { targets: [], options: DEFAULT_OPTIONS, bootstrapped: false }
+  return { targets: [], options: DEFAULT_OPTIONS, bootstrapped: false, scanOnStartup: false }
 }
 
 export const useScanSettingsStore = defineStore('scanSettings', () => {
@@ -63,9 +66,10 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
   const targets = ref<ScanTarget[]>(initial.targets)
   const options = ref<ScanOptions>(initial.options)
   const bootstrapped = ref(initial.bootstrapped ?? false)
+  const scanOnStartup = ref(initial.scanOnStartup ?? false)
 
   watch(
-    [targets, options, bootstrapped],
+    [targets, options, bootstrapped, scanOnStartup],
     () => {
       try {
         localStorage.setItem(
@@ -74,6 +78,7 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
             targets: targets.value,
             options: options.value,
             bootstrapped: bootstrapped.value,
+            scanOnStartup: scanOnStartup.value,
           }),
         )
       } catch {
@@ -132,6 +137,7 @@ export const useScanSettingsStore = defineStore('scanSettings', () => {
     targets,
     options,
     bootstrapped,
+    scanOnStartup,
     selectedRoots,
     bootstrapDefaults,
   }

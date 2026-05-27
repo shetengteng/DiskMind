@@ -269,6 +269,8 @@ export default {
       statusLocal: 'local',
     },
     privacy: {
+      pledgeTitle: 'DiskMind Privacy Pledge',
+      pledgeBody: 'We never upload file contents to the cloud — only redacted metadata (path patterns, sizes, extensions, modified times). Full source open-source under MIT; every line is auditable.',
       pathMaskTitle: 'Path Masking',
       pathMaskDesc: 'Mask user-identifying segments in scan results for demos / screen sharing. Display only; never affects real file operations.',
       pathMaskHeaderTooltip: 'Privacy mode · Path masking',
@@ -282,8 +284,12 @@ export default {
       retentionDays: '{n} days',
       retentionSaved: 'Retention set to {n} days',
       retentionSaveFailed: 'Failed to save retention',
-      aiAudit: 'AI Upload Field Audit (inspect what is actually sent)',
-      exportAuditLog: 'Export full audit log',
+      exportAuditLog: 'Export AI call audit log (CSV)',
+      exportingAuditLog: 'Exporting…',
+      exportSuccess: 'Exported {n} AI call records',
+      exportFailed: 'Failed to export audit log',
+      exportEmpty: 'No AI calls to export yet',
+      exportDesktopOnly: 'Audit log export is desktop-only',
     },
     scanTargets: {
       title: 'Scan Targets',

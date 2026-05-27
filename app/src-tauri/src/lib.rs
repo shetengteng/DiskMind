@@ -804,6 +804,17 @@ fn ai_list_call_logs(
     state.db.ai_log_list(lim).map_err(|e| e.to_string())
 }
 
+/// 通用文本文件写入命令。前端用 `save` dialog 拿到目标 path 后,把
+/// 已构造好的字符串(CSV/JSON/markdown 都行)写到磁盘。这是为了避免
+/// 引入 `tauri-plugin-fs`(权限模型更宽泛、风险面更大),把可用范围
+/// 限制在「调用方自己拼好的字符串」上。
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<usize, String> {
+    let bytes = content.as_bytes().len();
+    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(bytes)
+}
+
 #[tauri::command]
 fn db_stats(state: State<'_, ScanState>) -> Result<DbStats, String> {
     state.db.db_stats(&state.db_path).map_err(|e| e.to_string())
@@ -1018,6 +1029,7 @@ pub fn run() {
             ai_list_models,
             ai_today_stats,
             ai_list_call_logs,
+            write_text_file,
             db_stats,
             platform_info
         ])

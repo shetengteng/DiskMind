@@ -269,6 +269,8 @@ export default {
       statusLocal: '本地',
     },
     privacy: {
+      pledgeTitle: 'DiskMind 隐私承诺',
+      pledgeBody: '我们不会上传任何文件内容到云端,只发送脱敏元数据(路径模式、大小、扩展名、修改时间)。完整源码开源(MIT 协议),用户可审计每一行代码。',
       pathMaskTitle: '路径脱敏显示',
       pathMaskDesc: '在演示/共享屏幕时,把扫描结果中的用户路径替换为占位符。仅影响显示,不改变实际操作。',
       pathMaskHeaderTooltip: '隐私模式 · 路径脱敏',
@@ -282,8 +284,12 @@ export default {
       retentionDays: '{n} 天',
       retentionSaved: '已设为 {n} 天',
       retentionSaveFailed: '保存保留天数失败',
-      aiAudit: 'AI 上传字段审计 (查看实际发送内容)',
-      exportAuditLog: '导出全部审计日志',
+      exportAuditLog: '导出 AI 调用审计日志 (CSV)',
+      exportingAuditLog: '正在导出…',
+      exportSuccess: '已导出 {n} 条 AI 调用记录',
+      exportFailed: '导出审计日志失败',
+      exportEmpty: '暂无 AI 调用记录可导出',
+      exportDesktopOnly: '导出审计日志仅在桌面端可用',
     },
     scanTargets: {
       title: '扫描目标',

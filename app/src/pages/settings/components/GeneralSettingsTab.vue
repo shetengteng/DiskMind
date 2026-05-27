@@ -26,10 +26,14 @@ import {
   isEnabled as isAutostartEnabled,
 } from '@tauri-apps/plugin-autostart'
 import { isTauri } from '@/api/tauri'
+import { useScanSettingsStore } from '@/stores/scanSettings'
+import { storeToRefs } from 'pinia'
 import { notify } from '@/lib/notify'
 
 const { mode: themeMode } = useTheme()
 const { t, locale } = useI18n()
+const scanSettings = useScanSettingsStore()
+const { scanOnStartup } = storeToRefs(scanSettings)
 
 const language = computed<Locale>({
   get: () => locale.value as Locale,
@@ -47,7 +51,6 @@ const generalSettings = ref({
   autoUpdate: true,
   startWithSystem: false,
   hideInTrayWhenMinimized: true,
-  scanOnStartup: false,
 })
 
 // 从 OS 真实状态 hydrate "开机自启",而不是依赖前端 ref 默认值 —
@@ -97,8 +100,8 @@ async function onToggleStartWithSystem(v: boolean) {
 const appToggles: ToggleItem[] = [
   // autoUpdate 仍是装饰开关 — 自动更新已决定不做(2.4 节)
   { key: 'autoUpdate', labelKey: 'settings.general.autoUpdate', descKey: 'settings.general.autoUpdateDesc', disabled: true },
-  { key: 'hideInTrayWhenMinimized', labelKey: 'settings.general.hideInTray', descKey: 'settings.general.hideInTrayDesc' },
-  { key: 'scanOnStartup', labelKey: 'settings.general.scanOnStartup', descKey: 'settings.general.scanOnStartupDesc' },
+  // hideInTrayWhenMinimized 仍是装饰 — 需 tauri-plugin-tray 才能真生效,本期不做
+  { key: 'hideInTrayWhenMinimized', labelKey: 'settings.general.hideInTray', descKey: 'settings.general.hideInTrayDesc', disabled: true },
 ]
 </script>
 
@@ -122,7 +125,7 @@ const appToggles: ToggleItem[] = [
           />
         </div>
         <Separator />
-        <template v-for="(item, idx) in appToggles" :key="item.key">
+        <template v-for="item in appToggles" :key="item.key">
           <div class="flex items-center justify-between gap-3">
             <div class="space-y-0.5">
               <Label class="text-sm">{{ t(item.labelKey) }}</Label>
@@ -130,8 +133,15 @@ const appToggles: ToggleItem[] = [
             </div>
             <Switch v-model="generalSettings[item.key]" :disabled="item.disabled" />
           </div>
-          <Separator v-if="idx < appToggles.length - 1" />
+          <Separator />
         </template>
+        <div class="flex items-center justify-between gap-3">
+          <div class="space-y-0.5">
+            <Label class="text-sm">{{ t('settings.general.scanOnStartup') }}</Label>
+            <p class="text-xs text-muted-foreground">{{ t('settings.general.scanOnStartupDesc') }}</p>
+          </div>
+          <Switch v-model="scanOnStartup" />
+        </div>
       </CardContent>
     </Card>
 
