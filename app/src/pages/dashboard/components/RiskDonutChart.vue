@@ -66,8 +66,13 @@ const legendItems = computed(() =>
   })),
 )
 
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, c => (
+function escapeHtml(s: string | null | undefined) {
+  // unovis 在 tooltip handler 里偶发会传入未完全 hydrate 的 datum
+  // (空 hover、过渡帧等),`d.name` / 单价数值字段可能短暂为
+  // undefined。无脑 .replace 会触发 "undefined is not an object"
+  // 的全局 unhandledrejection toast,这里统一兜底成空串。
+  if (s == null) return ''
+  return String(s).replace(/[&<>"']/g, c => (
     c === '&' ? '&amp;' :
     c === '<' ? '&lt;' :
     c === '>' ? '&gt;' :

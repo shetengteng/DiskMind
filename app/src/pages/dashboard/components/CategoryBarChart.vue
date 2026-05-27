@@ -83,8 +83,11 @@ function tooltipTemplate(d: CategoryDatum) {
   `
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, c => (
+function escapeHtml(s: string | null | undefined) {
+  // 同 RiskDonutChart::escapeHtml — unovis hover handler 在过渡态会
+  // 传入未完全 hydrate 的 datum,name 字段可能短暂 undefined。
+  if (s == null) return ''
+  return String(s).replace(/[&<>"']/g, c => (
     c === '&' ? '&amp;' :
     c === '<' ? '&lt;' :
     c === '>' ? '&gt;' :
