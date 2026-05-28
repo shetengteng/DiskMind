@@ -255,16 +255,29 @@ impl Db {
                 [],
             );
         }
-        if prev < 10 {
-            // v10:给 scan_result 加 mtime INTEGER 列。增量扫描的复用判定
-            // 用 (path, mtime, size_bytes) 三元组,缺一不可:仅 path+size
-            // 容易误命中"替换写"场景(rsync / save-as 同尺寸覆盖)。
-            // DEFAULT 0 保证旧行可读;旧行不会参与复用(mtime 0 与新扫描
-            // 的实际 mtime 必不相等)。
-            let _ = conn.execute(
+        // v10:给 scan_result 加 mtime INTEGER 列。增量扫描的复用判定用
+        // (path, mtime, size_bytes) 三元组。Round 20 第一版用 `let _ =`
+        // silently 忽略 ALTER 失败,在某些 rusqlite 上下文里 ALTER 会
+        // 因连接级 PRAGMA / WAL 状态失败,而 data_version 已被 bump,后
+        // 续启动不再重试 → 永久缺列,load_latest 的 SELECT mtime 整个
+        // 加载链路炸,UI 显示"空数据"。改用 PRAGMA table_info 显式探测
+        // 列是否已存在,缺列才尝试 ALTER,失败 propagate 出去,避免再
+        // 次 silent。这条 hotfix 对已经被 silent ALTER 卡住的库也能补
+        // 救:即便 data_version 已经是 10,PRAGMA 仍会发现列缺失,补一次。
+        let has_mtime: bool = {
+            let mut stmt = conn.prepare("PRAGMA table_info(scan_result)")?;
+            let names: Vec<String> = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .collect();
+            names.iter().any(|n| n == "mtime")
+        };
+        if !has_mtime {
+            conn.execute(
                 "ALTER TABLE scan_result ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0",
                 [],
-            );
+            )?;
+            eprintln!("[diskmind] db migration v10: added scan_result.mtime column");
         }
         // 给 fingerprint / ai_classified_at / 增量复用查询用的索引建索引。
         // 放在 ALTER 之后,确保旧库升级补列后也能补上索引。
