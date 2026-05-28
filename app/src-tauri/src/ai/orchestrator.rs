@@ -3,7 +3,7 @@
 //! `ai_call_log`.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures_util::stream::BoxStream;
 use serde::{Deserialize, Serialize};
@@ -135,11 +135,18 @@ impl AiOrchestrator {
 
     /// 非流式、带降级链的 chat。返回内容 + 实际处理请求的 provider,
     /// 便于 UI 显示“由 deepseek 提供”等信息。
+    ///
+    /// `max_tokens` 由调用方按 scenario 显式传入:
+    ///   * `classify_batch` / `explain_file`:2048(输出结构紧凑)
+    ///   * `cleaning_advice`:**4096**(3 tier × 每 tier 长描述,2048 会截断
+    ///     成 `EOF while parsing` — Round 17 修复)
+    ///   * `ai_chat`(走 chat_stream,不经此函数,前端聊天 token 由 UI 控制)
     pub async fn chat_once(
         &self,
         scenario: &str,
         messages: Vec<ChatMessage>,
         json_mode: bool,
+        max_tokens: u32,
     ) -> Result<(String, String, String), AiError> {
         let providers = self.select_providers()?;
         let mut last_err: Option<AiError> = None;
@@ -165,13 +172,33 @@ impl AiOrchestrator {
                 model: p.model.clone(),
                 messages: messages.clone(),
                 temperature: Some(0.3),
-                max_tokens: Some(2048),
+                max_tokens: Some(max_tokens),
                 json_mode,
             };
             let started = Instant::now();
             match client.chat(req).await {
                 Ok(resp) => {
                     let dur = started.elapsed().as_millis() as i64;
+                    // 防御:provider 偶尔会 200 OK + content 空字符串(典型场景
+                    // 是 Ollama 代理云端模型 `:cloud` 后云端短暂异常)。如果
+                    // 把这种当成 success,上层 JSON 解析会抛 "EOF while parsing"
+                    // 而 ai_call_log 里却记的是 success=1,审计与告警都会失真。
+                    // 这里统一把"空 content"视为 BadPayload,触发 fallback 到
+                    // 下一个 provider,并保证 ai_call_log 写 success=false。
+                    if resp.content.trim().is_empty() {
+                        let msg = "provider 返回 200 但 content 为空(异常响应)";
+                        self.write_log(
+                            p,
+                            scenario,
+                            &resp.model,
+                            resp.usage.clone(),
+                            dur,
+                            false,
+                            Some(msg.into()),
+                        );
+                        last_err = Some(AiError::BadPayload(msg.into()));
+                        continue;
+                    }
                     self.write_log(p, scenario, &resp.model, resp.usage.clone(), dur, true, None);
                     return Ok((resp.content, p.name.clone(), p.id.clone()));
                 }
@@ -275,7 +302,7 @@ impl AiOrchestrator {
             ChatMessage { role: Role::User, content: prompt },
         ];
         let (raw, _provider_name, _provider_id) =
-            self.chat_once("explain_file", messages, true).await?;
+            self.chat_once("explain_file", messages, true, 2048).await?;
         let cleaned = strip_code_fence(&raw);
         let parsed: ExplainFileOutput = serde_json::from_str(&cleaned)
             .map_err(|e| AiError::JsonValidation(format!("{e}: {cleaned}")))?;
@@ -305,7 +332,7 @@ impl AiOrchestrator {
             ChatMessage { role: Role::User, content: user_json },
         ];
         let (raw, _provider_name, _provider_id) =
-            self.chat_once("classify_batch", messages, true).await?;
+            self.chat_once("classify_batch", messages, true, 2048).await?;
         let cleaned = strip_code_fence(&raw);
         let parsed: ClassifyBatchOutput = serde_json::from_str(&cleaned)
             .map_err(|e| AiError::JsonValidation(format!("{e}: {cleaned}")))?;
@@ -346,7 +373,10 @@ impl AiOrchestrator {
             ChatMessage { role: Role::System, content: prompts::CLEANING_ADVICE_SYSTEM.to_string() },
             ChatMessage { role: Role::User, content: run_summary },
         ];
-        let (raw, _, _) = self.chat_once("cleaning_advice", messages, true).await?;
+        // 4096 是经验值:3 tier × 每 tier ~600 tokens(label/description/
+        // categories/total_bytes/risk_level)≈ 1800,留 2.2x 余量防 LLM
+        // 啰嗦展开。继续超 → 应该在 prompt 端约束输出长度,而不是无限调大。
+        let (raw, _, _) = self.chat_once("cleaning_advice", messages, true, 4096).await?;
         let cleaned = strip_code_fence(&raw);
         let v: serde_json::Value = serde_json::from_str(&cleaned)
             .map_err(|e| AiError::JsonValidation(format!("{e}: {cleaned}")))?;
@@ -386,6 +416,29 @@ impl AiOrchestrator {
     pub async fn list_models_for_draft(&self, p: Provider) -> Result<Vec<String>, AiError> {
         let client = self.build_client(&p)?;
         client.list_models().await
+    }
+
+    /// 任务级"开跑前"快速健康检查。**不**触发任何 LLM 推理,只对当前
+    /// 默认 provider 调一次 `list_models`(本地 / Ollama 都很轻量),并
+    /// 用 `timeout_secs` 限定。任何形式的失败(没配 provider / 网络不通
+    /// / 服务挂了 / 超时)都返回 Err — 上层据此**不进入正式批次循环**,
+    /// 避免烧 token 才发现 provider 不行。
+    ///
+    /// 不写 `ai_call_log` — 这是一次启动前的探活,失败会通过 progress
+    /// 事件直接告诉用户,日志噪音更小。
+    pub async fn health_check(&self, timeout_secs: u64) -> Result<String, AiError> {
+        let providers = self.select_providers()?;
+        let p = providers
+            .first()
+            .ok_or_else(|| AiError::MissingConfig("no enabled provider".into()))?;
+        let client = self.build_client(p)?;
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), client.list_models()).await {
+            Ok(Ok(_)) => Ok(p.name.clone()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(AiError::AllFailed(format!(
+                "health check timed out after {timeout_secs}s"
+            ))),
+        }
     }
 
     /// 核心探测 — 发一次极小的 `pong` chat 请求并测量延迟。

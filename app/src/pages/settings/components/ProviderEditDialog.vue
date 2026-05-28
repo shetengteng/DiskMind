@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Plus,
   Sparkles,
@@ -69,6 +70,7 @@ const providerTemplates = [
   { name: 'Ollama 本地', kind: 'Ollama', baseUrl: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', icon: Server },
 ]
 
+const { t } = useI18n()
 const providers = useProvidersStore()
 
 const isEdit = computed(() => Boolean(editing.value?.id))
@@ -126,7 +128,7 @@ const canFetchModels = computed(() => {
 async function fetchModels(quiet = false) {
   const e = editing.value
   if (!e?.baseUrl?.trim()) {
-    if (!quiet) notify.warn('请先填写 Base URL')
+    if (!quiet) notify.warn(t('settings.providerEdit.warnNoBaseUrl'))
     return
   }
   modelsLoading.value = true
@@ -148,14 +150,14 @@ async function fetchModels(quiet = false) {
     const ids = await aiListModels(draft)
     models.value = ids
     if (!quiet) {
-      if (ids.length === 0) notify.warn('Provider 未返回任何模型')
-      else notify.success(`已拉取 ${ids.length} 个模型`)
+      if (ids.length === 0) notify.warn(t('settings.providerEdit.warnNoModels'))
+      else notify.success(t('settings.providerEdit.successFetched', { n: ids.length }))
     }
   } catch (err) {
     const msg = (err as Error).message ?? String(err)
     modelsError.value = msg
     models.value = []
-    if (!quiet) notify.error(`拉取模型失败:${msg}`)
+    if (!quiet) notify.error(t('settings.providerEdit.failFetchModels', { msg }))
   } finally {
     modelsLoading.value = false
   }
@@ -215,13 +217,13 @@ async function testNow() {
   if (isEdit.value && e.id) {
     const r = await providers.test(e.id)
     if (r.ok) {
-      notify.success(`连接成功 · ${r.latencyMs}ms`)
+      notify.success(t('settings.providerEdit.connOk', { latency: r.latencyMs }))
       const fresh = providers.items.find(p => p.id === e.id)
       if (fresh) {
         editing.value = { ...editing.value, status: fresh.status, latencyMs: fresh.latencyMs }
       }
     } else {
-      notify.error(`连接失败:${r.error}`)
+      notify.error(t('settings.providerEdit.connFail', { error: r.error }))
       const fresh = providers.items.find(p => p.id === e.id)
       if (fresh) {
         editing.value = { ...editing.value, status: fresh.status, latencyMs: fresh.latencyMs }
@@ -248,10 +250,10 @@ async function testNow() {
     }
     const r = await providers.testDraft(draft)
     if (r.ok) {
-      notify.success(`连接成功 · ${r.latencyMs}ms`)
+      notify.success(t('settings.providerEdit.connOk', { latency: r.latencyMs }))
       editing.value = { ...editing.value, status: 'ok', latencyMs: r.latencyMs }
     } else {
-      notify.error(`连接失败:${r.error}`)
+      notify.error(t('settings.providerEdit.connFail', { error: r.error }))
       editing.value = { ...editing.value, status: 'error', latencyMs: null }
     }
   } finally {
@@ -264,28 +266,28 @@ async function testNow() {
   <Dialog v-model:open="open">
     <DialogTrigger as-child>
       <Button size="sm" @click="emit('add')">
-        <Plus class="mr-1.5 size-3.5" /> 添加 Provider
+        <Plus class="mr-1.5 size-3.5" /> {{ t('settings.providerEdit.addButton') }}
       </Button>
     </DialogTrigger>
     <DialogContent class="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{{ isEdit ? '编辑' : '添加' }} AI Provider</DialogTitle>
+        <DialogTitle>{{ (isEdit ? t('settings.providerEdit.editTitle') : t('settings.providerEdit.addTitle')) + ' ' + t('settings.providerEdit.dialogSuffix') }}</DialogTitle>
         <DialogDescription>
-          选择类型并填写凭据。当前 API Key 以本地 SQLite 存储,后续会迁移到系统钥匙串。
+          {{ t('settings.providerEdit.desc') }}
         </DialogDescription>
       </DialogHeader>
 
       <div v-if="!isEdit" class="space-y-2">
-        <Label class="text-xs">从模板选择</Label>
+        <Label class="text-xs">{{ t('settings.providerEdit.fromTemplate') }}</Label>
         <div class="grid grid-cols-3 gap-2">
           <button
-            v-for="t in providerTemplates"
-            :key="t.name"
+            v-for="tpl in providerTemplates"
+            :key="tpl.name"
             class="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-xs transition-colors hover:border-primary/40 hover:bg-accent"
-            @click="pickTemplate(t)"
+            @click="pickTemplate(tpl)"
           >
-            <component :is="t.icon" class="size-3.5 shrink-0 text-primary" />
-            <span class="truncate">{{ t.name }}</span>
+            <component :is="tpl.icon" class="size-3.5 shrink-0 text-primary" />
+            <span class="truncate">{{ tpl.name }}</span>
           </button>
         </div>
       </div>
@@ -294,11 +296,11 @@ async function testNow() {
 
       <div class="grid gap-4 md:grid-cols-2">
         <div class="space-y-1.5">
-          <Label class="text-xs">名称</Label>
-          <Input v-model="editing.name" placeholder="例如:我的 DeepSeek" class="h-9" />
+          <Label class="text-xs">{{ t('settings.providerEdit.nameLabel') }}</Label>
+          <Input v-model="editing.name" :placeholder="t('settings.providerEdit.namePlaceholder')" class="h-9" />
         </div>
         <div class="space-y-1.5">
-          <Label class="text-xs">协议类型</Label>
+          <Label class="text-xs">{{ t('settings.providerEdit.kindLabel') }}</Label>
           <Select v-model="editing.kind">
             <SelectTrigger class="h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -326,7 +328,7 @@ async function testNow() {
             <button
               type="button"
               class="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
-              :aria-label="showApiKey ? '隐藏 API Key' : '显示 API Key'"
+              :aria-label="showApiKey ? t('settings.providerEdit.hideApiKeyAria') : t('settings.providerEdit.showApiKeyAria')"
               :aria-pressed="showApiKey"
               @click="showApiKey = !showApiKey"
             >
@@ -337,7 +339,7 @@ async function testNow() {
         </div>
         <div class="space-y-1.5 md:col-span-2">
           <div class="flex items-center justify-between">
-            <Label class="text-xs">默认 Model</Label>
+            <Label class="text-xs">{{ t('settings.providerEdit.modelLabel') }}</Label>
             <Button
               type="button"
               variant="ghost"
@@ -348,7 +350,7 @@ async function testNow() {
             >
               <Loader2 v-if="modelsLoading" class="mr-1 size-3 animate-spin" />
               <RefreshCw v-else class="mr-1 size-3" />
-              拉取可用模型
+              {{ t('settings.providerEdit.fetchModels') }}
             </Button>
           </div>
           <Input
@@ -372,23 +374,23 @@ async function testNow() {
               {{ m }}
             </button>
             <span v-if="models.length > 12" class="px-1 py-0.5 text-[10px] text-muted-foreground">
-              +{{ models.length - 12 }} 更多
+              {{ t('settings.providerEdit.modelsMore', { n: models.length - 12 }) }}
             </span>
           </div>
           <p v-else-if="modelsError" class="text-[10px] text-rose-500">
-            拉取失败:{{ modelsError }}
+            {{ t('settings.providerEdit.modelsError', { msg: modelsError }) }}
           </p>
           <p v-else-if="modelsLoading" class="text-[10px] text-muted-foreground">
-            正在从 Provider API 拉取模型列表…
+            {{ t('settings.providerEdit.modelsLoading') }}
           </p>
           <p v-else-if="!canFetchModels" class="text-[10px] text-muted-foreground">
-            填写 Base URL 与 API Key 后可自动拉取
+            {{ t('settings.providerEdit.modelsHint') }}
           </p>
         </div>
         <div class="flex items-center justify-between rounded-md border px-3 py-2 md:col-span-2">
           <div>
-            <Label class="text-xs">设为默认 Provider</Label>
-            <p class="text-[11px] text-muted-foreground">默认 Provider 将用于全部 AI 调用,直到被切换</p>
+            <Label class="text-xs">{{ t('settings.providerEdit.setDefaultLabel') }}</Label>
+            <p class="text-[11px] text-muted-foreground">{{ t('settings.providerEdit.setDefaultDesc') }}</p>
           </div>
           <Switch v-model="editing.isDefault" />
         </div>
@@ -404,10 +406,10 @@ async function testNow() {
         >
           <Loader2 v-if="testing" class="mr-1.5 size-3.5 animate-spin" />
           <Zap v-else class="mr-1.5 size-3.5" />
-          测试连接
+          {{ t('settings.providerEdit.testButton') }}
         </Button>
-        <Button variant="outline" @click="open = false">取消</Button>
-        <Button :disabled="!canSave" @click="emit('save')">保存</Button>
+        <Button variant="outline" @click="open = false">{{ t('common.cancel') }}</Button>
+        <Button :disabled="!canSave" @click="emit('save')">{{ t('common.save') }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

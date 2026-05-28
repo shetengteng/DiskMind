@@ -67,13 +67,13 @@ const { t } = useI18n()
             size="icon"
             class="size-9"
             :disabled="selectedCount === 0"
-            :aria-label="t('scan.aiBatch')"
+            :aria-label="t('scan.aiBatch.tooltip')"
             @click="emit('aiBatch')"
           >
             <Sparkles class="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{{ t('scan.aiBatch') }}</TooltipContent>
+        <TooltipContent side="bottom">{{ t('scan.aiBatch.tooltip') }}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger as-child>

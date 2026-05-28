@@ -111,8 +111,20 @@ impl LlmProvider for OllamaProvider {
             return Err(AiError::BadStatus { status: status.as_u16(), body });
         }
         let parsed: OllamaResponse = resp.json().await.map_err(|e| AiError::BadPayload(e.to_string()))?;
+        let content = parsed.message.and_then(|m| m.content).unwrap_or_default();
+        // Ollama 代理云端模型(如 `:cloud` 后缀)在云端响应异常时,会返回 200
+        // 状态码 + done=true,但 message.content 是空字符串。如果上层
+        // (例如 classify_batch)把这种当成"成功"再 JSON 解析,就会得到
+        // 难以排查的 `EOF while parsing` 错误,而 ai_call_log 还会记 success=1
+        // 让审计假象更糟。这里把"空 content"明确归到 BadPayload,既能让
+        // 调用链有清晰错误信息,又能让 ai_call_log 正确写 success=false。
+        if content.trim().is_empty() {
+            return Err(AiError::BadPayload(
+                "Ollama 返回 200 但 content 为空(常见于云端代理模型异常),请检查 provider 状态".into(),
+            ));
+        }
         Ok(ChatResponse {
-            content: parsed.message.and_then(|m| m.content).unwrap_or_default(),
+            content,
             usage: Usage {
                 prompt_tokens: parsed.prompt_eval_count,
                 completion_tokens: parsed.eval_count,

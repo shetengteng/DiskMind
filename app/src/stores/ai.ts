@@ -575,6 +575,12 @@ export const useAiStore = defineStore('ai', () => {
   const classifyFailedBatches = ref(0)
   const classifyMessage = ref<string | null>(null)
   const classifyPendingCount = ref(0)
+  /**
+   * Round 17 加入:后端 heartbeat 每 5s 推送一次当前批次已等待毫秒。
+   * UI 在进度文案后追加"(已等待 N 秒)"反馈,以及在 slow / timeout 时
+   * 展示警示色。任务在 done / cancelled / error / no_pending 时归零。
+   */
+  const classifyElapsedMs = ref(0)
   let classifyUnlisten: UnlistenFn | null = null
 
   const classifyProgressPercent = computed(() => {
@@ -592,6 +598,7 @@ export const useAiStore = defineStore('ai', () => {
         classifyFailedBatches.value = payload.failedBatches
         classifyPending.value = payload.totalPending
         classifyMessage.value = payload.message
+        classifyElapsedMs.value = payload.elapsedMs
         if (
           payload.kind === 'done' ||
           payload.kind === 'cancelled' ||
@@ -599,6 +606,7 @@ export const useAiStore = defineStore('ai', () => {
           payload.kind === 'no_pending'
         ) {
           classifyRunning.value = false
+          classifyElapsedMs.value = 0
           // 任务结束后让 scan 数据刷新,以便 UI 看到新的 category / aiReason
           try {
             const { useScanStore } = await import('@/stores/scan')
@@ -667,6 +675,7 @@ export const useAiStore = defineStore('ai', () => {
     classifyUpdated.value = 0
     classifyFailedBatches.value = 0
     classifyMessage.value = null
+    classifyElapsedMs.value = 0
 
     const args: AiClassifyBatchArgs = {
       minSizeBytes: opts?.minSizeBytes ?? CLASSIFY_DEFAULTS.minSizeBytes,
@@ -778,6 +787,7 @@ export const useAiStore = defineStore('ai', () => {
     classifyFailedBatches,
     classifyMessage,
     classifyPendingCount,
+    classifyElapsedMs,
     classifyProgressPercent,
     runBatchClassify,
     cancelBatchClassify,

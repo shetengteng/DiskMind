@@ -42,8 +42,15 @@ const {
   classifyProgressPercent,
   classifyPending: classifyTotalPending,
   classifyUpdated,
+  classifyMessage,
   classifyPendingCount,
 } = storeToRefs(ai)
+
+// Round 17:当后端处于 `slow` 状态(LLM 已挂 > 60s),给整条 banner 加
+// amber 强调色,让用户一眼分辨"任务正常 vs. 响应变慢需要关注"。
+// `elapsedMs` 数值已经被后端编织进 message 文案(如"已等待 23 秒"),
+// 这里不再单独解构,避免 store 字段渗到多个渲染点。
+const isClassifySlow = computed(() => classifyKind.value === 'slow')
 
 void ai.ensureClassifySubscribed()
 
@@ -374,15 +381,32 @@ const subtitle = computed(() => {
          任务未启动 + 有待办:压缩的胶囊式按钮,显示待办数 N -->
     <div
       v-if="scan.phase === 'done' && (classifyRunning || classifyPendingCount > 0)"
-      class="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+      :class="[
+        'rounded-md border px-3 py-2 text-sm',
+        isClassifySlow
+          ? 'border-amber-500/30 bg-amber-500/10'
+          : 'border-primary/20 bg-primary/5',
+      ]"
     >
       <div v-if="classifyRunning" class="flex items-center gap-3">
-        <Sparkles class="size-4 shrink-0 text-primary" />
+        <Sparkles
+          :class="[
+            'size-4 shrink-0',
+            isClassifySlow ? 'text-amber-600 dark:text-amber-400' : 'text-primary',
+          ]"
+        />
         <div class="min-w-0 flex-1">
           <div class="mb-1.5 flex items-center justify-between gap-3 text-xs">
-            <span class="truncate text-foreground/80">
+            <span
+              :class="[
+                'truncate',
+                isClassifySlow ? 'text-amber-900 dark:text-amber-200' : 'text-foreground/80',
+              ]"
+            >
               {{
-                classifyKind === 'started'
+                classifyMessage
+                  ? classifyMessage
+                  : classifyKind === 'started'
                   ? t('scan.aiBatch.starting')
                   : t('scan.aiBatch.progressDesc', {
                       updated: classifyUpdated,

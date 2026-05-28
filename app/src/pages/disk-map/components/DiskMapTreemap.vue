@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { use } from 'echarts/core'
 import { TreemapChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
@@ -17,6 +18,7 @@ import { usePathMask } from '@/composables/usePathMask'
 
 use([TreemapChart, TooltipComponent, CanvasRenderer])
 
+const { t } = useI18n()
 const { maskName } = usePathMask()
 
 interface TreemapNode {
@@ -131,7 +133,7 @@ const chartOption = computed(() => ({
     trigger: 'item' as const,
     formatter: (p: { name: string; value: number; data?: { raw?: TreemapNode } }) => {
       const pct = props.total > 0 ? ((p.value / props.total) * 100).toFixed(1) : '0'
-      const drill = p.data?.raw?.hasChildren ? '<div style="opacity:.55;margin-top:4px">点击进入 ↓</div>' : ''
+      const drill = p.data?.raw?.hasChildren ? `<div style="opacity:.55;margin-top:4px">${t('diskMap.treemapDrillHint')}</div>` : ''
       return `<div style="font-size:12px;line-height:1.5">
         <div style="font-weight:500">${p.name}</div>
         <div style="opacity:.8">${p.value.toFixed(2)} GB · ${pct}%</div>
@@ -215,14 +217,14 @@ function onChartClick(params: unknown) {
         <CardTitle class="font-mono text-sm font-medium">{{ pathLabel }}</CardTitle>
       </div>
       <CardDescription class="text-xs">
-        颜色由小到大:
+        {{ t('diskMap.treemapColorScale') }}
         <span class="ml-1 inline-block size-2 rounded-sm align-middle" style="background: #fff7ec; border: 1px solid #fee8c8" />
         <span class="ml-0.5 inline-block size-2 rounded-sm align-middle" style="background: #fee8c8" />
         <span class="ml-0.5 inline-block size-2 rounded-sm align-middle" style="background: #fdbb84" />
         <span class="ml-0.5 inline-block size-2 rounded-sm align-middle" style="background: #fc8d59" />
         <span class="ml-0.5 inline-block size-2 rounded-sm align-middle" style="background: #e34a33" />
         <span class="ml-0.5 inline-block size-2 rounded-sm align-middle" style="background: #b30000" />
-        · 单击进入子目录 · 面包屑可回退
+        {{ t('diskMap.treemapFootHint') }}
       </CardDescription>
     </CardHeader>
     <CardContent class="p-3">

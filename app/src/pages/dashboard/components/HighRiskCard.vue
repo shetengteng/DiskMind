@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   Sparkles,
@@ -20,6 +21,7 @@ import { useAiStore } from '@/stores/ai'
 import { useScanStore } from '@/stores/scan'
 import { usePathMask } from '@/composables/usePathMask'
 
+const { t } = useI18n()
 const router = useRouter()
 const ai = useAiStore()
 const scan = useScanStore()
@@ -44,19 +46,19 @@ function explainResults() {
   <Card>
     <CardHeader class="flex flex-row items-center justify-between pb-2">
       <div>
-        <CardTitle class="text-base">高风险候选 · Top 5</CardTitle>
-        <CardDescription class="text-xs">点击右上角 AI 按钮可对任意文件深度分析</CardDescription>
+        <CardTitle class="text-base">{{ t('dashboard.highRisk.title') }}</CardTitle>
+        <CardDescription class="text-xs">{{ t('dashboard.highRisk.desc') }}</CardDescription>
       </div>
       <div class="flex gap-2">
         <Button variant="outline" size="sm" @click="explainResults">
-          <Sparkles class="mr-1.5 size-3.5" /> 让 AI 解读
+          <Sparkles class="mr-1.5 size-3.5" /> {{ t('dashboard.highRisk.aiInterpret') }}
         </Button>
-        <Button size="sm" @click="router.push('/scan')">查看全部</Button>
+        <Button size="sm" @click="router.push('/scan')">{{ t('dashboard.highRisk.viewAll') }}</Button>
       </div>
     </CardHeader>
     <CardContent>
       <div v-if="topRows.length === 0" class="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">
-        还没有扫描结果,点击右上角"查看全部"去扫描
+        {{ t('dashboard.highRisk.empty') }}
       </div>
       <div v-else class="space-y-2">
         <div

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Sparkles, ScanSearch, ChevronRight, Home, ArrowUp } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,6 +11,7 @@ import { usePathMask } from '@/composables/usePathMask'
 import DiskMapTreemap from './DiskMapTreemap.vue'
 import DiskMapDetailPanel from './DiskMapDetailPanel.vue'
 
+const { t } = useI18n()
 const ai = useAiStore()
 const scan = useScanStore()
 const { maskName, mask } = usePathMask()
@@ -124,8 +126,8 @@ function askAi() {
         <ScanSearch class="size-5 text-muted-foreground" />
       </div>
       <div>
-        <p class="text-sm font-medium">还没有目录占用数据</p>
-        <p class="mt-1 text-xs text-muted-foreground">完成一次扫描后,这里会展示家目录下各子目录的实际占用</p>
+        <p class="text-sm font-medium">{{ t('diskMap.empty') }}</p>
+        <p class="mt-1 text-xs text-muted-foreground">{{ t('diskMap.emptyHint') }}</p>
       </div>
     </CardContent>
   </Card>
@@ -141,7 +143,7 @@ function askAi() {
           variant="ghost"
           size="icon-sm"
           class="size-7"
-          aria-label="返回上一层"
+          :aria-label="t('diskMap.backAria')"
           @click="drillUp"
         >
           <ArrowUp class="size-3.5" />
@@ -164,7 +166,7 @@ function askAi() {
         </template>
 
         <span class="ml-2 shrink-0 text-xs">
-          · 共 {{ total.toFixed(1) }} GB · Top {{ nodes.length }}
+          {{ t('diskMap.totalAndTop', { gb: total.toFixed(1), n: nodes.length }) }}
         </span>
       </nav>
 
@@ -174,7 +176,7 @@ function askAi() {
         size="sm"
         @click="askAi"
       >
-        <Sparkles class="mr-1.5 size-3.5" /> 解读当前选区
+        <Sparkles class="mr-1.5 size-3.5" /> {{ t('diskMap.aiAnalyze') }}
       </Button>
     </div>
 

@@ -6,10 +6,13 @@
  * 「确认」后,通过 `useAiStore.confirmAction()` 走真正的执行路径。
  */
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { AlertTriangle, CheckCircle2, Loader2, Trash2, XCircle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { formatBytes, totalSize, type AiAction, type AiActionItem } from '@/lib/aiActions'
 import { usePathMask } from '@/composables/usePathMask'
+
+const { t } = useI18n()
 
 interface Props {
   messageId: string
@@ -36,11 +39,11 @@ const completedSet = computed(() => new Set(props.completedPaths))
 
 const statusBadge = computed(() => {
   switch (props.status) {
-    case 'pending': return { label: '待确认', class: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' }
-    case 'running': return { label: '执行中', class: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' }
-    case 'done':    return { label: '已完成', class: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' }
-    case 'cancelled': return { label: '已取消', class: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' }
-    case 'error':   return { label: '失败', class: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200' }
+    case 'pending': return { label: t('aiAction.statusPending'), class: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' }
+    case 'running': return { label: t('aiAction.statusRunning'), class: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' }
+    case 'done':    return { label: t('aiAction.statusDone'), class: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' }
+    case 'cancelled': return { label: t('aiAction.statusCancelled'), class: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' }
+    case 'error':   return { label: t('aiAction.statusError'), class: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200' }
   }
 })
 
@@ -89,18 +92,18 @@ function rowState(it: AiActionItem) {
 
     <div class="mb-2 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
       <AlertTriangle class="size-3 text-amber-500" />
-      <span>共 {{ items.length }} 项 · {{ formatBytes(total) }} · 将移入回收站(30 天可恢复)</span>
+      <span>{{ t('aiAction.summary', { n: items.length, size: formatBytes(total) }) }}</span>
     </div>
 
     <p v-if="message" class="mb-2 text-[10.5px] text-foreground">{{ message }}</p>
 
     <div v-if="status === 'pending'" class="flex justify-end gap-1.5">
       <Button size="sm" variant="ghost" class="h-7 px-2.5 text-[11px]" @click="emit('cancel')">
-        取消
+        {{ t('aiAction.cancel') }}
       </Button>
       <Button size="sm" variant="destructive" class="h-7 px-2.5 text-[11px]" @click="emit('confirm')">
         <Trash2 class="mr-1 size-3" />
-        确认移入回收站
+        {{ t('aiAction.confirm') }}
       </Button>
     </div>
   </div>

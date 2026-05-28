@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Folder } from 'lucide-vue-next'
 import {
   Card,
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/tooltip'
 import { usePathMask } from '@/composables/usePathMask'
 
+const { t } = useI18n()
 const { maskName } = usePathMask()
 
 interface TreemapNode {
@@ -60,14 +62,16 @@ const uniqueChildren = computed(() => {
         </Tooltip>
       </div>
       <CardDescription class="text-xs">
-        占用 {{ props.node.size.toFixed(1) }} GB ·
-        {{ ((props.node.size / props.total) * 100).toFixed(1) }}% of total
+        {{ t('diskMap.detailUsageSummary', {
+          size: props.node.size.toFixed(1),
+          pct: ((props.node.size / props.total) * 100).toFixed(1),
+        }) }}
       </CardDescription>
     </CardHeader>
     <CardContent>
       <div>
         <div class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          典型子项
+          {{ t('diskMap.detailChildren') }}
         </div>
         <div class="space-y-1">
           <div

@@ -500,18 +500,33 @@ export interface AiClassifyBatchArgs {
 export interface AiClassifyProgressPayload {
   /**
    * `started`:任务启动,带 `totalPending` 让 UI 立即渲染进度条
+   * `fetching`:LLM 请求发出后 0/5/10s … 周期推送一次心跳,带 elapsedMs
+   *   让前端展示"已等待 N 秒",避免 UI 在 starting 上凝固
+   * `slow`:LLM 调用超过 60s 仍未返回,kind 切到 slow,文案警示用户
    * `chunk`:每完成一批触发一次
    * `done`:正常结束
-   * `cancelled`:用户取消
-   * `error`:致命错误,任务终止
+   * `cancelled`:用户取消(Round 17 起即时取消,不再等当前批完成)
+   * `timeout`:单批 LLM 请求超过 240s,该批标 failed,继续下一批
+   * `error`:致命错误,任务终止(包括连续 3 批失败/超时止损,或健康检查未过)
    * `no_pending`:本次启动时已无可处理项,直接结束
    */
-  kind: 'started' | 'chunk' | 'done' | 'cancelled' | 'error' | 'no_pending'
+  kind:
+    | 'started'
+    | 'fetching'
+    | 'slow'
+    | 'chunk'
+    | 'done'
+    | 'cancelled'
+    | 'timeout'
+    | 'error'
+    | 'no_pending'
   processedBatches: number
   updated: number
   failedBatches: number
   totalPending: number
   message: string | null
+  /** 当前批次已等待毫秒。只在 `fetching` / `slow` / `timeout` 时非 0。 */
+  elapsedMs: number
 }
 
 export async function aiClassifyBatchPending(args: AiClassifyBatchArgs): Promise<void> {
@@ -651,4 +666,49 @@ export interface PlatformInfo {
 
 export async function platformInfo(): Promise<PlatformInfo> {
   return await invoke<PlatformInfo>('platform_info')
+}
+
+/**
+ * 崩溃 / 异常本地日志(Sprint 2 · S6 + S7)。前端的
+ * onErrorCaptured / window error / unhandledrejection 都走
+ * `logFrontendError`,与 Rust panic 共用同一份 `crash.log`(JSONL)。
+ */
+export interface CrashEntry {
+  ts: number
+  level: string
+  source: string
+  message: string
+  stack: string
+}
+
+export async function logFrontendError(
+  level: string,
+  source: string,
+  message: string,
+  stack?: string,
+): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invoke('log_frontend_error', { level, source, message, stack })
+  } catch {
+    // ignore — error logging itself must not throw
+  }
+}
+
+export async function readCrashLog(limit = 50): Promise<CrashEntry[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<CrashEntry[]>('read_crash_log', { limit })
+  } catch {
+    return []
+  }
+}
+
+export async function crashLogDir(): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<string>('crash_log_dir')
+  } catch {
+    return null
+  }
 }

@@ -15,6 +15,7 @@
 mod ai;
 mod classifier;
 mod commands;
+mod crash_log;
 mod db;
 mod platform;
 mod scanner;
@@ -34,6 +35,11 @@ use crate::state::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 第一行必须装 panic hook — 这样 Builder 内部 / plugin 初始化里如果
+    // panic 也能被捕获(panic_hook 是全局,只要在 panic 发生**前**装好就有效)。
+    // 日志目录还没注入,所以最早期 panic 会退化到 stderr,这是预期行为。
+    crash_log::install_panic_hook();
+
     let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
 
     // 在桌面端强制单实例。第二个实例启动时,插件会关闭它并把已存在的
@@ -72,6 +78,13 @@ pub fn run() {
             let db_path = app_data.join("diskmind.sqlite");
             let sandbox_root = app_data.join("trash");
             let _ = std::fs::create_dir_all(&sandbox_root);
+
+            // 给 panic_hook 注入崩溃日志目录。setup 完成后任何线程 panic
+            // 都会写到这里。早期 install_panic_hook 装的 hook 在 OnceLock
+            // 没设值时退化到 stderr,从这一刻起才开始落本地。
+            let logs_dir = app_data.join("logs");
+            let _ = std::fs::create_dir_all(&logs_dir);
+            crash_log::init_dir(logs_dir);
             let db = Arc::new(Db::open(db_path.clone()).expect("open db failed"));
             let ai = Arc::new(AiOrchestrator::new(db.clone()));
             app.manage(ScanState {
@@ -175,6 +188,10 @@ pub fn run() {
             commands::ai_classify::ai_classify_pending_count,
             // --- diag ---
             commands::diag::db_stats,
+            // --- crash log (S6 + S7) ---
+            commands::crash_log::log_frontend_error,
+            commands::crash_log::read_crash_log,
+            commands::crash_log::crash_log_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Edit2, Trash2, CheckCircle2, XCircle, Star, Zap, Loader2 } from 'lucide-vue-next'
 import {
   Card,
@@ -21,6 +22,7 @@ import type { Provider } from '@/api/tauri'
 import { notify } from '@/lib/notify'
 import ProviderEditDialog, { type EditingProvider } from './ProviderEditDialog.vue'
 
+const { t } = useI18n()
 const providers = useProvidersStore()
 
 onMounted(async () => {
@@ -98,17 +100,17 @@ async function removeProvider(id: string) {
 async function testProvider(p: Provider) {
   const r = await providers.test(p.id)
   if (r.ok) {
-    notify.success(`${p.name} 连接成功 · ${r.latencyMs}ms`)
+    notify.success(t('settings.providers.connOk', { name: p.name, latency: r.latencyMs }))
   } else {
-    notify.error(`${p.name} 连接失败:${r.error}`)
+    notify.error(t('settings.providers.connFail', { name: p.name, error: r.error }))
   }
 }
 
 function statusLabel(s: string): string {
-  if (s === 'ok') return '正常'
-  if (s === 'error') return '失败'
-  if (s === 'local') return '本地'
-  return '未测试'
+  if (s === 'ok') return t('settings.providers.statusOk')
+  if (s === 'error') return t('settings.providers.statusError')
+  if (s === 'local') return t('settings.providers.statusLocal')
+  return t('settings.providers.statusUntested')
 }
 </script>
 
@@ -116,9 +118,9 @@ function statusLabel(s: string): string {
   <Card>
     <CardHeader class="flex flex-row items-center justify-between pb-3">
       <div>
-        <CardTitle class="text-base">已配置 Provider</CardTitle>
+        <CardTitle class="text-base">{{ t('settings.providers.title') }}</CardTitle>
         <CardDescription class="text-xs">
-          {{ providers.items.length }} 个,其中 {{ enabledCount }} 个已启用
+          {{ t('settings.providers.countText', { total: providers.items.length, enabled: enabledCount }) }}
         </CardDescription>
       </div>
       <ProviderEditDialog
@@ -133,7 +135,7 @@ function statusLabel(s: string): string {
         v-if="providers.items.length === 0"
         class="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground"
       >
-        还没有配置 Provider,点击右上角 "添加" 开始
+        {{ t('settings.providers.empty') }}
       </div>
       <div
         v-for="p in providers.items"
@@ -144,7 +146,7 @@ function statusLabel(s: string): string {
         <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex items-center gap-2">
             <span class="font-medium">{{ p.name }}</span>
-            <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">默认</Badge>
+            <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">{{ t('settings.providers.defaultBadge') }}</Badge>
             <Badge variant="outline" class="text-[10px]">{{ p.kind }}</Badge>
           </div>
           <Tooltip>
@@ -179,7 +181,7 @@ function statusLabel(s: string): string {
               variant="ghost"
               size="icon"
               class="size-8 text-muted-foreground hover:text-sky-500"
-              :aria-label="`测试 ${p.name} 连接`"
+              :aria-label="t('settings.providers.testAria', { name: p.name })"
               :disabled="providers.isTesting(p.id)"
               @click="testProvider(p)"
             >
@@ -187,27 +189,27 @@ function statusLabel(s: string): string {
               <Zap v-else class="size-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">测试连接</TooltipContent>
+          <TooltipContent side="top">{{ t('settings.providers.testTooltip') }}</TooltipContent>
         </Tooltip>
         <Button
           variant="ghost"
           size="icon"
           class="size-8"
           :class="p.isDefault ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500'"
-          :aria-label="p.isDefault ? '当前默认' : '设为默认'"
+          :aria-label="p.isDefault ? t('settings.providers.currentDefaultAria') : t('settings.providers.setDefaultAria')"
           :disabled="p.isDefault"
           @click="setDefault(p.id)"
         >
           <Star class="size-3.5" :class="p.isDefault ? 'fill-current' : ''" />
         </Button>
-        <Button variant="ghost" size="icon" class="size-8" aria-label="编辑 Provider" @click="openEdit(p)">
+        <Button variant="ghost" size="icon" class="size-8" :aria-label="t('settings.providers.editAria')" @click="openEdit(p)">
           <Edit2 class="size-3.5" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
           class="size-8 text-rose-500 hover:text-rose-600"
-          aria-label="删除 Provider"
+          :aria-label="t('settings.providers.deleteAria')"
           @click="removeProvider(p.id)"
         >
           <Trash2 class="size-3.5" />

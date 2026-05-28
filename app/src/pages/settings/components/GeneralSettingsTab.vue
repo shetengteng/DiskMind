@@ -26,10 +26,18 @@ import {
   disable as disableAutostart,
   isEnabled as isAutostartEnabled,
 } from '@tauri-apps/plugin-autostart'
-import { isTauri, metaGetMaxScanHistory, metaSetMaxScanHistory } from '@/api/tauri'
+import {
+  isTauri,
+  metaGetMaxScanHistory,
+  metaSetMaxScanHistory,
+  crashLogDir,
+  revealInExplorer,
+} from '@/api/tauri'
 import { useScanSettingsStore } from '@/stores/scanSettings'
 import { storeToRefs } from 'pinia'
 import { notify } from '@/lib/notify'
+import { Button } from '@/components/ui/button'
+import { FolderOpen } from 'lucide-vue-next'
 
 const { mode: themeMode } = useTheme()
 const { t, locale } = useI18n()
@@ -145,6 +153,26 @@ const appToggles: ToggleItem[] = [
   // hideInTrayWhenMinimized 仍是装饰 — 需 tauri-plugin-tray 才能真生效,本期不做
   { key: 'hideInTrayWhenMinimized', labelKey: 'settings.general.hideInTray', descKey: 'settings.general.hideInTrayDesc', disabled: true },
 ]
+
+/**
+ * S6 + S7 · 打开崩溃日志目录。后端把 Rust panic 与前端异常都写到
+ * `<app_data>/logs/crash.log` (JSONL),这里复用 `reveal_in_explorer`
+ * 跨平台分支(macOS open -R / Windows explorer /select, / Linux xdg-open)
+ * 直接展示目录给用户。
+ */
+async function openCrashLogDir() {
+  if (!isTauri()) return
+  try {
+    const dir = await crashLogDir()
+    if (!dir) {
+      notify.warn(t('settings.general.crashLogUnavailable'))
+      return
+    }
+    await revealInExplorer(dir)
+  } catch (e) {
+    notify.error(t('settings.general.crashLogOpenFailed'), String(e))
+  }
+}
 </script>
 
 <template>
@@ -201,6 +229,25 @@ const appToggles: ToggleItem[] = [
             @blur="commitMaxScanHistory"
             @keydown.enter="commitMaxScanHistory"
           />
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader class="pb-2">
+        <CardTitle class="text-base">{{ t('settings.general.diagnostics') }}</CardTitle>
+        <CardDescription class="text-xs">{{ t('settings.general.diagnosticsDesc') }}</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1 space-y-0.5">
+            <Label class="text-sm">{{ t('settings.general.crashLog') }}</Label>
+            <p class="text-xs text-muted-foreground">{{ t('settings.general.crashLogDesc') }}</p>
+          </div>
+          <Button variant="outline" size="sm" class="shrink-0" :disabled="!isTauri()" @click="openCrashLogDir">
+            <FolderOpen class="mr-1.5 size-3.5" />
+            {{ t('settings.general.openCrashLog') }}
+          </Button>
         </div>
       </CardContent>
     </Card>

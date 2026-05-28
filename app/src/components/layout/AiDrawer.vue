@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Sparkles,
   Send,
@@ -28,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 
+const { t } = useI18n()
 const ai = useAiStore()
 const { mask } = usePathMask()
 
@@ -35,10 +37,10 @@ const input = ref('')
 const scrollRef = ref<HTMLElement | null>(null)
 
 const suggestions = computed(() => [
-  '帮我分析最大的 10 个文件',
-  '哪些可以安全删除?',
-  '检查重复文件',
-  '为什么 Docker 占用这么多?',
+  t('aiDrawer.quickPrompts.largest'),
+  t('aiDrawer.quickPrompts.safeDelete'),
+  t('aiDrawer.quickPrompts.duplicates'),
+  t('aiDrawer.quickPrompts.docker'),
 ])
 
 const riskIconMap = {
@@ -198,7 +200,7 @@ function onResizeStart(e: PointerEvent) {
         class="ai-resize-handle"
         role="separator"
         aria-orientation="vertical"
-        :aria-label="'拖拽调整宽度'"
+        :aria-label="t('aiDrawer.resizeAria')"
         @pointerdown="onResizeStart"
       />
       <SheetHeader class="border-b px-4 py-3 pr-12">
@@ -207,7 +209,7 @@ function onResizeStart(e: PointerEvent) {
             <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Sparkles class="size-4" />
             </span>
-            <span class="shrink-0">AI 助手</span>
+            <span class="shrink-0">{{ t('aiDrawer.title') }}</span>
             <Badge variant="secondary" class="shrink-0 text-[10px]">
               <span class="mr-1 inline-block size-1.5 rounded-full" :class="ai.statusBadgeClass" />
               {{ ai.currentProvider }}
@@ -218,14 +220,14 @@ function onResizeStart(e: PointerEvent) {
             size="icon"
             class="size-7 shrink-0"
             :disabled="ai.isStreaming"
-            aria-label="重置对话"
+            :aria-label="t('aiDrawer.resetAria')"
             @click="ai.resetConversation()"
           >
             <RefreshCw class="size-3.5" />
           </Button>
         </div>
         <SheetDescription class="text-[11px] text-muted-foreground">
-          上下文 · {{ ai.contextFiles.length }} 个文件 · 今日 {{ ai.todayCalls }} 次
+          {{ t('aiDrawer.context', { n: ai.contextFiles.length, calls: ai.todayCalls }) }}
         </SheetDescription>
       </SheetHeader>
 
@@ -235,10 +237,10 @@ function onResizeStart(e: PointerEvent) {
       >
         <div class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <Paperclip class="size-3" />
-          上下文文件 · {{ ai.contextFiles.length }}
+          {{ t('aiDrawer.contextHeader', { n: ai.contextFiles.length }) }}
           <button
             class="ml-auto text-muted-foreground hover:text-foreground"
-            aria-label="清空上下文"
+            :aria-label="t('aiDrawer.clearContextAria')"
             @click="ai.clearContext()"
           >
             <X class="size-3" />
@@ -300,7 +302,7 @@ function onResizeStart(e: PointerEvent) {
                 <span
                   v-if="isStreamingPlaceholder(msg)"
                   class="ai-typing"
-                  aria-label="AI 正在思考"
+                  :aria-label="t('aiDrawer.thinkingAria')"
                   role="status"
                 >
                   <span class="ai-typing-dot" />
@@ -349,7 +351,7 @@ function onResizeStart(e: PointerEvent) {
         <div class="flex items-end gap-2 rounded-2xl border bg-background p-2 focus-within:ring-2 focus-within:ring-ring/30">
           <Textarea
             v-model="input"
-            placeholder="问 AI 任何关于这些文件的问题…"
+            :placeholder="t('aiDrawer.inputPlaceholder')"
             class="min-h-[40px] flex-1 resize-none border-0 bg-transparent p-1.5 text-sm shadow-none focus-visible:ring-0"
             :rows="1"
             :disabled="ai.isStreaming"
@@ -358,7 +360,7 @@ function onResizeStart(e: PointerEvent) {
           <Button
             size="icon"
             class="size-8 shrink-0"
-            aria-label="发送消息"
+            :aria-label="t('aiDrawer.sendAria')"
             :disabled="!input.trim() || ai.isStreaming"
             @click="handleSend"
           >
@@ -366,7 +368,7 @@ function onResizeStart(e: PointerEvent) {
           </Button>
         </div>
         <p class="mt-1.5 text-center text-[10px] text-muted-foreground">
-          AI 可能产生不准确判断 · 请二次确认风险较高的清理决策
+          {{ t('aiDrawer.footerHint') }}
         </p>
       </div>
     </SheetContent>
