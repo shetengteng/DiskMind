@@ -174,8 +174,18 @@ pub fn run() {
             // --- ai chat ---
             commands::ai_chat::ai_chat,
             commands::ai_chat::ai_explain_file,
+            // --- chat history (Round 18) ---
+            commands::chat_history::chat_session_create,
+            commands::chat_history::chat_session_list,
+            commands::chat_history::chat_session_rename,
+            commands::chat_history::chat_session_delete,
+            commands::chat_history::chat_session_messages,
+            commands::chat_history::chat_message_append,
+            commands::chat_history::chat_message_update_action,
+            commands::chat_history::chat_summarize_title,
             // --- ai single ---
             commands::ai_single::ai_cleaning_advice,
+            commands::ai_single::ai_cleaning_advice_get,
             commands::ai_single::ai_test_provider,
             commands::ai_single::ai_test_provider_draft,
             commands::ai_single::ai_list_models,

@@ -7,8 +7,17 @@ import {
   aiClassifyBatchPending as ipcAiClassifyBatchPending,
   aiClassifyPendingCount as ipcAiClassifyPendingCount,
   aiCleaningAdvice as ipcAiCleaningAdvice,
+  aiCleaningAdviceGet as ipcAiCleaningAdviceGet,
   aiExplainFile as ipcAiExplainFile,
   aiTodayStats,
+  chatMessageAppend as ipcChatMessageAppend,
+  chatMessageUpdateAction as ipcChatMessageUpdateAction,
+  chatSessionCreate as ipcChatSessionCreate,
+  chatSessionDelete as ipcChatSessionDelete,
+  chatSessionList as ipcChatSessionList,
+  chatSessionMessages as ipcChatSessionMessages,
+  chatSessionRename as ipcChatSessionRename,
+  chatSummarizeTitle as ipcChatSummarizeTitle,
   isTauri,
   onAiChatChunk,
   onAiChatDone,
@@ -18,6 +27,8 @@ import {
   type AiChatMessage as IpcChatMessage,
   type AiClassifyBatchArgs,
   type AiClassifyProgressPayload,
+  type ChatMessageRow,
+  type ChatSessionSummary,
   type CleaningAdviceOutput,
   type ExplainFileInput,
   type ExplainFileOutput,
@@ -36,6 +47,12 @@ export type AiStatus = 'cloud-ok' | 'local-ok' | 'idle' | 'calling' | 'failed' |
 
 export interface AiMessage {
   id: string
+  /**
+   * 持久化到 `chat_message` 表后的 rowid。append 是异步的,所以可能在
+   * UI 已经显示一段时间后才填上。confirmAction 等需要回写 DB 的场景,
+   * 在这里有数字才会触发持久化(否则就是还没落盘的消息,无需 update)。
+   */
+  dbId?: number
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
@@ -65,8 +82,71 @@ export interface AiContextFile {
 
 const USD_TO_CNY = 7.2
 
+/** 侧栏列表展示的最近会话数。超过这个数会被滚动隐藏。 */
+const SESSION_LIST_LIMIT = 50
+
+/** 发给 LLM 的对话窗口上限。再长就截断保留首条 system + 最近 N-1 条
+ * user/assistant — 防止历史无限拼接撑爆 token,UI 依然展示全量。 */
+const LLM_CONTEXT_TURN_LIMIT = 20
+
 function genId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** crypto.randomUUID 在 Tauri webview 内可用;浏览器模式兜底到 genId。 */
+function newSessionId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return genId('sess')
+}
+
+function welcomeMessage(): AiMessage {
+  return {
+    id: genId('init'),
+    role: 'assistant',
+    content: '你好,我是 DiskMind AI 助手。\n\n你可以问我:\n- 这个文件能不能删?\n- 帮我看看 ~/Downloads 哪些是垃圾\n- 为什么这个文件占了 4.8 GB?\n\n或在扫描结果中点击 [问 AI] 按钮,我会直接分析对应文件。',
+    timestamp: Date.now(),
+  }
+}
+
+/** 把 DB 行还原成 store 里的 AiMessage 形态。`files_json` / `action_json`
+ * 解析失败时静默忽略 — 旧数据可能没有这些字段,避免一行坏数据让整段
+ * 历史无法加载。 */
+function rowToMessage(row: ChatMessageRow): AiMessage {
+  let files: AiMessage['files']
+  if (row.filesJson) {
+    try {
+      const parsed = JSON.parse(row.filesJson)
+      if (Array.isArray(parsed)) files = parsed
+    } catch {
+      /* ignore */
+    }
+  }
+  let action: AiMessage['action']
+  if (row.actionJson) {
+    try {
+      const parsed = JSON.parse(row.actionJson)
+      if (parsed && typeof parsed === 'object' && 'parsed' in parsed) {
+        action = parsed as AiMessage['action']
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {
+    id: `db-${row.id}`,
+    dbId: row.id,
+    role: row.role,
+    content: row.content,
+    timestamp: row.createdAt,
+    files,
+    action,
+  }
 }
 
 export const useAiStore = defineStore('ai', () => {
@@ -77,17 +157,24 @@ export const useAiStore = defineStore('ai', () => {
   const todayCalls = ref(0)
   const todayCostUsd = ref(0)
   const todayCostCNY = computed(() => +(todayCostUsd.value * USD_TO_CNY).toFixed(2))
-  const messages = ref<AiMessage[]>([
-    {
-      id: 'init-1',
-      role: 'assistant',
-      content: '你好,我是 DiskMind AI 助手。\n\n你可以问我:\n- 这个文件能不能删?\n- 帮我看看 ~/Downloads 哪些是垃圾\n- 为什么这个文件占了 4.8 GB?\n\n或在扫描结果中点击 [问 AI] 按钮,我会直接分析对应文件。',
-      timestamp: Date.now() - 1000,
-    },
-  ])
+  const messages = ref<AiMessage[]>([welcomeMessage()])
   const contextFiles = ref<AiContextFile[]>([])
   const isStreaming = ref(false)
   const lastError = ref<string | null>(null)
+
+  // ---------- Chat 会话历史(Round 18) ----------
+  //
+  // `sessionId` 为空表示当前显示"新对话"(欢迎语 + 空消息),首次发问
+  // 时才真正在 DB 里创建一条 `chat_session` 行。这样:
+  //   1) 用户点开 Drawer 看一眼然后关掉,不会污染 DB
+  //   2) 真发了问题后,session 自动出现在侧栏
+  // `sessions` 是侧栏列表的反应式来源,DELETE/RENAME 时本地直接 patch
+  // 这个数组,避免每次都重拉。
+
+  const sessionId = ref<string | null>(null)
+  const sessions = ref<ChatSessionSummary[]>([])
+  /** 侧栏在 small screen 上默认折叠 */
+  const sidebarOpen = ref(true)
 
   const explainOpen = ref(false)
   const explainLoading = ref(false)
@@ -100,6 +187,16 @@ export const useAiStore = defineStore('ai', () => {
   const adviceResult = ref<CleaningAdviceOutput | null>(null)
   const adviceError = ref<string | null>(null)
   const adviceUpdatedAt = ref<number | null>(null)
+  /** Round 19 缓存:当前展示的 advice 属于哪次扫描。AiCleaningAdviceCard
+   * 用它和 latestRun.id 比对,新扫描完成后自动清空旧 advice 状态。 */
+  const adviceRunId = ref<number | null>(null)
+  /** 来自 LLM provider 的元数据,UI 在卡片右上角小字展示 — 主要是为
+   * 了让用户分清"这是上次缓存"还是"刚刚重新生成"。 */
+  const adviceProviderName = ref<string | null>(null)
+  const adviceModel = ref<string | null>(null)
+  /** 标记当前 advice 是从 DB 缓存读出的,UI 据此可以显示"来自缓存"
+   * 徽章,鼓励用户点"刷新"再调一次 LLM。 */
+  const adviceFromCache = ref(false)
 
   let activeStreamId: string | null = null
   let unsubStart: UnlistenFn | null = null
@@ -175,6 +272,31 @@ export const useAiStore = defineStore('ai', () => {
             msg.action = { parsed: parsed.action, status: 'pending' }
           } else if (parsed.parseError) {
             msg.content = `${parsed.visibleContent}\n\n_⚠️ ${parsed.parseError}_`
+          }
+          // 持久化 assistant 最终内容(action 协议已剥离)。在 reset
+          // 期间 sessionId 可能被清,持久化前再核对一下;无 sid 时
+          // 静默放弃,避免 leak 到错误 session。
+          const sid = sessionId.value
+          if (sid) {
+            const actionJson = msg.action ? JSON.stringify(msg.action) : null
+            void ipcChatMessageAppend({
+              sessionId: sid,
+              role: 'assistant',
+              content: msg.content,
+              promptTokens: p.promptTokens,
+              completionTokens: p.completionTokens,
+              actionJson,
+            })
+              .then(dbId => {
+                msg.dbId = dbId
+                msg.id = `db-${dbId}`
+                const s = sessions.value.find(x => x.id === sid)
+                if (s) {
+                  s.updatedAt = Date.now()
+                  s.messageCount += 1
+                }
+              })
+              .catch(e => console.warn('[ai] append assistant msg failed', e))
           }
         }
       }
@@ -329,6 +451,46 @@ export const useAiStore = defineStore('ai', () => {
 
     await ensureSubscribed()
 
+    // 在真发请求之前先确保有 chat_session 行,后续 user/assistant 消息
+    // 都用这个 sid append。`ensureSession` 失败时返回的 id 后续会落空
+    // 写,UI 仍能正常用 — 不阻塞主流程。
+    const sid = await ensureSession()
+    const isFirstQuestion = !messages.value
+      .slice(0, -1) // 不算刚 push 的 userMsg
+      .some(m => m.role === 'user' && m.dbId !== undefined)
+
+    // 持久化 user 消息(异步,失败仅记 warn 不阻塞)
+    const userFilesJson = userMsg.files ? JSON.stringify(userMsg.files) : null
+    void ipcChatMessageAppend({
+      sessionId: sid,
+      role: 'user',
+      content: question,
+      filesJson: userFilesJson,
+    })
+      .then(dbId => {
+        userMsg.dbId = dbId
+        userMsg.id = `db-${dbId}`
+        const s = sessions.value.find(x => x.id === sid)
+        if (s) {
+          s.updatedAt = Date.now()
+          s.messageCount += 1
+        }
+      })
+      .catch(e => console.warn('[ai] append user msg failed', e))
+
+    // 首问触发标题摘要:先 fallback 设前 12 字,LLM 摘要回来再覆盖
+    if (isFirstQuestion) {
+      const fallback = question.trim().slice(0, 12) || '新对话'
+      void renameSession(sid, fallback)
+      void ipcChatSummarizeTitle(question)
+        .then(title => {
+          if (title && title !== fallback) {
+            void renameSession(sid, title)
+          }
+        })
+        .catch(e => console.warn('[ai] summarize title failed', e))
+    }
+
     const assistantMsg: AiMessage = {
       id: genId('a'),
       role: 'assistant',
@@ -342,9 +504,18 @@ export const useAiStore = defineStore('ai', () => {
     isStreaming.value = true
     status.value = 'calling'
 
-    const ipcMessages: IpcChatMessage[] = messages.value
+    // 只发送最近 N 轮给 LLM,避免历史无限拼接撑爆 token。UI 仍保留全
+    // 量,看得到的对话不等于发给模型的对话 — 这点和 ChatGPT 长会话一致。
+    const allForIpc = messages.value
       .filter(m => m.id !== assistantMsg.id && m.role !== 'system')
-      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+    const trimmed =
+      allForIpc.length > LLM_CONTEXT_TURN_LIMIT
+        ? allForIpc.slice(-LLM_CONTEXT_TURN_LIMIT)
+        : allForIpc
+    const ipcMessages: IpcChatMessage[] = trimmed.map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }))
 
     try {
       const privacy = usePrivacyStore()
@@ -353,6 +524,7 @@ export const useAiStore = defineStore('ai', () => {
         streamId: activeStreamId,
         contextPaths: contextFiles.value.map(f => maskPath(f.path, privacy.pathMask)),
         scanSummary: buildScanSummary(),
+        sessionId: sid,
       })
     } catch (e) {
       lastError.value = String(e)
@@ -377,6 +549,17 @@ export const useAiStore = defineStore('ai', () => {
    *  2. 即便是确认通过的路径,也是走已有的 `trash_move` IPC,把文件
    *     移入沙箱目录而不是直接 rm -rf,用户始终有 30 天的恢复窗口。
    */
+  /** action 状态变更后,把最新 JSON 回写到 chat_message.action_json,
+   * 下次打开会话时直接还原卡片的最终状态(已完成 / 已取消 / 失败)。
+   * 仅在消息已经落盘(有 dbId)时才写。 */
+  function persistActionState(msg: AiMessage) {
+    if (!msg.dbId || !msg.action) return
+    const json = JSON.stringify(msg.action)
+    void ipcChatMessageUpdateAction(msg.dbId, json).catch(e =>
+      console.warn('[ai] update action_json failed', e),
+    )
+  }
+
   async function confirmAction(messageId: string) {
     const msg = messages.value.find(m => m.id === messageId)
     if (!msg?.action || msg.action.status !== 'pending') return
@@ -410,6 +593,7 @@ export const useAiStore = defineStore('ai', () => {
       msg.action.status = 'error'
       msg.action.message = `没有可执行的项: ${skippedPaths.map(s => `${s.path}(${s.reason})`).join('; ')}`
       notify.error('AI 清理', msg.action.message)
+      persistActionState(msg)
       return
     }
 
@@ -448,6 +632,8 @@ export const useAiStore = defineStore('ai', () => {
       msg.action.status = 'error'
       msg.action.message = `调用失败: ${String(e)}`
       notify.error('AI 清理', msg.action.message)
+    } finally {
+      persistActionState(msg)
     }
   }
 
@@ -456,6 +642,7 @@ export const useAiStore = defineStore('ai', () => {
     if (!msg?.action || msg.action.status !== 'pending') return
     msg.action.status = 'cancelled'
     msg.action.message = '已取消'
+    persistActionState(msg)
   }
 
   async function explainFile(input: ExplainFileInput, target: AiContextFile) {
@@ -515,7 +702,7 @@ export const useAiStore = defineStore('ai', () => {
     openDrawer(question, [target])
   }
 
-  async function generateCleaningAdvice(runSummary: string) {
+  async function generateCleaningAdvice(runSummary: string, runId?: number) {
     adviceError.value = null
 
     if (!isTauri()) {
@@ -534,8 +721,13 @@ export const useAiStore = defineStore('ai', () => {
 
     adviceLoading.value = true
     try {
-      adviceResult.value = await ipcAiCleaningAdvice(runSummary)
-      adviceUpdatedAt.value = Date.now()
+      const result = await ipcAiCleaningAdvice(runSummary, runId)
+      adviceResult.value = result.advice
+      adviceUpdatedAt.value = result.generatedAt > 0 ? result.generatedAt : Date.now()
+      adviceProviderName.value = result.providerName
+      adviceModel.value = result.model
+      adviceRunId.value = runId ?? null
+      adviceFromCache.value = false
       void refreshTodayStats()
     } catch (e) {
       adviceError.value = String(e)
@@ -545,10 +737,55 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
+  /** 尝试从 DB 缓存加载某次扫描的清理建议。命中:回填所有 advice* 字段,
+   * 返回 true;未命中:重置为"空态",返回 false。失败静默吞错,避免
+   * Reports 页打不开。 */
+  async function loadCleaningAdvice(runId: number): Promise<boolean> {
+    if (!isTauri()) return false
+    try {
+      const cached = await ipcAiCleaningAdviceGet(runId)
+      if (!cached) {
+        // 切到新 run 时,旧 advice 状态必须清空,否则 UI 会展示陈旧
+        // 数据,误导用户以为是当前 run 的建议。
+        adviceResult.value = null
+        adviceError.value = null
+        adviceUpdatedAt.value = null
+        adviceProviderName.value = null
+        adviceModel.value = null
+        adviceRunId.value = runId
+        adviceFromCache.value = false
+        return false
+      }
+      let parsed: CleaningAdviceOutput | null = null
+      try {
+        parsed = JSON.parse(cached.adviceJson) as CleaningAdviceOutput
+      } catch (e) {
+        console.warn('[ai] parse cached advice failed', e)
+        return false
+      }
+      if (!parsed || !Array.isArray(parsed.tiers)) return false
+      adviceResult.value = parsed
+      adviceError.value = null
+      adviceUpdatedAt.value = cached.generatedAt
+      adviceProviderName.value = cached.providerName
+      adviceModel.value = cached.model
+      adviceRunId.value = runId
+      adviceFromCache.value = true
+      return true
+    } catch (e) {
+      console.warn('[ai] load cached advice failed', e)
+      return false
+    }
+  }
+
   function clearCleaningAdvice() {
     adviceResult.value = null
     adviceError.value = null
     adviceUpdatedAt.value = null
+    adviceRunId.value = null
+    adviceProviderName.value = null
+    adviceModel.value = null
+    adviceFromCache.value = false
   }
 
   // ---------- AI 批量分类(Round 15) ----------
@@ -702,17 +939,104 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
-  function resetConversation() {
-    messages.value = [
-      {
-        id: genId('init'),
-        role: 'assistant',
-        content: '已开启新对话。需要我帮你分析什么?',
-        timestamp: Date.now(),
-      },
-    ]
+  // ---------- 会话操作 ----------
+
+  /** 拉取最近 N 条会话列表,刷新侧栏。失败静默吞错,避免抽屉打不开。 */
+  async function loadSessions() {
+    if (!isTauri()) {
+      sessions.value = []
+      return
+    }
+    try {
+      sessions.value = await ipcChatSessionList(SESSION_LIST_LIMIT)
+    } catch (e) {
+      console.warn('[ai] load sessions failed', e)
+      sessions.value = []
+    }
+  }
+
+  /** 确保有一个真实 chat_session 行可写。首次发问时按需创建,避免空抽
+   * 屉打开就污染 DB。返回 session id 供后续 append 引用。 */
+  async function ensureSession(): Promise<string> {
+    if (sessionId.value) return sessionId.value
+    const id = newSessionId()
+    try {
+      const created = await ipcChatSessionCreate(id, '新对话')
+      sessions.value = [created, ...sessions.value]
+    } catch (e) {
+      // DB 写失败时仍返回 id,后续 append 也会失败但不至于卡死 UI。
+      console.warn('[ai] create session failed', e)
+    }
+    sessionId.value = id
+    return id
+  }
+
+  /** 切到指定 session:从 DB 加载历史消息,清掉上下文文件附件。 */
+  async function switchSession(id: string) {
+    if (id === sessionId.value) return
+    sessionId.value = id
     contextFiles.value = []
     lastError.value = null
+    if (!isTauri()) {
+      messages.value = [welcomeMessage()]
+      return
+    }
+    try {
+      const rows = await ipcChatSessionMessages(id)
+      if (rows.length === 0) {
+        messages.value = [welcomeMessage()]
+      } else {
+        messages.value = rows.map(rowToMessage)
+      }
+    } catch (e) {
+      console.warn('[ai] load session messages failed', e)
+      messages.value = [welcomeMessage()]
+    }
+  }
+
+  /** 开新对话:把 sessionId 置空,等首次发问时再实创建。不影响侧栏。 */
+  function newSession() {
+    sessionId.value = null
+    messages.value = [welcomeMessage()]
+    contextFiles.value = []
+    lastError.value = null
+  }
+
+  async function renameSession(id: string, title: string) {
+    const trimmed = title.trim()
+    if (!trimmed || !isTauri()) return
+    try {
+      await ipcChatSessionRename(id, trimmed)
+      const s = sessions.value.find(x => x.id === id)
+      if (s) s.title = trimmed
+    } catch (e) {
+      console.warn('[ai] rename session failed', e)
+      notify.error('AI', String(e))
+    }
+  }
+
+  async function deleteSession(id: string) {
+    if (!isTauri()) return
+    try {
+      await ipcChatSessionDelete(id)
+      sessions.value = sessions.value.filter(s => s.id !== id)
+      if (sessionId.value === id) {
+        // 删的是当前会话:fallback 切到剩余里最新的一条,或开新
+        if (sessions.value.length > 0) {
+          await switchSession(sessions.value[0].id)
+        } else {
+          newSession()
+        }
+      }
+    } catch (e) {
+      console.warn('[ai] delete session failed', e)
+      notify.error('AI', String(e))
+    }
+  }
+
+  /** 兼容旧调用:Drawer 头部"开新对话"按钮、AI 设置页等仍叫 reset。 */
+  function resetConversation() {
+    newSession()
   }
 
   async function init() {
@@ -722,6 +1046,12 @@ export const useAiStore = defineStore('ai', () => {
     }
     await ensureSubscribed()
     await refreshTodayStats()
+    // 拉历史会话列表 + 默认进入最近一条;无历史就保持 sessionId=null,
+    // 抽屉打开是新对话状态,直到用户发问才在 DB 落第一行。
+    await loadSessions()
+    if (sessions.value.length > 0) {
+      await switchSession(sessions.value[0].id)
+    }
     const providers = useProvidersStore()
     if (providers.items.length === 0) {
       await providers.reload()
@@ -776,7 +1106,12 @@ export const useAiStore = defineStore('ai', () => {
     adviceResult,
     adviceError,
     adviceUpdatedAt,
+    adviceRunId,
+    adviceProviderName,
+    adviceModel,
+    adviceFromCache,
     generateCleaningAdvice,
+    loadCleaningAdvice,
     clearCleaningAdvice,
     // ---- batch classify ----
     classifyRunning,
@@ -793,5 +1128,14 @@ export const useAiStore = defineStore('ai', () => {
     cancelBatchClassify,
     refreshClassifyPendingCount,
     ensureClassifySubscribed,
+    // ---- chat history (Round 18) ----
+    sessionId,
+    sessions,
+    sidebarOpen,
+    loadSessions,
+    switchSession,
+    newSession,
+    renameSession,
+    deleteSession,
   }
 })

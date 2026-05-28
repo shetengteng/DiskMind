@@ -3,21 +3,80 @@
 //!
 //! 这些命令都直接返回 `Result<T, String>`,不走事件总线;前端 await 即可。
 
+use serde::Serialize;
 use tauri::State;
 
-use crate::db::{self, AiCallLog, AiTodayStats};
+use crate::db::{self, AiCallLog, AiTodayStats, CachedCleaningAdvice};
 use crate::state::ScanState;
+
+/// 包装 LLM 生成的清理建议 + 元数据。前端 `aiCleaningAdvice` 调用拿到
+/// 后既能直接 render(payload),也能展示"上次生成于 xx 由 yy 提供"
+/// 这类 trace 信息。当 `runId` 提供时,后端在生成后自动 upsert 缓存,
+/// 下次走 `ai_cleaning_advice_get(runId)` 即可命中,不再消耗 LLM token。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCleaningAdviceResult {
+    pub advice: serde_json::Value,
+    pub provider_name: Option<String>,
+    pub model: Option<String>,
+    pub generated_at: i64,
+}
 
 #[tauri::command]
 pub async fn ai_cleaning_advice(
     run_summary: String,
+    run_id: Option<i64>,
     state: State<'_, ScanState>,
-) -> Result<serde_json::Value, String> {
-    state
+) -> Result<AiCleaningAdviceResult, String> {
+    let (advice, provider_name, model) = state
         .ai
         .cleaning_advice(run_summary)
         .await
+        .map_err(|e| e.to_string())?;
+    // run_id 缺省时(草稿场景 / 未来直接传 summary 调试)跳过缓存,但仍
+    // 返回 advice。缓存只在能定位到具体 scan_run 时才有意义。
+    let generated_at = chrono_now_ms();
+    if let Some(rid) = run_id {
+        let advice_json = serde_json::to_string(&advice)
+            .map_err(|e| format!("serialize advice JSON failed: {e}"))?;
+        // 写缓存失败不阻塞返回 — 用户已经付了 LLM 调用的 token,本次结果
+        // 至少能用,只是下次不会命中缓存。日志层面留 warn 给诊断。
+        if let Err(e) = state.db.ai_cleaning_advice_upsert(
+            rid,
+            &advice_json,
+            Some(&provider_name),
+            Some(&model),
+        ) {
+            eprintln!("[ai_cleaning_advice] upsert cache failed run_id={rid}: {e}");
+        }
+    }
+    Ok(AiCleaningAdviceResult {
+        advice,
+        provider_name: Some(provider_name),
+        model: Some(model),
+        generated_at,
+    })
+}
+
+/// 读取某次扫描已缓存的清理建议。未生成过返回 None,前端据此决定显示
+/// 空态 + 引导用户点"生成"。
+#[tauri::command]
+pub fn ai_cleaning_advice_get(
+    run_id: i64,
+    state: State<'_, ScanState>,
+) -> Result<Option<CachedCleaningAdvice>, String> {
+    state
+        .db
+        .ai_cleaning_advice_get(run_id)
         .map_err(|e| e.to_string())
+}
+
+fn chrono_now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 #[tauri::command]

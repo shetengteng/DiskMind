@@ -360,6 +360,13 @@ export interface AiChatArgs {
    * 发送,让 LLM 能基于真实文件数据推理,无需用户手动粘贴。
    */
   scanSummary?: string
+  /**
+   * 可选:本次对话所属的 chat session id。后端在流式 start 时会把
+   * 最后用的 provider/model 元数据写到对应 chat_session 行,用于侧
+   * 栏小字标注。user/assistant 消息本身由前端 chatMessageAppend
+   * 落盘,与本字段解耦,失败不影响 chat 主流程。
+   */
+  sessionId?: string
 }
 
 export interface AiChatStartPayload {
@@ -412,6 +419,26 @@ export interface CleaningAdviceOutput {
   tiers: CleaningAdviceTier[]
 }
 
+/** 完整的 IPC 返回包装:advice 主体 + LLM 元数据。前端通常只用 advice
+ * 字段渲染,UI 同时可在小字位置展示"由 {providerName}/{model} 生成于
+ * {generatedAt}",便于诊断与展示缓存来源。 */
+export interface AiCleaningAdviceResult {
+  advice: CleaningAdviceOutput
+  providerName: string | null
+  model: string | null
+  generatedAt: number
+}
+
+/** DB 缓存命中时返回的载荷。`adviceJson` 是字符串化的 CleaningAdviceOutput,
+ * 前端需要 JSON.parse 一次再赋给 adviceResult。 */
+export interface CachedCleaningAdvice {
+  runId: number
+  adviceJson: string
+  providerName: string | null
+  model: string | null
+  generatedAt: number
+}
+
 export interface AiTodayStats {
   calls: number
   successfulCalls: number
@@ -444,8 +471,29 @@ export async function aiExplainFile(input: ExplainFileInput): Promise<ExplainFil
   return await invoke<ExplainFileOutput>('ai_explain_file', { input })
 }
 
-export async function aiCleaningAdvice(runSummary: string): Promise<CleaningAdviceOutput> {
-  return await invoke<CleaningAdviceOutput>('ai_cleaning_advice', { runSummary })
+export async function aiCleaningAdvice(
+  runSummary: string,
+  runId?: number,
+): Promise<AiCleaningAdviceResult> {
+  return await invoke<AiCleaningAdviceResult>('ai_cleaning_advice', {
+    runSummary,
+    runId: runId ?? null,
+  })
+}
+
+/** 读取某次扫描的清理建议缓存(Round 19)。命中返回 advice JSON +
+ * 元数据,未生成过返回 null。 */
+export async function aiCleaningAdviceGet(
+  runId: number,
+): Promise<CachedCleaningAdvice | null> {
+  if (!isTauri()) return null
+  try {
+    return (await invoke<CachedCleaningAdvice | null>('ai_cleaning_advice_get', {
+      runId,
+    })) ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function aiTestProvider(providerId: string): Promise<number> {
@@ -478,6 +526,88 @@ export async function aiListCallLogs(limit = 100): Promise<AiCallLog[]> {
   } catch {
     return []
   }
+}
+
+// ---------- Chat 会话历史(Round 18) ----------
+//
+// `chat_session` + `chat_message` 两张表对应的 IPC wrapper。前端在
+// askAi 的两端(发送 / 流结束)各调用一次 chatMessageAppend 把对话
+// 落盘;侧栏切换 / 删除 / 重命名 走对应 IPC;首问后异步触发 LLM
+// 摘要把 title 从"新对话"改成更具描述性的 8-15 字标签。
+
+export interface ChatSessionSummary {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  lastProvider: string | null
+  lastModel: string | null
+  messageCount: number
+}
+
+export interface ChatMessageRow {
+  id: number
+  sessionId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  createdAt: number
+  promptTokens: number | null
+  completionTokens: number | null
+  filesJson: string | null
+  actionJson: string | null
+}
+
+export interface ChatMessageAppendInput {
+  sessionId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  promptTokens?: number | null
+  completionTokens?: number | null
+  filesJson?: string | null
+  actionJson?: string | null
+}
+
+export async function chatSessionCreate(id: string, title: string): Promise<ChatSessionSummary> {
+  return await invoke<ChatSessionSummary>('chat_session_create', { id, title })
+}
+
+export async function chatSessionList(limit = 50): Promise<ChatSessionSummary[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<ChatSessionSummary[]>('chat_session_list', { limit })
+  } catch {
+    return []
+  }
+}
+
+export async function chatSessionRename(id: string, title: string): Promise<void> {
+  await invoke('chat_session_rename', { id, title })
+}
+
+export async function chatSessionDelete(id: string): Promise<void> {
+  await invoke('chat_session_delete', { id })
+}
+
+export async function chatSessionMessages(id: string): Promise<ChatMessageRow[]> {
+  if (!isTauri()) return []
+  return await invoke<ChatMessageRow[]>('chat_session_messages', { id })
+}
+
+export async function chatMessageAppend(msg: ChatMessageAppendInput): Promise<number> {
+  return await invoke<number>('chat_message_append', { msg })
+}
+
+export async function chatMessageUpdateAction(
+  messageId: number,
+  actionJson: string | null,
+): Promise<void> {
+  await invoke('chat_message_update_action', {
+    args: { messageId, actionJson },
+  })
+}
+
+export async function chatSummarizeTitle(question: string): Promise<string> {
+  return await invoke<string>('chat_summarize_title', { question })
 }
 
 // ---------- AI 批量分类(Round 15) ----------

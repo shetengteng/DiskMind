@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { RouterView } from 'vue-router'
 import {
   SidebarInset,
@@ -9,14 +9,26 @@ import AppSidebar from '@/components/layout/AppSidebar.vue'
 import SiteHeader from '@/components/layout/SiteHeader.vue'
 import AiDrawer from '@/components/layout/AiDrawer.vue'
 import AiExplainDialog from '@/components/layout/AiExplainDialog.vue'
+import CommandPalette from '@/components/layout/CommandPalette.vue'
 import { useAiStore } from '@/stores/ai'
 
 const ai = useAiStore()
+/** Cmd+K Command Palette 开关。挂在 layout 上避免每个 page 重复实现;
+ * 与 AI Drawer 的 Cmd+L 同样走 window 级 keydown,IME 输入框输入时浏
+ * 览器会先消化按键,因此不会和搜索/编辑冲突。 */
+const paletteOpen = ref(false)
 
 function handleKeydown(e: KeyboardEvent) {
+  // Cmd/Ctrl+L 打开 AI Drawer
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
     e.preventDefault()
     ai.toggleDrawer()
+    return
+  }
+  // Cmd/Ctrl+K 打开 Command Palette
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    paletteOpen.value = !paletteOpen.value
   }
 }
 
@@ -72,6 +84,7 @@ onBeforeUnmount(() => {
     </SidebarInset>
     <AiDrawer />
     <AiExplainDialog />
+    <CommandPalette v-model:open="paletteOpen" />
   </SidebarProvider>
 </template>
 

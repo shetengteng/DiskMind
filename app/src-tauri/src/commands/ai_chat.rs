@@ -27,6 +27,12 @@ pub struct AiChatArgs {
     /// 文件有哪些”这类问题,无需用户手工粘贴。
     #[serde(default)]
     scan_summary: Option<String>,
+    /// 可选:本次对话所属的会话 id。提供时,流式结束后会把"最后用的
+    /// provider 名 / 模型"回写到 `chat_session.last_provider/last_model`
+    /// 字段(用于侧栏小字标注)。前端 user/assistant 消息的持久化走
+    /// `chat_message_append` IPC,与此命令解耦,失败不影响 chat 主流程。
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -107,10 +113,20 @@ pub async fn ai_chat(
 
     let app_handle = app.clone();
     let stream_id_for_task = stream_id.clone();
+    let session_id_for_task = args.session_id.clone();
+    let db_for_task = state.db.clone();
 
     tauri::async_runtime::spawn(async move {
         match ai_arc.chat_stream("chat".to_string(), messages).await {
             Ok((mut stream, provider_name, provider_id, model)) => {
+                if let Some(sid) = session_id_for_task.as_ref() {
+                    // 仅在 chat_session 真实存在时才生效;不存在就静默 no-op。
+                    db_for_task.chat_session_update_provider(
+                        sid,
+                        Some(&provider_name),
+                        Some(&model),
+                    );
+                }
                 let _ = app_handle.emit("ai:chat:start", AiChatStartPayload {
                     stream_id: stream_id_for_task.clone(),
                     provider_name,

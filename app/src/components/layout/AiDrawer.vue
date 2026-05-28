@@ -4,12 +4,18 @@ import { useI18n } from 'vue-i18n'
 import {
   Sparkles,
   Send,
-  RefreshCw,
+  Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
   Paperclip,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
   FileText,
+  MessagesSquare,
   X,
 } from 'lucide-vue-next'
 import { MarkdownRender } from 'markstream-vue'
@@ -27,7 +33,23 @@ import {
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 const { t } = useI18n()
 const ai = useAiStore()
@@ -131,11 +153,59 @@ function visibleAssistantContent(raw: string): string {
   return parseAiMessage(raw).visibleContent
 }
 
+// ----- Session 切换 / 重命名 / 删除 -----
+//
+// Drawer 左侧侧栏列出最近会话。点击切换、操作菜单(⋮)弹出重命名 /
+// 删除。重命名走内嵌 Dialog,避免 webview 内 prompt() 不一致或被 Tauri
+// dialog 拦截的体验问题。
+const renameOpen = ref(false)
+const renameTarget = ref<{ id: string; title: string } | null>(null)
+const renameInput = ref('')
+function openRenameDialog(id: string, title: string) {
+  renameTarget.value = { id, title }
+  renameInput.value = title
+  renameOpen.value = true
+}
+async function confirmRename() {
+  if (!renameTarget.value) return
+  const trimmed = renameInput.value.trim()
+  if (!trimmed) return
+  await ai.renameSession(renameTarget.value.id, trimmed)
+  renameOpen.value = false
+  renameTarget.value = null
+}
+
+const deleteOpen = ref(false)
+const deleteTarget = ref<{ id: string; title: string } | null>(null)
+function openDeleteDialog(id: string, title: string) {
+  deleteTarget.value = { id, title }
+  deleteOpen.value = true
+}
+async function confirmDelete() {
+  if (!deleteTarget.value) return
+  await ai.deleteSession(deleteTarget.value.id)
+  deleteOpen.value = false
+  deleteTarget.value = null
+}
+
+function formatRelativeTime(ts: number): string {
+  const now = Date.now()
+  const diff = now - ts
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diff < minute) return t('aiDrawer.history.justNow')
+  if (diff < hour) return t('aiDrawer.history.minutesAgo', { n: Math.floor(diff / minute) })
+  if (diff < day) return t('aiDrawer.history.hoursAgo', { n: Math.floor(diff / hour) })
+  if (diff < 7 * day) return t('aiDrawer.history.daysAgo', { n: Math.floor(diff / day) })
+  return new Date(ts).toLocaleDateString()
+}
+
 // ----- 可拖拽宽度(持久化到 localStorage) -----
 const RESIZE_KEY = 'diskmind.aiDrawer.width'
-const MIN_WIDTH = 360
-const MAX_WIDTH = 900
-const DEFAULT_WIDTH = 480
+const MIN_WIDTH = 480
+const MAX_WIDTH = 1200
+const DEFAULT_WIDTH = 720
 
 const drawerWidth = ref<number>(DEFAULT_WIDTH)
 
@@ -190,7 +260,7 @@ function onResizeStart(e: PointerEvent) {
   <Sheet :open="ai.isOpen" @update:open="(v) => (ai.isOpen = v)">
     <SheetContent
       side="right"
-      class="flex flex-col gap-0 overflow-hidden p-0"
+      class="flex flex-row gap-0 overflow-hidden p-0"
       :style="drawerStyle"
     >
       <!-- Drag handle on the left edge: pointer-driven width control with
@@ -203,8 +273,103 @@ function onResizeStart(e: PointerEvent) {
         :aria-label="t('aiDrawer.resizeAria')"
         @pointerdown="onResizeStart"
       />
-      <SheetHeader class="border-b px-4 py-3 pr-12">
+
+      <!-- ===== 左侧 Session Sidebar ===== -->
+      <aside
+        v-if="ai.sidebarOpen"
+        class="flex w-60 shrink-0 flex-col border-r bg-muted/20"
+      >
+        <div class="flex items-center gap-2 px-3 py-2.5">
+          <span class="flex size-6 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <MessagesSquare class="size-3.5" />
+          </span>
+          <span class="text-xs font-semibold text-foreground">{{ t('aiDrawer.history.title') }}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="ml-auto size-6"
+            :title="t('aiDrawer.history.newSession')"
+            @click="ai.newSession()"
+          >
+            <Plus class="size-3.5" />
+          </Button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-2 py-2">
+          <p
+            v-if="ai.sessions.length === 0"
+            class="px-2 py-6 text-center text-[11px] text-muted-foreground"
+          >
+            {{ t('aiDrawer.history.empty') }}
+          </p>
+          <button
+            v-for="s in ai.sessions"
+            :key="s.id"
+            class="group mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors"
+            :class="
+              s.id === ai.sessionId
+                ? 'bg-primary/10 text-foreground'
+                : 'hover:bg-muted/60 text-foreground/80'
+            "
+            @click="ai.switchSession(s.id)"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-[12px] font-medium leading-snug">{{ s.title }}</div>
+              <div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span>{{ formatRelativeTime(s.updatedAt) }}</span>
+                <span v-if="s.messageCount > 0">·</span>
+                <span v-if="s.messageCount > 0">{{
+                  t('aiDrawer.history.msgCount', { n: s.messageCount })
+                }}</span>
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <span
+                  class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                  :aria-label="t('aiDrawer.history.moreAria')"
+                  @click.stop
+                >
+                  <MoreHorizontal class="size-3.5" />
+                </span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-36">
+                <DropdownMenuItem @click="openRenameDialog(s.id, s.title)">
+                  <Pencil class="mr-2 size-3.5" />
+                  {{ t('aiDrawer.history.rename') }}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  class="text-rose-600 focus:text-rose-600"
+                  @click="openDeleteDialog(s.id, s.title)"
+                >
+                  <Trash2 class="mr-2 size-3.5" />
+                  {{ t('aiDrawer.history.delete') }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ===== 右侧主区 ===== -->
+      <div class="flex min-w-0 flex-1 flex-col">
+      <SheetHeader class="px-4 py-3 pr-12">
         <div class="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0"
+            :title="
+              ai.sidebarOpen
+                ? t('aiDrawer.history.hideSidebar')
+                : t('aiDrawer.history.showSidebar')
+            "
+            @click="ai.sidebarOpen = !ai.sidebarOpen"
+          >
+            <PanelLeftClose v-if="ai.sidebarOpen" class="size-3.5" />
+            <PanelLeftOpen v-else class="size-3.5" />
+          </Button>
           <SheetTitle class="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold">
             <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Sparkles class="size-4" />
@@ -221,9 +386,10 @@ function onResizeStart(e: PointerEvent) {
             class="size-7 shrink-0"
             :disabled="ai.isStreaming"
             :aria-label="t('aiDrawer.resetAria')"
-            @click="ai.resetConversation()"
+            :title="t('aiDrawer.history.newSession')"
+            @click="ai.newSession()"
           >
-            <RefreshCw class="size-3.5" />
+            <Plus class="size-3.5" />
           </Button>
         </div>
         <SheetDescription class="text-[11px] text-muted-foreground">
@@ -233,7 +399,7 @@ function onResizeStart(e: PointerEvent) {
 
       <div
         v-if="ai.contextFiles.length > 0"
-        class="border-b bg-muted/30 px-4 py-2.5"
+        class="bg-muted/30 px-4 py-2.5"
       >
         <div class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <Paperclip class="size-3" />
@@ -336,7 +502,7 @@ function onResizeStart(e: PointerEvent) {
         </div>
       </div>
 
-      <div class="border-t bg-background/50 px-4 py-3">
+      <div class="bg-background/50 px-4 py-3">
         <div v-if="ai.messages.length <= 2" class="mb-2 flex flex-wrap gap-1.5">
           <button
             v-for="(s, i) in suggestions"
@@ -371,8 +537,50 @@ function onResizeStart(e: PointerEvent) {
           {{ t('aiDrawer.footerHint') }}
         </p>
       </div>
+      </div>
+      <!-- ===== /主区 ===== -->
     </SheetContent>
   </Sheet>
+
+  <!-- Rename session dialog -->
+  <Dialog v-model:open="renameOpen">
+    <DialogContent class="max-w-sm">
+      <DialogHeader>
+        <DialogTitle>{{ t('aiDrawer.history.renameDialogTitle') }}</DialogTitle>
+        <DialogDescription>{{ t('aiDrawer.history.renameDialogDesc') }}</DialogDescription>
+      </DialogHeader>
+      <Input
+        v-model="renameInput"
+        :placeholder="t('aiDrawer.history.renamePlaceholder')"
+        maxlength="32"
+        @keydown.enter="confirmRename"
+      />
+      <DialogFooter>
+        <Button variant="ghost" @click="renameOpen = false">{{ t('common.cancel') }}</Button>
+        <Button :disabled="!renameInput.trim()" @click="confirmRename">
+          {{ t('common.save') }}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Delete session confirm -->
+  <Dialog v-model:open="deleteOpen">
+    <DialogContent class="max-w-sm">
+      <DialogHeader>
+        <DialogTitle>{{ t('aiDrawer.history.deleteDialogTitle') }}</DialogTitle>
+        <DialogDescription>
+          {{ t('aiDrawer.history.deleteDialogDesc', { title: deleteTarget?.title ?? '' }) }}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="ghost" @click="deleteOpen = false">{{ t('common.cancel') }}</Button>
+        <Button variant="destructive" @click="confirmDelete">
+          {{ t('aiDrawer.history.delete') }}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>

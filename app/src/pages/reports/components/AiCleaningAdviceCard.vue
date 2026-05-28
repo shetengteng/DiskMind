@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Brain,
+  Database,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -35,6 +36,23 @@ onMounted(() => {
 
 const latestRun = computed(() => reports.runs[0] ?? null)
 const hasData = computed(() => latestRun.value !== null)
+
+// 监听最新一次扫描的 run.id 变化:首次出现 / 切到新的 run 时,自动从 DB
+// 缓存加载已有的 advice。命中 → 直接展示(零 LLM 调用);未命中 → 卡片
+// 自动回到"空态",等用户点"生成"按钮。这是把 Round 19 "按 run 缓存"
+// 落到 UI 的关键钩子。
+watch(
+  () => latestRun.value?.id ?? null,
+  async (runId, prev) => {
+    if (runId === null) {
+      ai.clearCleaningAdvice()
+      return
+    }
+    if (runId === prev && ai.adviceResult) return
+    await ai.loadCleaningAdvice(runId)
+  },
+  { immediate: true },
+)
 
 const tierMeta: Record<
   CleaningAdviceTier['name'],
@@ -87,7 +105,7 @@ function buildRunSummary() {
 async function generate() {
   const summary = buildRunSummary()
   if (!summary) return
-  await ai.generateCleaningAdvice(summary)
+  await ai.generateCleaningAdvice(summary, latestRun.value?.id ?? undefined)
 }
 
 const updatedLabel = computed(() => {
@@ -112,6 +130,15 @@ const updatedLabel = computed(() => {
           <CardDescription>{{ t('aiAdvice.desc') }}</CardDescription>
         </div>
         <div class="flex items-center gap-2">
+          <Badge
+            v-if="ai.adviceFromCache && ai.adviceResult"
+            variant="outline"
+            class="gap-1 text-[10px] text-muted-foreground"
+            :title="t('aiAdvice.cacheHint')"
+          >
+            <Database class="size-3" />
+            {{ t('aiAdvice.fromCache') }}
+          </Badge>
           <span v-if="updatedLabel" class="text-xs text-muted-foreground">{{ updatedLabel }}</span>
           <Button
             v-if="ai.adviceResult"
@@ -120,6 +147,7 @@ const updatedLabel = computed(() => {
             class="size-8"
             :disabled="ai.adviceLoading || !hasData"
             :aria-label="t('aiAdvice.regenerate')"
+            :title="t('aiAdvice.regenerate')"
             @click="generate"
           >
             <RefreshCw class="size-3.5" :class="{ 'animate-spin': ai.adviceLoading }" />

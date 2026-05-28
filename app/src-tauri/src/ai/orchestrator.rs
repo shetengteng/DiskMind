@@ -147,7 +147,7 @@ impl AiOrchestrator {
         messages: Vec<ChatMessage>,
         json_mode: bool,
         max_tokens: u32,
-    ) -> Result<(String, String, String), AiError> {
+    ) -> Result<(String, String, String, String), AiError> {
         let providers = self.select_providers()?;
         let mut last_err: Option<AiError> = None;
         for p in &providers {
@@ -219,7 +219,7 @@ impl AiOrchestrator {
                         effective_usage.completion_tokens = (response_chars / 3) as u32;
                     }
                     self.write_log(p, scenario, &resp.model, effective_usage, dur, true, None);
-                    return Ok((resp.content, p.name.clone(), p.id.clone()));
+                    return Ok((resp.content, p.name.clone(), p.id.clone(), resp.model));
                 }
                 Err(e) => {
                     let dur = started.elapsed().as_millis() as i64;
@@ -320,7 +320,7 @@ impl AiOrchestrator {
             ChatMessage { role: Role::System, content: prompts::EXPLAIN_FILE_SYSTEM.to_string() },
             ChatMessage { role: Role::User, content: prompt },
         ];
-        let (raw, _provider_name, _provider_id) =
+        let (raw, _provider_name, _provider_id, _model) =
             self.chat_once("explain_file", messages, true, 2048).await?;
         let cleaned = strip_code_fence(&raw);
         let parsed: ExplainFileOutput = serde_json::from_str(&cleaned)
@@ -350,7 +350,7 @@ impl AiOrchestrator {
             ChatMessage { role: Role::System, content: prompts::CLASSIFY_BATCH_SYSTEM.to_string() },
             ChatMessage { role: Role::User, content: user_json },
         ];
-        let (raw, _provider_name, _provider_id) =
+        let (raw, _provider_name, _provider_id, _model) =
             self.chat_once("classify_batch", messages, true, 2048).await?;
         let cleaned = strip_code_fence(&raw);
         let parsed: ClassifyBatchOutput = serde_json::from_str(&cleaned)
@@ -387,7 +387,37 @@ impl AiOrchestrator {
         Ok(out)
     }
 
-    pub async fn cleaning_advice(&self, run_summary: String) -> Result<serde_json::Value, AiError> {
+    /// 把会话首问压成 8-15 字的标题,用于 AI Drawer 侧栏列表。给 LLM
+    /// 的 budget 是 96 tokens(label-ish 长度足够),不强制 JSON,只取
+    /// 一行纯文本。失败由上层 fallback 到"前 12 字"策略。
+    ///
+    /// 不写专属 scenario,复用 `chat_title_summary` 名字让 ai_call_log
+    /// 能统计这部分调用。
+    pub async fn summarize_chat_title(&self, question: &str) -> Result<String, AiError> {
+        let messages = vec![
+            ChatMessage {
+                role: Role::System,
+                content: prompts::CHAT_TITLE_SUMMARY_SYSTEM.to_string(),
+            },
+            ChatMessage {
+                role: Role::User,
+                content: question.to_string(),
+            },
+        ];
+        let (raw, _, _, _) = self
+            .chat_once("chat_title_summary", messages, /* json_mode */ false, 96)
+            .await?;
+        Ok(raw.trim().to_string())
+    }
+
+    /// 生成"一键清理建议"(三档 safe/balanced/aggressive)。返回 tuple
+    /// 把 LLM 输出 + 实际命中的 provider/model 一并暴露,IPC 层拿到后
+    /// 会把结果按 run_id upsert 到 `ai_cleaning_advice` 表,下次打开
+    /// Reports 页直接复用缓存(Round 19,避免每次重启都重调 LLM)。
+    pub async fn cleaning_advice(
+        &self,
+        run_summary: String,
+    ) -> Result<(serde_json::Value, String, String), AiError> {
         let messages = vec![
             ChatMessage { role: Role::System, content: prompts::CLEANING_ADVICE_SYSTEM.to_string() },
             ChatMessage { role: Role::User, content: run_summary },
@@ -395,11 +425,12 @@ impl AiOrchestrator {
         // 4096 是经验值:3 tier × 每 tier ~600 tokens(label/description/
         // categories/total_bytes/risk_level)≈ 1800,留 2.2x 余量防 LLM
         // 啰嗦展开。继续超 → 应该在 prompt 端约束输出长度,而不是无限调大。
-        let (raw, _, _) = self.chat_once("cleaning_advice", messages, true, 4096).await?;
+        let (raw, provider_name, _provider_id, model) =
+            self.chat_once("cleaning_advice", messages, true, 4096).await?;
         let cleaned = strip_code_fence(&raw);
         let v: serde_json::Value = serde_json::from_str(&cleaned)
             .map_err(|e| AiError::JsonValidation(format!("{e}: {cleaned}")))?;
-        Ok(v)
+        Ok((v, provider_name, model))
     }
 
     /// 只对第一个 enabled 的 provider 做一次往返,返回 latency(ms)。

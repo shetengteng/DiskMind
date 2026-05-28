@@ -18,7 +18,9 @@ use rusqlite::{params, Connection};
 
 use crate::classifier::FileRisk;
 
+mod ai_cleaning_advice;
 mod ai_log;
+mod chat;
 mod classify;
 mod diag;
 mod meta;
@@ -29,7 +31,9 @@ mod trash;
 // re-export 子模块中"会被 lib / commands / ai 直接 use"的类型。其它
 // 类型(SaveScanResult / CategoryBreakdown / compute_fingerprint 等)通过
 // Db 方法的返回值间接公开,无需在这里再 pub use。
+pub use ai_cleaning_advice::CachedCleaningAdvice;
 pub use ai_log::{AiCallLog, AiTodayStats};
+pub use chat::{ChatMessageAppend, ChatMessageRow, ChatSessionSummary};
 pub use classify::{ClassifyApplyItem, PendingClassifyItem};
 pub use diag::DbStats;
 pub use provider::{Provider, ProviderUpsert};
@@ -148,9 +152,46 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
 
 CREATE INDEX IF NOT EXISTS idx_ai_call_log_called ON ai_call_log(called_at);
 CREATE INDEX IF NOT EXISTS idx_ai_call_log_provider ON ai_call_log(provider_id, called_at);
+
+CREATE TABLE IF NOT EXISTS chat_session (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_provider TEXT,
+    last_model TEXT,
+    message_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_session_updated ON chat_session(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_message (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    files_json TEXT,
+    action_json TEXT,
+    FOREIGN KEY(session_id) REFERENCES chat_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_message_session ON chat_message(session_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL UNIQUE,
+    advice_json TEXT NOT NULL,
+    provider_name TEXT,
+    model TEXT,
+    generated_at INTEGER NOT NULL,
+    FOREIGN KEY(run_id) REFERENCES scan_run(id) ON DELETE CASCADE
+);
 "#;
 
-const DATA_VERSION: i64 = 7;
+const DATA_VERSION: i64 = 9;
 
 pub struct Db {
     pub(crate) conn: Mutex<Connection>,
@@ -179,7 +220,13 @@ impl Db {
         // v5 新增 `ai_call_log`,都是纯新增(上方 CREATE TABLE IF NOT
         // EXISTS),所以仅 bump `data_version`,不动旧数据。v6 给
         // `scan_run` 加 `fingerprint` 字段以支持去重。v7 给 `scan_result`
-        // 加 `ai_classified_at` 列以支持批量 AI 分类去重(Round 15)。
+        // 加 `ai_classified_at` 列以支持批量 AI 分类去重(Round 15)。v8
+        // 新增 `chat_session` + `chat_message` 两张表,把 AI Drawer 的
+        // 对话持久化到 DB(Round 18,会话历史功能),CREATE TABLE IF NOT
+        // EXISTS 已经覆盖,无需额外迁移逻辑,只需要 bump DATA_VERSION。
+        // v9 新增 `ai_cleaning_advice` 表(run_id UNIQUE FK CASCADE)
+        // 缓存 Reports 页"一键清理建议"的 LLM 输出,避免每次重启重调,
+        // 同样纯新增,无需 ALTER。
         if prev < 3 {
             conn.execute_batch(
                 "DELETE FROM scan_result; DELETE FROM dir_summary; DELETE FROM scan_run;",

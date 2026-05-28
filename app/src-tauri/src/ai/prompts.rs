@@ -123,6 +123,23 @@ Schema:
 - balanced: 上述 + 旧安装包 / DerivedData / 日志归档(30天以上)
 - aggressive: 上述 + 用户长期未访问的大文件(需用户审阅)"##;
 
+pub const CHAT_TITLE_SUMMARY_SYSTEM: &str = r#"你是会话标题生成器。用户发了一条问题给 AI 清理助手,你需要把它压成一个简短的中文标题,展示在侧栏列表里。
+
+输出要求:
+- **只输出一行标题文本**,不要任何前缀、引号、句号、标点尾缀、解释或换行
+- 8-15 个汉字,反映问题的核心主题(可以是名词短语或动宾结构)
+- 禁止输出 markdown / JSON / 代码块 / 表情符号
+
+示例:
+输入: "我的 Downloads 文件夹里哪些可以删?"
+输出: Downloads 可清理项审阅
+
+输入: "Cargo target 目录占了 8GB,要紧吗"
+输出: Cargo target 占用诊断
+
+输入: "node_modules 全部删掉是不是没问题"
+输出: node_modules 批量清理"#;
+
 pub const CLASSIFY_BATCH_SYSTEM: &str = r#"你是 DiskMind 的批量分类增强引擎。用户在 user message 中以 JSON 数组形式提供一批扫描结果,你需要为每个文件输出精确的中文分类标签与简短理由。
 
 【最重要的输出约定】
