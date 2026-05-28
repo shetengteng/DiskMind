@@ -176,6 +176,10 @@ impl AiOrchestrator {
                 json_mode,
             };
             let started = Instant::now();
+            // 提前计算 prompt 字符总数,用于 LLM 不上报 usage 时的兜底估算。
+            // 中文密集场景 ~3 char/token,英文 ~4 char/token,这里取 3 作为
+            // 偏保守(略高估)的统一系数,避免少算成本。
+            let prompt_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
             match client.chat(req).await {
                 Ok(resp) => {
                     let dur = started.elapsed().as_millis() as i64;
@@ -199,7 +203,22 @@ impl AiOrchestrator {
                         last_err = Some(AiError::BadPayload(msg.into()));
                         continue;
                     }
-                    self.write_log(p, scenario, &resp.model, resp.usage.clone(), dur, true, None);
+                    // 兜底:部分 OpenAI 兼容代理(如本地 LiteLLM/Cursor proxy
+                    // 转 Anthropic Claude)不会从上游回填 token 计数,响应里
+                    // `usage` 全是 0。这种情况下 ai_call_log 记 0/0,Reports
+                    // 页 ↑0 ↓0 让用户误以为统计失灵。这里在 usage 缺失时用
+                    // char-count / 3 启发式估算,既能给用户有意义的数字,又
+                    // 不依赖 schema 变更。`estimate_cost_usd` 也会基于估算
+                    // 值算成本,精度可接受(代理本来就不可信)。
+                    let mut effective_usage = resp.usage.clone();
+                    if effective_usage.prompt_tokens == 0
+                        && effective_usage.completion_tokens == 0
+                    {
+                        let response_chars = resp.content.chars().count();
+                        effective_usage.prompt_tokens = (prompt_chars / 3) as u32;
+                        effective_usage.completion_tokens = (response_chars / 3) as u32;
+                    }
+                    self.write_log(p, scenario, &resp.model, effective_usage, dur, true, None);
                     return Ok((resp.content, p.name.clone(), p.id.clone()));
                 }
                 Err(e) => {
