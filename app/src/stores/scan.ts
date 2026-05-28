@@ -89,6 +89,29 @@ export const useScanStore = defineStore('scan', () => {
       } catch {
         /* noop */
       }
+      // Round 15:若用户在设置中打开了"扫描完成后自动补打 AI 标签",并
+      // 且本次扫描不是被取消、不是因为指纹去重而保留旧结果(deduped 时
+      // 表里的 ai_classified_at 已经覆盖了候选,无新增需要打的),则触发
+      // 一次后台批量分类。整段失败不影响扫描流程本身。
+      try {
+        const settings = useScanSettingsStore()
+        if (
+          settings.options.aiAnalysis &&
+          !p.cancelled &&
+          !p.deduped &&
+          p.results.length > 0
+        ) {
+          const { useAiStore } = await import('@/stores/ai')
+          const ai = useAiStore()
+          await ai.ensureClassifySubscribed()
+          await ai.refreshClassifyPendingCount()
+          if (ai.classifyPendingCount > 0 && !ai.classifyRunning) {
+            void ai.runBatchClassify()
+          }
+        }
+      } catch (e) {
+        console.warn('[scan] auto ai-classify failed', e)
+      }
     })
     unlistenError = await onScanError(p => {
       console.error('[scan] scan:error received', p.message)

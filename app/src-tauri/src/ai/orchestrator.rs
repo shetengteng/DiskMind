@@ -3,21 +3,21 @@
 //! `ai_call_log`.
 
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
-use futures_util::stream::{BoxStream, StreamExt};
+use futures_util::stream::BoxStream;
 use serde::{Deserialize, Serialize};
 
-use crate::db::{AiCallLog, Db, Provider};
+use crate::db::{AiCallLog, ClassifyApplyItem, Db, PendingClassifyItem, Provider};
 
 use super::anthropic::AnthropicProvider;
 use super::cost::estimate_cost_usd;
+use super::log_helper::{now_ms, strip_code_fence, wrap_stream_with_logging};
 use super::ollama::OllamaProvider;
 use super::openai::OpenAiCompatProvider;
 use super::prompts;
 use super::provider::{
-    AiError, ChatDelta, ChatMessage, ChatRequest, ChatResponse, LlmProvider, ProviderKind, Role,
-    Usage,
+    AiError, ChatDelta, ChatMessage, ChatRequest, LlmProvider, ProviderKind, Role, Usage,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +36,22 @@ pub struct ExplainFileOutput {
     pub risk_assessment: String,
     pub recommended_action: String,
     pub reasons: Vec<String>,
+}
+
+/// `classify_batch` 期望从 LLM 拿到的结构。schema 与 `CLASSIFY_BATCH_SYSTEM`
+/// 描述对齐。`id` 必须能在请求集合中找到回声(否则丢弃)。
+#[derive(Debug, Deserialize)]
+struct ClassifyBatchOutput {
+    enhanced: Vec<ClassifyBatchRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClassifyBatchRow {
+    id: i64,
+    #[serde(default)]
+    ai_category: String,
+    #[serde(default)]
+    ai_reason: String,
 }
 
 pub struct AiOrchestrator {
@@ -266,6 +282,65 @@ impl AiOrchestrator {
         Ok(parsed)
     }
 
+    /// 把一批 `PendingClassifyItem` 送给 LLM,要求其返回每条对应的 `ai_category`
+    /// 和 `ai_reason`。约束:
+    /// - 输入数组完整序列化为 JSON 作为 user message,由 `CLASSIFY_BATCH_SYSTEM`
+    ///   描述输入 schema
+    /// - LLM 必须返回的 id 集合,作为一道安全网与请求 id 集合交叉校验;凡
+    ///   不在请求集中的 id 一律丢弃,凡缺失的 id 不强行补默认值(让上层
+    ///   决定是否重试)
+    /// - 单批失败不影响其他批 — 编排循环在 `classify_pending_in_chunks` 里
+    pub async fn classify_batch(
+        &self,
+        items: Vec<PendingClassifyItem>,
+    ) -> Result<Vec<ClassifyApplyItem>, AiError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let user_json = serde_json::to_string(&items).map_err(|e| {
+            AiError::JsonValidation(format!("serialize input items failed: {e}"))
+        })?;
+        let messages = vec![
+            ChatMessage { role: Role::System, content: prompts::CLASSIFY_BATCH_SYSTEM.to_string() },
+            ChatMessage { role: Role::User, content: user_json },
+        ];
+        let (raw, _provider_name, _provider_id) =
+            self.chat_once("classify_batch", messages, true).await?;
+        let cleaned = strip_code_fence(&raw);
+        let parsed: ClassifyBatchOutput = serde_json::from_str(&cleaned)
+            .map_err(|e| AiError::JsonValidation(format!("{e}: {cleaned}")))?;
+
+        // 用请求 id 集合做白名单 — 防止模型编造 id 让上层 update 到错误行
+        // (虽然 SQLite UPDATE 找不到 id 会静默跳过,这里仍主动过滤,以便
+        // 在日志层面定位"幻觉"问题)。同时记录返回中重复出现的 id,只保
+        // 留第一次(LLM 偶尔会复述同一 id 两次)。
+        let allowed: std::collections::HashSet<i64> = items.iter().map(|i| i.id).collect();
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        let out: Vec<ClassifyApplyItem> = parsed
+            .enhanced
+            .into_iter()
+            .filter_map(|e| {
+                if !allowed.contains(&e.id) {
+                    return None;
+                }
+                if !seen.insert(e.id) {
+                    return None;
+                }
+                let cat = e.ai_category.trim();
+                let reason = e.ai_reason.trim();
+                if cat.is_empty() || reason.is_empty() {
+                    return None;
+                }
+                Some(ClassifyApplyItem {
+                    id: e.id,
+                    ai_category: cat.to_string(),
+                    ai_reason: reason.to_string(),
+                })
+            })
+            .collect();
+        Ok(out)
+    }
+
     pub async fn cleaning_advice(&self, run_summary: String) -> Result<serde_json::Value, AiError> {
         let messages = vec![
             ChatMessage { role: Role::System, content: prompts::CLEANING_ADVICE_SYSTEM.to_string() },
@@ -369,87 +444,5 @@ impl AiOrchestrator {
     }
 }
 
-fn wrap_stream_with_logging(
-    inner: BoxStream<'static, Result<ChatDelta, AiError>>,
-    db: Arc<Db>,
-    provider: Provider,
-    scenario: String,
-    model: String,
-    started: Instant,
-) -> BoxStream<'static, Result<ChatDelta, AiError>> {
-    let s = async_stream::try_stream! {
-        futures_util::pin_mut!(inner);
-        let mut final_usage = Usage::default();
-        let mut errored: Option<String> = None;
-        while let Some(item) = inner.next().await {
-            match item {
-                Ok(delta) => {
-                    if let ChatDelta::Done(ref u) = delta {
-                        final_usage = u.clone();
-                    }
-                    yield delta;
-                }
-                Err(e) => {
-                    errored = Some(e.to_string());
-                    let dur = started.elapsed().as_millis() as i64;
-                    write_log_static(&db, &provider, &scenario, &model, Usage::default(), dur, false, errored.clone());
-                    Err(e)?;
-                }
-            }
-        }
-        if errored.is_none() {
-            let dur = started.elapsed().as_millis() as i64;
-            write_log_static(&db, &provider, &scenario, &model, final_usage, dur, true, None);
-        }
-    };
-    Box::pin(s)
-}
-
-fn write_log_static(
-    db: &Arc<Db>,
-    provider: &Provider,
-    scenario: &str,
-    model: &str,
-    usage: Usage,
-    duration_ms: i64,
-    success: bool,
-    error: Option<String>,
-) {
-    let is_local = matches!(provider.kind.as_str(), "ollama");
-    let cost = estimate_cost_usd(model, &usage, is_local);
-    let log = AiCallLog {
-        id: 0,
-        provider_id: Some(provider.id.clone()),
-        provider_name: Some(provider.name.clone()),
-        scenario: scenario.to_string(),
-        model: model.to_string(),
-        prompt_tokens: usage.prompt_tokens as i64,
-        completion_tokens: usage.completion_tokens as i64,
-        cost_usd: cost,
-        duration_ms,
-        success,
-        error,
-        called_at: now_ms(),
-    };
-    if let Err(e) = db.ai_log_insert(&log) {
-        eprintln!("[diskmind] ai_log_insert (stream end) failed: {e}");
-    }
-}
-
-fn strip_code_fence(s: &str) -> String {
-    let trimmed = s.trim();
-    if let Some(rest) = trimmed.strip_prefix("```json") {
-        return rest.trim_end_matches("```").trim().to_string();
-    }
-    if let Some(rest) = trimmed.strip_prefix("```") {
-        return rest.trim_end_matches("```").trim().to_string();
-    }
-    trimmed.to_string()
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
+// helpers (`wrap_stream_with_logging` / `write_log_static` /
+// `strip_code_fence` / `now_ms`) 在 Round 16 拆分中移到了 `super::log_helper`。

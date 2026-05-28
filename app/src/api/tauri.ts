@@ -251,6 +251,25 @@ export async function trashSetRetentionDays(days: number): Promise<void> {
 }
 
 /**
+ * 扫描历史保留上限。Round 14 起从硬编码改为 `meta` 表持久化,前端在
+ * 设置 → 通用 用 NumberInput 让用户在 10-200 之间调整。Web 预览模式下
+ * 返回默认 30,避免设置页 input 空着。
+ */
+export async function metaGetMaxScanHistory(): Promise<number> {
+  if (!isTauri()) return 30
+  try {
+    return await invoke<number>('meta_get_max_scan_history')
+  } catch {
+    return 30
+  }
+}
+
+export async function metaSetMaxScanHistory(value: number): Promise<void> {
+  if (!isTauri()) return
+  await invoke('meta_set_max_scan_history', { value })
+}
+
+/**
  * 在系统文件管理器中显示路径(macOS Finder / Windows Explorer /
  * Linux xdg-open)。失败时抛错,由调用方 toast。
  */
@@ -461,6 +480,68 @@ export async function aiListCallLogs(limit = 100): Promise<AiCallLog[]> {
   }
 }
 
+// ---------- AI 批量分类(Round 15) ----------
+
+/**
+ * 批量补打 AI 标签的入参。默认值在 stores/ai.ts 的 runBatchClassify 里
+ * 集中维护,避免到处复制硬编码。
+ */
+export interface AiClassifyBatchArgs {
+  /** 仅处理 `size_bytes >= minSizeBytes` 的行,单位字节。默认 100 MiB。 */
+  minSizeBytes: number
+  /** 风险等级白名单,默认 `["medium", "high"]` 即"待审核 + 高风险"。 */
+  risks: FileRisk[]
+  /** 每批送 LLM 的最大条数,默认 25。后端硬上限 50。 */
+  batchSize: number
+  /** 单次任务最多处理多少批,默认 8。后端硬上限 20,即 ≤ 1000 条文件。 */
+  maxBatches: number
+}
+
+export interface AiClassifyProgressPayload {
+  /**
+   * `started`:任务启动,带 `totalPending` 让 UI 立即渲染进度条
+   * `chunk`:每完成一批触发一次
+   * `done`:正常结束
+   * `cancelled`:用户取消
+   * `error`:致命错误,任务终止
+   * `no_pending`:本次启动时已无可处理项,直接结束
+   */
+  kind: 'started' | 'chunk' | 'done' | 'cancelled' | 'error' | 'no_pending'
+  processedBatches: number
+  updated: number
+  failedBatches: number
+  totalPending: number
+  message: string | null
+}
+
+export async function aiClassifyBatchPending(args: AiClassifyBatchArgs): Promise<void> {
+  if (!isTauri()) throw new Error('需要在桌面端运行')
+  await invoke('ai_classify_batch_pending', { args })
+}
+
+export async function aiClassifyBatchCancel(): Promise<void> {
+  if (!isTauri()) return
+  await invoke('ai_classify_batch_cancel')
+}
+
+export async function aiClassifyPendingCount(
+  minSizeBytes: number,
+  risks: FileRisk[],
+): Promise<number> {
+  if (!isTauri()) return 0
+  try {
+    return await invoke<number>('ai_classify_pending_count', { minSizeBytes, risks })
+  } catch {
+    return 0
+  }
+}
+
+export function onAiClassifyProgress(
+  cb: (p: AiClassifyProgressPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<AiClassifyProgressPayload>('ai:classify:progress', evt => cb(evt.payload))
+}
+
 /**
  * 通用文本写盘命令。`path` 来自 plugin-dialog 的 `save()`,后端只做最
  * 普通的 `fs::write`,失败时把 Rust 错误透传上来给前端展示 toast。
@@ -502,6 +583,25 @@ export async function dbStats(): Promise<DbStats | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * R1 事件总线根治方案的核心 payload。任何会改变 `trash_item` 表的入
+ * 口(4 个 IPC + 后台 `cleanup_expired`)都会 emit 这个事件,前端 trash
+ * store 监听到后 cascade reload scan / reports,避免每个调用点手动同
+ * 步信号。
+ */
+export interface TrashChangedPayload {
+  /** 触发来源:`moved` / `restored` / `deleted` / `emptied` / `expired` */
+  kind: 'moved' | 'restored' | 'deleted' | 'emptied' | 'expired'
+  /** 受影响的条目数 */
+  count: number
+}
+
+export function onTrashChanged(
+  cb: (payload: TrashChangedPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<TrashChangedPayload>('trash:changed', evt => cb(evt.payload))
 }
 
 export function onScanProgress(

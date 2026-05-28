@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Eye, EyeOff, Sparkles } from 'lucide-vue-next'
 import { Separator } from '@/components/ui/separator'
@@ -9,16 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePrivacyStore } from '@/stores/privacy'
 import { useAiStore } from '@/stores/ai'
+import BreadcrumbBar from '@/components/layout/BreadcrumbBar.vue'
 
-const route = useRoute()
 const { t } = useI18n()
 const privacy = usePrivacyStore()
 const ai = useAiStore()
-
-const title = computed<string>(() => {
-  const meta = route.meta?.title as string | undefined
-  return meta ?? 'DiskMind'
-})
 
 /**
  * AI 触发按钮的状态指示点颜色。
@@ -54,7 +48,8 @@ const aiTooltip = computed(() => {
         orientation="vertical"
         class="mx-2 data-[orientation=vertical]:h-4"
       />
-      <h1 class="text-base font-medium">{{ title }}</h1>
+      <BreadcrumbBar />
+
 
       <div class="ml-auto flex items-center gap-1">
         <Tooltip>

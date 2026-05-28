@@ -9,6 +9,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useScanStore } from '@/stores/scan'
 import { useAiStore } from '@/stores/ai'
 import { useScanSettingsStore } from '@/stores/scanSettings'
+import { useTrashStore } from '@/stores/trash'
 import { bindToastErrorHandler } from '@/lib/notify'
 
 useTheme()
@@ -16,7 +17,11 @@ useTheme()
 const scan = useScanStore()
 const ai = useAiStore()
 const scanSettings = useScanSettingsStore()
+const trash = useTrashStore()
 onMounted(async () => {
+  // R1 事件总线:启动时一次性订阅 `trash:changed`,任何来源(IPC / 后台
+  // 30 天清理)的沙箱变化都会触发 trash → scan → reports cascade reload。
+  void trash.subscribeChanges()
   scan.loadLast()
   void ai.init()
   await scanSettings.bootstrapDefaults()

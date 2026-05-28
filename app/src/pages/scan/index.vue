@@ -1,12 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3 } from 'lucide-vue-next'
+import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3, Sparkles } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { AlertTriangle } from 'lucide-vue-next'
+import { storeToRefs } from 'pinia'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useScanStore } from '@/stores/scan'
 import { useAiStore } from '@/stores/ai'
 import { useTrashStore } from '@/stores/trash'
@@ -23,6 +34,40 @@ const ai = useAiStore()
 const trash = useTrashStore()
 const route = useRoute()
 const { t } = useI18n()
+
+// AI 标签批量补打:进度条 + 按钮显示需要的反应式片段
+const {
+  classifyRunning,
+  classifyKind,
+  classifyProgressPercent,
+  classifyPending: classifyTotalPending,
+  classifyUpdated,
+  classifyPendingCount,
+} = storeToRefs(ai)
+
+void ai.ensureClassifySubscribed()
+
+watch(
+  () => scan.results.length,
+  n => {
+    // 每次扫描结果数量变化(典型场景:扫描完成 / 沙箱移走 / 还原)就
+    // 重算"待补打 AI 标签"的总数,UI 角标(按钮上的 N)始终新鲜。
+    if (n > 0) {
+      void ai.refreshClassifyPendingCount()
+    } else {
+      classifyPendingCount.value = 0
+    }
+  },
+  { immediate: true },
+)
+
+function runBatchClassify() {
+  void ai.runBatchClassify()
+}
+
+function cancelBatchClassify() {
+  void ai.cancelBatchClassify()
+}
 
 const sandboxBanner = ref<{ kind: 'ok' | 'warn'; text: string } | null>(null)
 
@@ -170,22 +215,49 @@ function askAiFolder(folderName: string, fileIds: number[]) {
   )
 }
 
-async function trashFolder(folderName: string, fileIds: number[]) {
+/**
+ * 整文件夹批量入沙箱的二次确认。之前用 `window.confirm`,但 Tauri 2.x
+ * 默认未启用 `dialog:allow-confirm` capability,在 webview 里点击会抛
+ * "dialog.confirm not allowed. Command not found"。改用项目内已有的
+ * reka-ui `Dialog` 组件,与 Trash 页面 `TrashConfirmDialog` 的交互模式
+ * 保持一致,顺带统一了视觉。
+ */
+const pendingTrashFolder = ref<{
+  folderName: string
+  reqs: { path: string; sizeBytes: number; category: string; risk: FileRisk; aiReason: string }[]
+} | null>(null)
+const trashFolderDialogOpen = computed({
+  get: () => pendingTrashFolder.value !== null,
+  set: (v: boolean) => {
+    if (!v) pendingTrashFolder.value = null
+  },
+})
+
+function trashFolder(folderName: string, fileIds: number[]) {
   const idSet = new Set(fileIds)
   const rows = data.value.filter(d => idSet.has(d.id))
   if (rows.length === 0) return
-  if (!window.confirm(t('scan.trashFolderConfirm', { name: folderName, n: rows.length }))) return
-  const reqs = rows.map(r => ({
-    path: r.path,
-    sizeBytes: r.sizeBytes,
-    category: r.category,
-    risk: r.risk,
-    aiReason: r.aiReason ?? '',
-  }))
-  const res = await trash.move(reqs)
-  const movedIds = new Set(res.items.map(it => it.originalPath))
-  data.value = data.value.filter(d => !movedIds.has(d.path))
-  scan.results = scan.results.filter(d => !movedIds.has(d.path))
+  pendingTrashFolder.value = {
+    folderName,
+    reqs: rows.map(r => ({
+      path: r.path,
+      sizeBytes: r.sizeBytes,
+      category: r.category,
+      risk: r.risk,
+      aiReason: r.aiReason ?? '',
+    })),
+  }
+}
+
+async function confirmTrashFolder() {
+  const payload = pendingTrashFolder.value
+  if (!payload) return
+  pendingTrashFolder.value = null
+  const res = await trash.move(payload.reqs)
+  // R1 事件总线:不再手动 splice scan.results — 后端 emit
+  // `trash:changed` 后,trash store 监听里会 cascade reload scan,所以
+  // `scan.results` 会自动反映新状态。data.value 通过顶部 watch 跟随
+  // scan.results 同步刷新。
   if (res.failures.length === 0) {
     sandboxBanner.value = { kind: 'ok', text: t('scan.sandboxOk', { n: res.items.length }) }
   } else {
@@ -212,9 +284,7 @@ async function moveToSandbox() {
     aiReason: r.aiReason ?? '',
   }))
   const res = await trash.move(reqs)
-  const movedIds = new Set(res.items.map(it => it.originalPath))
-  data.value = data.value.filter(d => !movedIds.has(d.path))
-  scan.results = scan.results.filter(d => !movedIds.has(d.path))
+  // R1 同上 — 不再手动 splice,事件驱动统一同步
   if (res.failures.length === 0) {
     sandboxBanner.value = { kind: 'ok', text: t('scan.sandboxOk', { n: res.items.length }) }
   } else {
@@ -299,6 +369,49 @@ const subtitle = computed(() => {
       {{ sandboxBanner.text }}
     </div>
 
+    <!-- AI 标签批量补打栏(Round 15)
+         任务运行中:占满整行的进度条 + 取消按钮
+         任务未启动 + 有待办:压缩的胶囊式按钮,显示待办数 N -->
+    <div
+      v-if="scan.phase === 'done' && (classifyRunning || classifyPendingCount > 0)"
+      class="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+    >
+      <div v-if="classifyRunning" class="flex items-center gap-3">
+        <Sparkles class="size-4 shrink-0 text-primary" />
+        <div class="min-w-0 flex-1">
+          <div class="mb-1.5 flex items-center justify-between gap-3 text-xs">
+            <span class="truncate text-foreground/80">
+              {{
+                classifyKind === 'started'
+                  ? t('scan.aiBatch.starting')
+                  : t('scan.aiBatch.progressDesc', {
+                      updated: classifyUpdated,
+                      total: classifyTotalPending,
+                    })
+              }}
+            </span>
+            <span class="shrink-0 tabular-nums text-muted-foreground">
+              {{ classifyProgressPercent }}%
+            </span>
+          </div>
+          <Progress :model-value="classifyProgressPercent" />
+        </div>
+        <Button variant="ghost" size="sm" class="shrink-0" @click="cancelBatchClassify">
+          {{ t('common.cancel') }}
+        </Button>
+      </div>
+      <div v-else class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-foreground/80">
+          <Sparkles class="size-4 text-primary" />
+          <span>{{ t('scan.aiBatch.pendingDesc', { n: classifyPendingCount }) }}</span>
+        </div>
+        <Button size="sm" variant="default" @click="runBatchClassify">
+          <Sparkles class="mr-1.5 size-3.5" />
+          {{ t('scan.aiBatch.runButton', { n: classifyPendingCount }) }}
+        </Button>
+      </div>
+    </div>
+
     <Card v-if="scan.phase === 'idle'" class="border-dashed">
       <CardContent class="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <div class="flex size-12 items-center justify-center rounded-full bg-muted">
@@ -381,5 +494,34 @@ const subtitle = computed(() => {
         <DiskMapView />
       </TabsContent>
     </Tabs>
+
+    <Dialog v-model:open="trashFolderDialogOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <AlertTriangle class="size-5 text-amber-500" />
+            {{ t('scan.trashFolder') }}
+          </DialogTitle>
+          <DialogDescription>
+            {{
+              pendingTrashFolder
+                ? t('scan.trashFolderConfirm', {
+                    name: pendingTrashFolder.folderName,
+                    n: pendingTrashFolder.reqs.length,
+                  })
+                : ''
+            }}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" @click="pendingTrashFolder = null">
+            {{ t('common.cancel') }}
+          </Button>
+          <Button variant="destructive" @click="confirmTrashFolder">
+            {{ t('trash.confirm.confirmDelete') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

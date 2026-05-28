@@ -11,6 +11,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -25,7 +26,7 @@ import {
   disable as disableAutostart,
   isEnabled as isAutostartEnabled,
 } from '@tauri-apps/plugin-autostart'
-import { isTauri } from '@/api/tauri'
+import { isTauri, metaGetMaxScanHistory, metaSetMaxScanHistory } from '@/api/tauri'
 import { useScanSettingsStore } from '@/stores/scanSettings'
 import { storeToRefs } from 'pinia'
 import { notify } from '@/lib/notify'
@@ -58,9 +59,21 @@ const generalSettings = ref({
 const startWithSystemReady = ref(false)
 const startWithSystemSaving = ref(false)
 
+/**
+ * S2 · 扫描历史保留次数(Round 14 落地)。和 `trash_retention_days`
+ * 同模式:本地 ref 反映 UI 编辑态,onMounted 阶段从后端 hydrate,
+ * onBlur 时调 IPC 持久化;失败回滚 + toast。后端会再 clamp 一次
+ * 双层防护。
+ */
+const maxScanHistory = ref<string>('30')
+const maxScanHistoryReady = ref(false)
+const maxScanHistorySaving = ref(false)
+let lastSavedMaxScanHistory = 30
+
 onMounted(async () => {
   if (!isTauri()) {
     startWithSystemReady.value = true
+    maxScanHistoryReady.value = true
     return
   }
   try {
@@ -70,7 +83,36 @@ onMounted(async () => {
   } finally {
     startWithSystemReady.value = true
   }
+  try {
+    const n = await metaGetMaxScanHistory()
+    lastSavedMaxScanHistory = n
+    maxScanHistory.value = String(n)
+  } finally {
+    maxScanHistoryReady.value = true
+  }
 })
+
+async function commitMaxScanHistory() {
+  if (!isTauri() || !maxScanHistoryReady.value || maxScanHistorySaving.value) return
+  const n = Number(maxScanHistory.value)
+  if (!Number.isInteger(n) || n < 10 || n > 200) {
+    notify.warn(t('settings.general.maxScanHistoryInvalid'))
+    maxScanHistory.value = String(lastSavedMaxScanHistory)
+    return
+  }
+  if (n === lastSavedMaxScanHistory) return
+  maxScanHistorySaving.value = true
+  try {
+    await metaSetMaxScanHistory(n)
+    lastSavedMaxScanHistory = n
+    notify.success(t('settings.general.maxScanHistorySaved', { n }))
+  } catch (e) {
+    notify.error(t('settings.general.maxScanHistorySaveFailed'), String(e))
+    maxScanHistory.value = String(lastSavedMaxScanHistory)
+  } finally {
+    maxScanHistorySaving.value = false
+  }
+}
 
 async function onToggleStartWithSystem(v: boolean) {
   generalSettings.value.startWithSystem = v
@@ -141,6 +183,24 @@ const appToggles: ToggleItem[] = [
             <p class="text-xs text-muted-foreground">{{ t('settings.general.scanOnStartupDesc') }}</p>
           </div>
           <Switch v-model="scanOnStartup" />
+        </div>
+        <Separator />
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1 space-y-0.5">
+            <Label class="text-sm">{{ t('settings.general.maxScanHistory') }}</Label>
+            <p class="text-xs text-muted-foreground">{{ t('settings.general.maxScanHistoryDesc') }}</p>
+          </div>
+          <Input
+            v-model="maxScanHistory"
+            type="number"
+            min="10"
+            max="200"
+            step="1"
+            class="h-9 w-[120px] shrink-0"
+            :disabled="!maxScanHistoryReady || maxScanHistorySaving"
+            @blur="commitMaxScanHistory"
+            @keydown.enter="commitMaxScanHistory"
+          />
         </div>
       </CardContent>
     </Card>

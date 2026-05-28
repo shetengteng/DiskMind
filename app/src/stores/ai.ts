@@ -3,6 +3,9 @@ import { computed, ref } from 'vue'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import {
   aiChat as ipcAiChat,
+  aiClassifyBatchCancel as ipcAiClassifyBatchCancel,
+  aiClassifyBatchPending as ipcAiClassifyBatchPending,
+  aiClassifyPendingCount as ipcAiClassifyPendingCount,
   aiCleaningAdvice as ipcAiCleaningAdvice,
   aiExplainFile as ipcAiExplainFile,
   aiTodayStats,
@@ -11,10 +14,14 @@ import {
   onAiChatDone,
   onAiChatError,
   onAiChatStart,
+  onAiClassifyProgress,
   type AiChatMessage as IpcChatMessage,
+  type AiClassifyBatchArgs,
+  type AiClassifyProgressPayload,
   type CleaningAdviceOutput,
   type ExplainFileInput,
   type ExplainFileOutput,
+  type FileRisk,
 } from '@/api/tauri'
 import { useProvidersStore } from '@/stores/providers'
 import { useScanStore } from '@/stores/scan'
@@ -428,15 +435,15 @@ export const useAiStore = defineStore('ai', () => {
         notify.warn('AI 清理', msg.action.message)
       }
 
-      // 刷新相关页面状态,让用户看到更新后的回收站列表和扫描结果,
-      // 无需手动 reload。
+      // R1 事件总线:`trashMove` IPC 完成时后端会 emit `trash:changed`,
+      // trash store 监听里会自动 cascade reload trash / scan / reports。
+      // 这里不需要再手动 splice scan.results 或 refresh trash 了 —
+      // 留一行 trash.refresh() 作为"立即反馈"双保险,事件 listener 再触发
+      // 一次刷新是幂等的。
       try {
         const trash = useTrashStore()
         await trash.refresh()
       } catch { /* trash store optional */ }
-      try {
-        scan.results.splice(0, scan.results.length, ...scan.results.filter(r => !okPaths.includes(r.path)))
-      } catch { /* best-effort prune */ }
     } catch (e) {
       msg.action.status = 'error'
       msg.action.message = `调用失败: ${String(e)}`
@@ -544,6 +551,148 @@ export const useAiStore = defineStore('ai', () => {
     adviceUpdatedAt.value = null
   }
 
+  // ---------- AI 批量分类(Round 15) ----------
+  //
+  // 当用户已扫描出大量 risk=medium/high 的大文件但 aiReason 仍是
+  // classifier 占位文案时,提供一个"批量补打 AI 标签"入口。后端
+  // ai_classify_batch_pending 命令拉取待办、分批送 LLM、回写 DB,通过
+  // `ai:classify:progress` 事件实时回报。这里维护一份反应式状态供 UI
+  // 渲染进度条 / 取消按钮 / 完成后 reload scan。
+
+  /** 批量分类默认参数。这里集中维护,避免 UI 多处复制硬编码。 */
+  const CLASSIFY_DEFAULTS: AiClassifyBatchArgs = {
+    minSizeBytes: 100 * 1024 * 1024, // 100 MiB
+    risks: ['medium', 'high'] as FileRisk[],
+    batchSize: 25,
+    maxBatches: 8,
+  }
+
+  const classifyRunning = ref(false)
+  const classifyKind = ref<AiClassifyProgressPayload['kind'] | 'idle'>('idle')
+  const classifyPending = ref(0)
+  const classifyProcessedBatches = ref(0)
+  const classifyUpdated = ref(0)
+  const classifyFailedBatches = ref(0)
+  const classifyMessage = ref<string | null>(null)
+  const classifyPendingCount = ref(0)
+  let classifyUnlisten: UnlistenFn | null = null
+
+  const classifyProgressPercent = computed(() => {
+    if (classifyPending.value <= 0) return 0
+    return Math.min(100, Math.round((classifyUpdated.value / classifyPending.value) * 100))
+  })
+
+  async function ensureClassifySubscribed() {
+    if (classifyUnlisten || !isTauri()) return
+    try {
+      classifyUnlisten = await onAiClassifyProgress(async payload => {
+        classifyKind.value = payload.kind
+        classifyProcessedBatches.value = payload.processedBatches
+        classifyUpdated.value = payload.updated
+        classifyFailedBatches.value = payload.failedBatches
+        classifyPending.value = payload.totalPending
+        classifyMessage.value = payload.message
+        if (
+          payload.kind === 'done' ||
+          payload.kind === 'cancelled' ||
+          payload.kind === 'error' ||
+          payload.kind === 'no_pending'
+        ) {
+          classifyRunning.value = false
+          // 任务结束后让 scan 数据刷新,以便 UI 看到新的 category / aiReason
+          try {
+            const { useScanStore } = await import('@/stores/scan')
+            await useScanStore().loadLast()
+          } catch {
+            /* scan store optional */
+          }
+          // 顺手刷新一次待办计数,UI 角标能立刻归零或显示剩余量
+          void refreshClassifyPendingCount()
+          if (payload.kind === 'done') {
+            const summary =
+              payload.failedBatches > 0
+                ? `完成,共更新 ${payload.updated} 条,${payload.failedBatches} 批失败`
+                : `完成,共更新 ${payload.updated} 条`
+            notify.success('AI 标签', summary)
+          } else if (payload.kind === 'cancelled') {
+            notify.info('AI 标签', '已取消')
+          } else if (payload.kind === 'error') {
+            notify.error('AI 标签', payload.message ?? '任务失败')
+          }
+        }
+      })
+    } catch (e) {
+      console.warn('[ai] subscribe classify progress failed', e)
+    }
+  }
+
+  async function refreshClassifyPendingCount(
+    opts?: Partial<Pick<AiClassifyBatchArgs, 'minSizeBytes' | 'risks'>>,
+  ) {
+    if (!isTauri()) {
+      classifyPendingCount.value = 0
+      return
+    }
+    const minSize = opts?.minSizeBytes ?? CLASSIFY_DEFAULTS.minSizeBytes
+    const risks = opts?.risks ?? CLASSIFY_DEFAULTS.risks
+    classifyPendingCount.value = await ipcAiClassifyPendingCount(minSize, risks)
+  }
+
+  async function runBatchClassify(opts?: Partial<AiClassifyBatchArgs>) {
+    if (!isTauri()) {
+      notify.warn('AI 标签', '需要在桌面端运行')
+      return
+    }
+    if (classifyRunning.value) {
+      notify.warn('AI 标签', '任务正在运行中')
+      return
+    }
+
+    // 先确保有可用的 provider。这一步避免后端任务进入"started"再炸,
+    // 用户得到的 toast 更精准(直接告诉他去配置)。
+    const providers = useProvidersStore()
+    if (providers.items.length === 0) {
+      await providers.reload()
+    }
+    if (providers.enabled.length === 0) {
+      notify.warn('AI 标签', '未配置任何启用的 AI Provider')
+      return
+    }
+
+    await ensureClassifySubscribed()
+
+    classifyRunning.value = true
+    classifyKind.value = 'started'
+    classifyProcessedBatches.value = 0
+    classifyUpdated.value = 0
+    classifyFailedBatches.value = 0
+    classifyMessage.value = null
+
+    const args: AiClassifyBatchArgs = {
+      minSizeBytes: opts?.minSizeBytes ?? CLASSIFY_DEFAULTS.minSizeBytes,
+      risks: opts?.risks ?? CLASSIFY_DEFAULTS.risks,
+      batchSize: opts?.batchSize ?? CLASSIFY_DEFAULTS.batchSize,
+      maxBatches: opts?.maxBatches ?? CLASSIFY_DEFAULTS.maxBatches,
+    }
+    try {
+      await ipcAiClassifyBatchPending(args)
+    } catch (e) {
+      classifyRunning.value = false
+      classifyKind.value = 'error'
+      classifyMessage.value = String(e)
+      notify.error('AI 标签', String(e))
+    }
+  }
+
+  async function cancelBatchClassify() {
+    if (!classifyRunning.value) return
+    try {
+      await ipcAiClassifyBatchCancel()
+    } catch (e) {
+      console.warn('[ai] cancel classify failed', e)
+    }
+  }
+
   function resetConversation() {
     messages.value = [
       {
@@ -620,5 +769,19 @@ export const useAiStore = defineStore('ai', () => {
     adviceUpdatedAt,
     generateCleaningAdvice,
     clearCleaningAdvice,
+    // ---- batch classify ----
+    classifyRunning,
+    classifyKind,
+    classifyPending,
+    classifyProcessedBatches,
+    classifyUpdated,
+    classifyFailedBatches,
+    classifyMessage,
+    classifyPendingCount,
+    classifyProgressPercent,
+    runBatchClassify,
+    cancelBatchClassify,
+    refreshClassifyPendingCount,
+    ensureClassifySubscribed,
   }
 })
