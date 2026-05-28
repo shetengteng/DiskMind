@@ -22,10 +22,16 @@ mod scanner;
 mod state;
 mod trash;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    WindowEvent,
+};
 
 use crate::ai::AiOrchestrator;
 use crate::db::Db;
@@ -87,6 +93,9 @@ pub fn run() {
             crash_log::init_dir(logs_dir);
             let db = Arc::new(Db::open(db_path.clone()).expect("open db failed"));
             let ai = Arc::new(AiOrchestrator::new(db.clone()));
+            // S12 · 从 DB hydrate 「关闭即最小化到托盘」初值,作为 close-requested
+            // 回调可 lock-free 查询的热缓存。失败默认 false(保持旧版退出行为)。
+            let hide_in_tray = Arc::new(AtomicBool::new(db.hide_in_tray_when_minimized(false)));
             app.manage(ScanState {
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 is_scanning: Arc::new(AtomicBool::new(false)),
@@ -96,7 +105,93 @@ pub fn run() {
                 ai,
                 ai_classify_running: Arc::new(AtomicBool::new(false)),
                 ai_classify_cancel: Arc::new(AtomicBool::new(false)),
+                hide_in_tray: hide_in_tray.clone(),
             });
+
+            // S12 · 系统托盘 + 关闭窗口的 hide/quit 拦截。仅在桌面端启用
+            // (iOS/Android 无概念)。托盘 icon **始终存在**,与开关解耦 —
+            // 这样即使用户没开启 hide_in_tray,从 tray 也能随时调出 / 退出。
+            #[cfg(desktop)]
+            {
+                let show_item = MenuItem::with_id(
+                    app,
+                    "tray:show",
+                    "显示主窗口",
+                    true,
+                    None::<&str>,
+                )?;
+                let quit_item = MenuItem::with_id(
+                    app,
+                    "tray:quit",
+                    "退出 DiskMind",
+                    true,
+                    None::<&str>,
+                )?;
+                let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+                let tray_handle = app.handle().clone();
+                let _tray = TrayIconBuilder::with_id("diskmind-main")
+                    .icon(app.default_window_icon().cloned().ok_or_else(|| {
+                        Box::<dyn std::error::Error>::from(
+                            "default_window_icon missing — tray icon cannot be built",
+                        )
+                    })?)
+                    .tooltip("DiskMind")
+                    .menu(&tray_menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(move |app, event| match event.id.as_ref() {
+                        "tray:show" => {
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                        "tray:quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(win) = app.get_webview_window("main") {
+                                let visible = win.is_visible().unwrap_or(false);
+                                if visible {
+                                    let _ = win.hide();
+                                } else {
+                                    let _ = win.unminimize();
+                                    let _ = win.show();
+                                    let _ = win.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(&tray_handle)?;
+
+                // 拦截主窗口的 close 请求:开关 on → prevent_close + hide,
+                // 开关 off → 走默认行为(macOS hide / Windows quit)。
+                let main_window = app.get_webview_window("main").ok_or_else(|| {
+                    Box::<dyn std::error::Error>::from(
+                        "main webview window not found — close-requested handler cannot attach",
+                    )
+                })?;
+                let hide_flag = hide_in_tray.clone();
+                let win_for_event = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        if hide_flag.load(Ordering::SeqCst) {
+                            api.prevent_close();
+                            let _ = win_for_event.hide();
+                        }
+                    }
+                });
+            }
 
             // 应用内回收站沙箱的 30 天滚动清理。启动时立刻跑一遍(让一个
             // 月没打开应用的用户在启动瞬间就看到沙箱被清理过),之后每小时
@@ -166,6 +261,8 @@ pub fn run() {
             // --- meta ---
             commands::meta::meta_get_max_scan_history,
             commands::meta::meta_set_max_scan_history,
+            commands::meta::meta_get_hide_in_tray,
+            commands::meta::meta_set_hide_in_tray,
             // --- provider ---
             commands::provider::provider_list,
             commands::provider::provider_save,
@@ -202,6 +299,8 @@ pub fn run() {
             commands::crash_log::log_frontend_error,
             commands::crash_log::read_crash_log,
             commands::crash_log::crash_log_dir,
+            commands::crash_log::crash_log_unseen_panics,
+            commands::crash_log::crash_log_mark_panics_seen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

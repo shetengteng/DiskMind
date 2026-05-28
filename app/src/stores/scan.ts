@@ -164,6 +164,7 @@ export const useScanStore = defineStore('scan', () => {
       await ipcStartScan({
         roots,
         followSymlinks: settings.options.followSymlinks,
+        excludeSensitive: settings.options.excludeSensitive,
       })
       console.info('[scan] backend accepted start_scan, awaiting events')
     } catch (e) {

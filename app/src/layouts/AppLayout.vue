@@ -10,6 +10,7 @@ import SiteHeader from '@/components/layout/SiteHeader.vue'
 import AiDrawer from '@/components/layout/AiDrawer.vue'
 import AiExplainDialog from '@/components/layout/AiExplainDialog.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
+import CrashReportDialog from '@/components/layout/CrashReportDialog.vue'
 import { useAiStore } from '@/stores/ai'
 
 const ai = useAiStore()
@@ -85,6 +86,7 @@ onBeforeUnmount(() => {
     <AiDrawer />
     <AiExplainDialog />
     <CommandPalette v-model:open="paletteOpen" />
+    <CrashReportDialog />
   </SidebarProvider>
 </template>
 

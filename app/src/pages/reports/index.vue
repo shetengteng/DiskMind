@@ -46,7 +46,7 @@ const { t } = useI18n()
       </TabsContent>
 
       <TabsContent value="history" class="space-y-4">
-        <ScanHistoryCard purgeable />
+        <ScanHistoryCard purgeable exportable />
       </TabsContent>
     </Tabs>
   </div>

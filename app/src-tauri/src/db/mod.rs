@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
 );
 "#;
 
-const DATA_VERSION: i64 = 9;
+const DATA_VERSION: i64 = 10;
 
 pub struct Db {
     pub(crate) conn: Mutex<Connection>,
@@ -227,6 +227,11 @@ impl Db {
         // v9 新增 `ai_cleaning_advice` 表(run_id UNIQUE FK CASCADE)
         // 缓存 Reports 页"一键清理建议"的 LLM 输出,避免每次重启重调,
         // 同样纯新增,无需 ALTER。
+        // v10 给 `scan_result` 加 `mtime INTEGER NOT NULL DEFAULT 0` 列,支持
+        // Round 20 P0-1.2 增量扫描:save_scan 时按 (path, mtime, size_bytes)
+        // 三元组与上次未取消 run 命中,直接复用 ai_classified_at/category/
+        // ai_reason,避免大量未变化文件重复跑 LLM 批量分类。旧行 mtime=0,
+        // 第一次 v10 扫描完成后才有真实 mtime,下次扫描起增量复用生效。
         if prev < 3 {
             conn.execute_batch(
                 "DELETE FROM scan_result; DELETE FROM dir_summary; DELETE FROM scan_run;",
@@ -250,12 +255,25 @@ impl Db {
                 [],
             );
         }
-        // 给 fingerprint / ai_classified_at 列建索引。放在 ALTER 之后,
-        // 确保旧库升级补列后也能补上索引。
+        if prev < 10 {
+            // v10:给 scan_result 加 mtime INTEGER 列。增量扫描的复用判定
+            // 用 (path, mtime, size_bytes) 三元组,缺一不可:仅 path+size
+            // 容易误命中"替换写"场景(rsync / save-as 同尺寸覆盖)。
+            // DEFAULT 0 保证旧行可读;旧行不会参与复用(mtime 0 与新扫描
+            // 的实际 mtime 必不相等)。
+            let _ = conn.execute(
+                "ALTER TABLE scan_result ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+        // 给 fingerprint / ai_classified_at / 增量复用查询用的索引建索引。
+        // 放在 ALTER 之后,确保旧库升级补列后也能补上索引。
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_scan_run_fingerprint ON scan_run(fingerprint);\
              CREATE INDEX IF NOT EXISTS idx_scan_result_ai_pending \
-                 ON scan_result(run_id, ai_classified_at, size_bytes);",
+                 ON scan_result(run_id, ai_classified_at, size_bytes);\
+             CREATE INDEX IF NOT EXISTS idx_scan_result_path \
+                 ON scan_result(run_id, path);",
         )?;
         if prev < DATA_VERSION {
             conn.execute(

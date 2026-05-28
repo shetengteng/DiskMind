@@ -30,6 +30,8 @@ import {
   isTauri,
   metaGetMaxScanHistory,
   metaSetMaxScanHistory,
+  metaGetHideInTray,
+  metaSetHideInTray,
   crashLogDir,
   revealInExplorer,
 } from '@/api/tauri'
@@ -59,13 +61,18 @@ interface ToggleItem {
 const generalSettings = ref({
   autoUpdate: true,
   startWithSystem: false,
-  hideInTrayWhenMinimized: true,
+  hideInTrayWhenMinimized: false,
 })
 
 // 从 OS 真实状态 hydrate "开机自启",而不是依赖前端 ref 默认值 —
 // 用户上次开过的话,这次进来就该看到开关已亮。
 const startWithSystemReady = ref(false)
 const startWithSystemSaving = ref(false)
+
+// S12 · 「关闭窗口时最小化到托盘」hydrate 自后端 meta 表。默认 false:
+// Windows 维持点 X 退出的旧行为,macOS 维持 hide-on-close 系统默认。
+const hideInTrayReady = ref(false)
+const hideInTraySaving = ref(false)
 
 /**
  * S2 · 扫描历史保留次数(Round 14 落地)。和 `trash_retention_days`
@@ -82,6 +89,7 @@ onMounted(async () => {
   if (!isTauri()) {
     startWithSystemReady.value = true
     maxScanHistoryReady.value = true
+    hideInTrayReady.value = true
     return
   }
   try {
@@ -97,6 +105,13 @@ onMounted(async () => {
     maxScanHistory.value = String(n)
   } finally {
     maxScanHistoryReady.value = true
+  }
+  try {
+    generalSettings.value.hideInTrayWhenMinimized = await metaGetHideInTray()
+  } catch {
+    /* hydrate 失败时静默 — 默认 false 已经是 ref 初值,行为退化到旧版 */
+  } finally {
+    hideInTrayReady.value = true
   }
 })
 
@@ -147,11 +162,34 @@ async function onToggleStartWithSystem(v: boolean) {
   }
 }
 
+/**
+ * S12 · 切换「关闭窗口时最小化到托盘」。失败时回滚 UI 状态,避免开关
+ * 与实际生效不一致。开关立即生效 — 后端 IPC 同步更新 AtomicBool,下一
+ * 次窗口 close-requested 会读到新值。
+ */
+async function onToggleHideInTray(v: boolean) {
+  const prev = generalSettings.value.hideInTrayWhenMinimized
+  generalSettings.value.hideInTrayWhenMinimized = v
+  if (!isTauri() || !hideInTrayReady.value || hideInTraySaving.value) return
+  hideInTraySaving.value = true
+  try {
+    await metaSetHideInTray(v)
+    notify.success(
+      v
+        ? t('settings.general.hideInTrayOn')
+        : t('settings.general.hideInTrayOff'),
+    )
+  } catch (e) {
+    notify.error(t('settings.general.hideInTraySaveFailed'), String(e))
+    generalSettings.value.hideInTrayWhenMinimized = prev
+  } finally {
+    hideInTraySaving.value = false
+  }
+}
+
 const appToggles: ToggleItem[] = [
   // autoUpdate 仍是装饰开关 — 自动更新已决定不做(2.4 节)
   { key: 'autoUpdate', labelKey: 'settings.general.autoUpdate', descKey: 'settings.general.autoUpdateDesc', disabled: true },
-  // hideInTrayWhenMinimized 仍是装饰 — 需 tauri-plugin-tray 才能真生效,本期不做
-  { key: 'hideInTrayWhenMinimized', labelKey: 'settings.general.hideInTray', descKey: 'settings.general.hideInTrayDesc', disabled: true },
 ]
 
 /**
@@ -192,6 +230,18 @@ async function openCrashLogDir() {
             :model-value="generalSettings.startWithSystem"
             :disabled="!startWithSystemReady || startWithSystemSaving"
             @update:model-value="(v) => onToggleStartWithSystem(!!v)"
+          />
+        </div>
+        <Separator />
+        <div class="flex items-center justify-between gap-3">
+          <div class="space-y-0.5">
+            <Label class="text-sm">{{ t('settings.general.hideInTray') }}</Label>
+            <p class="text-xs text-muted-foreground">{{ t('settings.general.hideInTrayDesc') }}</p>
+          </div>
+          <Switch
+            :model-value="generalSettings.hideInTrayWhenMinimized"
+            :disabled="!hideInTrayReady || hideInTraySaving || !isTauri()"
+            @update:model-value="(v) => onToggleHideInTray(!!v)"
           />
         </div>
         <Separator />

@@ -8,7 +8,7 @@
 //! `compute_fingerprint` 把 roots + 候选 (path, size_bytes) 投影做 sha-256,
 //! 用于 `save_scan` 在指纹未变时跳过重复写入,只刷新 `finished_at`。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::params;
@@ -18,6 +18,19 @@ use sha2::{Digest, Sha256};
 use crate::classifier::ScanResultRow;
 
 use super::{read_max_scan_history, risk_to_str, str_to_risk, Db, DEFAULT_MAX_SCAN_HISTORY};
+
+/// Round 20 · P0-1.2 增量扫描复用单元。来自上次未取消 run 的 scan_result。
+/// 以 path 为 key 查到本结构后,**还要再校验 mtime + size_bytes 与本次结果
+/// 一致**才能复用 — 单纯 path 命中不足以判定文件没变(rsync/save-as 会
+/// 留 path 不变但内容彻底换)。
+#[derive(Debug, Clone)]
+struct ReuseLabel {
+    mtime: u64,
+    size_bytes: u64,
+    category: String,
+    ai_reason: String,
+    ai_classified_at: Option<i64>,
+}
 
 /// `Db::save_scan` 的返回结果。`deduped = true` 表示这次新扫描通过指纹
 /// 匹配到了最近一次 run,仅刷新了 `finished_at` / `duration_ms`,没有写入
@@ -29,16 +42,22 @@ pub struct SaveScanResult {
     pub deduped: bool,
 }
 
-/// 对规范化(按 path 排序)的 `path|size_bytes` 投影计算 sha-256 摘要。
-/// 两次扫描只要文件集合相同,无论结果顺序如何,指纹都一致。`save_scan`
-/// 据此跳过重复插入,仅刷新 `finished_at`。
+/// 对规范化(按 path 排序)的 `path|size_bytes|mtime` 投影计算 sha-256 摘要。
+/// 三元组都一致才视为"扫描结果集合未变",`save_scan` 据此 dedup。
+///
+/// Round 20 把 `mtime` 纳入指纹 — 早期版本只用 (path, size),会让"原地
+/// 编辑且大小未变"(配置文件少量修改 / 二进制 patch)的扫描误判为重
+/// 复 no-op,导致新 mtime 被丢弃,下次再扫还是用旧 mtime 做增量复用
+/// 判定。把 mtime 投影进指纹后:
+///   - 完全没人改文件 → 指纹一致 → dedup ✓
+///   - 原地编辑 → mtime 变 → 指纹变 → 走入库,新 mtime 入表
 pub fn compute_fingerprint(roots: &[String], results: &[ScanResultRow]) -> String {
     let mut sorted_roots = roots.to_vec();
     sorted_roots.sort();
 
-    let mut tuples: Vec<(&str, u64)> = results
+    let mut tuples: Vec<(&str, u64, u64)> = results
         .iter()
-        .map(|r| (r.path.as_str(), r.size_bytes))
+        .map(|r| (r.path.as_str(), r.size_bytes, r.mtime))
         .collect();
     tuples.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -48,11 +67,13 @@ pub fn compute_fingerprint(roots: &[String], results: &[ScanResultRow]) -> Strin
         hasher.update(r.as_bytes());
         hasher.update(b"\n");
     }
-    for (p, size) in tuples {
+    for (p, size, mtime) in tuples {
         hasher.update(b"F\0");
         hasher.update(p.as_bytes());
         hasher.update(b"|");
         hasher.update(size.to_le_bytes());
+        hasher.update(b"|");
+        hasher.update(mtime.to_le_bytes());
         hasher.update(b"\n");
     }
     format!("{:x}", hasher.finalize())
@@ -155,6 +176,40 @@ impl Db {
             }
         }
 
+        // Round 20 · P0-1.2 增量扫描:在新 run 插入之前,先捞「上次最新未
+        // 取消 run」的 scan_result 全表(path / mtime / size / category /
+        // ai_reason / ai_classified_at),build path→ReuseLabel 字典。
+        // SELECT 与下方 INSERT 在同一 tx 内,保证一致性。
+        // 注意:rusqlite 的 `query_map` 返回的 iterator 持有 `Statement` 借
+        // 用 — 必须把 stmt 绑到外层 binding,iterator collect 完才 drop。
+        // 直接在块表达式里 prepare + query_map + collect 会因为 stmt 在
+        // block 结束就析构,iter 引用悬空(E0597)。
+        let mut prev_stmt = tx.prepare(
+            "SELECT path, mtime, size_bytes, category, ai_reason, ai_classified_at \
+             FROM scan_result \
+             WHERE run_id = ( \
+                 SELECT id FROM scan_run \
+                 WHERE cancelled = 0 \
+                 ORDER BY id DESC LIMIT 1 \
+             )",
+        )?;
+        let prev_labels: HashMap<String, ReuseLabel> = prev_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ReuseLabel {
+                        mtime: row.get::<_, i64>(1)? as u64,
+                        size_bytes: row.get::<_, i64>(2)? as u64,
+                        category: row.get(3)?,
+                        ai_reason: row.get(4)?,
+                        ai_classified_at: row.get::<_, Option<i64>>(5)?,
+                    },
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(prev_stmt);
+
         let roots_json = serde_json::to_string(roots).unwrap_or_else(|_| "[]".into());
         tx.execute(
             "INSERT INTO scan_run(started_at, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json, fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -162,21 +217,49 @@ impl Db {
         )?;
         let run_id = tx.last_insert_rowid();
 
+        let mut reused_ai_labels: u64 = 0;
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO scan_result(run_id, path, category, size, size_bytes, risk, ai_reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO scan_result(run_id, path, category, size, size_bytes, risk, ai_reason, mtime, ai_classified_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?;
             for r in results {
+                // 默认走 classifier 结果(category / ai_reason)+ ai_classified_at NULL,
+                // 表示"这是新候选,等批量 AI 标签任务触发"。
+                let mut category = r.category.clone();
+                let mut ai_reason = r.ai_reason.clone();
+                let mut ai_classified_at: Option<i64> = None;
+                if let Some(prev) = prev_labels.get(&r.path) {
+                    // 严格三元组匹配:(path, mtime, size_bytes) 都一致才视为
+                    // 未变化文件。复用 category(可能是上次 LLM 覆盖过的)+
+                    // ai_reason + ai_classified_at,避免重复跑 LLM。
+                    if prev.mtime == r.mtime && prev.size_bytes == r.size_bytes {
+                        category = prev.category.clone();
+                        ai_reason = prev.ai_reason.clone();
+                        ai_classified_at = prev.ai_classified_at;
+                        if ai_classified_at.is_some() {
+                            reused_ai_labels += 1;
+                        }
+                    }
+                }
                 stmt.execute(params![
                     run_id,
                     r.path,
-                    r.category,
+                    category,
                     r.size,
                     r.size_bytes as i64,
                     risk_to_str(r.risk),
-                    r.ai_reason,
+                    ai_reason,
+                    r.mtime as i64,
+                    ai_classified_at,
                 ])?;
             }
+        }
+        if reused_ai_labels > 0 {
+            eprintln!(
+                "[diskmind] save_scan incremental reuse: {} files inherit AI labels from previous run (no LLM call needed)",
+                reused_ai_labels
+            );
         }
 
         {
@@ -254,7 +337,7 @@ impl Db {
             let roots: Vec<String> = serde_json::from_str(&roots_json).unwrap_or_default();
 
             let mut results_stmt = conn.prepare(
-                "SELECT id, path, category, size, size_bytes, risk, ai_reason FROM scan_result WHERE run_id = ? ORDER BY size_bytes DESC",
+                "SELECT id, path, category, size, size_bytes, risk, ai_reason, mtime FROM scan_result WHERE run_id = ? ORDER BY size_bytes DESC",
             )?;
             let results: Vec<ScanResultRow> = results_stmt
                 .query_map([run_id], |row| {
@@ -266,6 +349,7 @@ impl Db {
                         size_bytes: row.get::<_, i64>(4)? as u64,
                         risk: str_to_risk(&row.get::<_, String>(5)?),
                         ai_reason: row.get(6)?,
+                        mtime: row.get::<_, i64>(7)? as u64,
                         missing: false,
                     })
                 })?
@@ -415,5 +499,232 @@ impl Db {
             });
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    //! Round 20 · P0-1.2 增量扫描复用回归。覆盖 save_scan + 上次 run AI 标签
+    //! 复用核心路径:
+    //!
+    //!   1. 第一次 save_scan → 入库 N 行,所有 ai_classified_at 都是 NULL。
+    //!   2. 模拟 LLM 跑完,UPDATE 部分行 ai_classified_at = some_ts。
+    //!   3. 第二次 save_scan(同 path / 同 mtime / 同 size)→ 期望 LLM 标签
+    //!      被携带过来,新行 ai_classified_at 复用旧时间戳,**不再是 NULL**。
+    //!   4. 第三次 save_scan(同 path,但 mtime+1)→ 期望视作"文件变化",
+    //!      新行 ai_classified_at = NULL(需要重新跑 LLM)。
+    //!
+    //! 这是增量扫描"零成本复用"承诺的最重要回归 — 一旦三元组判定逻辑
+    //! 漏写了任一字段,大量未变化文件就会被错误地重新喂给 LLM。
+
+    use super::*;
+    use crate::classifier::{FileRisk, ScanResultRow};
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    fn fresh_db(_dir: &TempDir) -> Db {
+        let path = _dir.path().join("test.db");
+        Db::open(path).expect("test db should open")
+    }
+
+    fn build_row(id: u64, path: &str, mtime: u64, size: u64) -> ScanResultRow {
+        ScanResultRow {
+            id,
+            path: path.into(),
+            category: "测试类别".into(),
+            size: format!("{} B", size),
+            size_bytes: size,
+            risk: FileRisk::Low,
+            ai_reason: "default classifier reason".into(),
+            mtime,
+            missing: false,
+        }
+    }
+
+    fn count_pending(db: &Db, run_id: i64) -> i64 {
+        let conn = db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM scan_result WHERE run_id = ? AND ai_classified_at IS NULL",
+            [run_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1)
+    }
+
+    fn count_with_ai_labels(db: &Db, run_id: i64) -> i64 {
+        let conn = db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM scan_result WHERE run_id = ? AND ai_classified_at IS NOT NULL",
+            [run_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1)
+    }
+
+    fn stamp_ai_label(db: &Db, run_id: i64, path: &str, category: &str, ts: i64) {
+        let mut conn = db.conn.lock().unwrap();
+        let tx = conn.transaction().unwrap();
+        tx.execute(
+            "UPDATE scan_result SET category = ?, ai_reason = ?, ai_classified_at = ? \
+             WHERE run_id = ? AND path = ?",
+            params![category, "LLM verdict", ts, run_id, path],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    /// 防御:Db open 用 Mutex 同步全局静态测试串行 — `Db::open` 内有 schema
+    /// 迁移,多个测试并行打开同一 tmp 文件会偶发崩。给测试一把全局锁。
+    static SERIALIZE: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn save_scan_reuses_ai_labels_on_unchanged_file() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        // 1) 首扫:两个文件,classifier 占位 ai_reason,ai_classified_at 全 NULL
+        let row1 = build_row(1, "/tmp/diskmind-test/a.bin", 1000, 4096);
+        let row2 = build_row(2, "/tmp/diskmind-test/b.bin", 2000, 8192);
+        let r1 = db
+            .save_scan(
+                100,
+                200,
+                100,
+                false,
+                2,
+                12288,
+                &["/tmp/diskmind-test".into()],
+                &[row1.clone(), row2.clone()],
+                &[],
+            )
+            .expect("first save_scan should succeed");
+        assert!(!r1.deduped);
+        assert_eq!(count_pending(&db, r1.run_id), 2);
+        assert_eq!(count_with_ai_labels(&db, r1.run_id), 0);
+
+        // 2) 模拟 LLM 跑完,给 a.bin 打了"AI verdict" 标签,b.bin 仍未评估
+        stamp_ai_label(&db, r1.run_id, "/tmp/diskmind-test/a.bin", "AI 大文件", 250);
+        assert_eq!(count_with_ai_labels(&db, r1.run_id), 1);
+
+        // 3) 第二次 save_scan:相同 path / mtime / size。指纹也相同,
+        //    save_scan 走 dedup 分支,**用旧 run_id**,不会改变标签状态。
+        //    所以增量复用的核心场景是「指纹不同」的情况 — 这里给 row3 加
+        //    一条 c.bin 让两次结果集合不同,强制走非 dedup 分支。
+        let row3 = build_row(3, "/tmp/diskmind-test/c.bin", 3000, 1024);
+        let r2 = db
+            .save_scan(
+                300,
+                400,
+                100,
+                false,
+                3,
+                13312,
+                &["/tmp/diskmind-test".into()],
+                &[row1.clone(), row2.clone(), row3.clone()],
+                &[],
+            )
+            .expect("second save_scan should succeed");
+        assert!(!r2.deduped, "fingerprint changed (added c.bin), expected new run");
+
+        // a.bin 在上次有 AI 标签 → 本次应复用(NOT NULL)
+        // b.bin / c.bin 未评估 → NULL(留给 batch_classify 处理)
+        assert_eq!(
+            count_with_ai_labels(&db, r2.run_id),
+            1,
+            "a.bin should inherit its AI label across save_scan boundary"
+        );
+        assert_eq!(
+            count_pending(&db, r2.run_id),
+            2,
+            "b.bin + c.bin should be NULL ai_classified_at, pending LLM batch"
+        );
+
+        // 4) 第三次 save_scan:a.bin 的 mtime 变成 1001(原地编辑),
+        //    严格三元组判定应拒绝复用,a.bin 重新走 batch_classify 流程。
+        let mut row1_changed = row1.clone();
+        row1_changed.mtime = 1001;
+        let r3 = db
+            .save_scan(
+                500,
+                600,
+                100,
+                false,
+                3,
+                13312,
+                &["/tmp/diskmind-test".into()],
+                &[row1_changed, row2.clone(), row3.clone()],
+                &[],
+            )
+            .expect("third save_scan should succeed");
+        // c.bin 在 r2 已经记录,这次 mtime/size 仍一致,仍是 NULL(原本就 NULL)。
+        // b.bin 同 r2 状态(NULL),也走 NULL 路径(NULL 视为可复用,但 NULL 复用 NULL,
+        // 等价 NULL — 计数仍 NULL)。a.bin mtime 变了,**断不能复用**。
+        assert_eq!(
+            count_with_ai_labels(&db, r3.run_id),
+            0,
+            "a.bin mtime changed → must NOT inherit; b.bin/c.bin NULL anyway"
+        );
+        assert_eq!(count_pending(&db, r3.run_id), 3);
+    }
+
+    #[test]
+    fn save_scan_does_not_reuse_when_size_changed() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let row1 = build_row(1, "/tmp/diskmind-test/x.bin", 1000, 4096);
+        let r1 = db
+            .save_scan(100, 200, 100, false, 1, 4096, &["/tmp/x".into()], &[row1.clone()], &[])
+            .unwrap();
+        stamp_ai_label(&db, r1.run_id, "/tmp/diskmind-test/x.bin", "AI 标记", 250);
+
+        // 第二次:path 与 mtime 都没变,但 size 从 4096 改成 8192(假设是
+        // append-only 日志增长)。三元组判定 size_bytes 不同 → 拒绝复用。
+        let mut row1_bigger = row1.clone();
+        row1_bigger.size_bytes = 8192;
+        row1_bigger.size = "8192 B".into();
+        // 加一个新文件破 dedup
+        let row2 = build_row(2, "/tmp/diskmind-test/extra.bin", 5000, 1024);
+        let r2 = db
+            .save_scan(
+                300,
+                400,
+                100,
+                false,
+                2,
+                9216,
+                &["/tmp/x".into()],
+                &[row1_bigger, row2],
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(
+            count_with_ai_labels(&db, r2.run_id),
+            0,
+            "size delta must invalidate reuse — append-only log shouldn't keep stale verdict"
+        );
+    }
+
+    #[test]
+    fn save_scan_deduplicates_identical_fingerprint() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let row = build_row(1, "/tmp/diskmind-test/same.bin", 1000, 4096);
+        let r1 = db
+            .save_scan(100, 200, 100, false, 1, 4096, &["/tmp/x".into()], &[row.clone()], &[])
+            .unwrap();
+        assert!(!r1.deduped);
+
+        // 完全相同的入参 → 指纹一致 → 应走 dedup
+        let r2 = db
+            .save_scan(300, 400, 100, false, 1, 4096, &["/tmp/x".into()], &[row], &[])
+            .unwrap();
+        assert!(r2.deduped, "identical results must trigger fingerprint dedup");
+        assert_eq!(r1.run_id, r2.run_id, "dedup should keep the same run_id");
     }
 }

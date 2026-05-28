@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy } from 'lucide-vue-next'
+import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { usePrivacyStore } from '@/stores/privacy'
+import { useScanSettingsStore } from '@/stores/scanSettings'
 import {
   trashSandboxRoot,
   trashGetRetentionDays,
@@ -35,6 +36,7 @@ import { notify } from '@/lib/notify'
 
 const { t } = useI18n()
 const privacy = usePrivacyStore()
+const scanSettings = useScanSettingsStore()
 
 // ----- 沙箱配置 -----
 // 保留天数与后端 `meta` 表双向绑定。Select 是字符串型,这里维护成 string
@@ -167,6 +169,32 @@ async function onExportAuditLog() {
           <Switch
             :model-value="privacy.pathMask"
             @update:model-value="(v) => privacy.setPathMask(!!v)"
+          />
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader class="pb-2">
+        <CardTitle class="flex items-center gap-2 text-base">
+          <KeyRound class="size-4" />
+          {{ t('settings.privacy.excludeSensitiveTitle') }}
+        </CardTitle>
+        <CardDescription class="text-xs">
+          {{ t('settings.privacy.excludeSensitiveDesc') }}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="flex items-center justify-between gap-3">
+          <div class="space-y-1">
+            <Label class="text-sm">{{ t('settings.privacy.excludeSensitiveLabel') }}</Label>
+            <p class="text-xs text-muted-foreground">
+              {{ t('settings.privacy.excludeSensitiveHint') }}
+            </p>
+          </div>
+          <Switch
+            :model-value="scanSettings.options.excludeSensitive"
+            @update:model-value="(v) => (scanSettings.options.excludeSensitive = !!v)"
           />
         </div>
       </CardContent>

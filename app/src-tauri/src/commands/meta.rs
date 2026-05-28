@@ -1,5 +1,8 @@
-//! `meta` 表里的少数前端可见配置项。目前只有 `max_scan_history`,后续
-//! 任何"用户在设置页改"且"后端要立刻生效"的标量都可以挂这里。
+//! `meta` 表里的少数前端可见配置项。目前两个:`max_scan_history` 和
+//! `hide_in_tray_when_minimized`。后续任何"用户在设置页改"且"后端要立刻
+//! 生效"的标量都可以挂这里。
+
+use std::sync::atomic::Ordering;
 
 use tauri::State;
 
@@ -26,4 +29,22 @@ pub fn meta_set_max_scan_history(value: i64, state: State<'_, ScanState>) -> Res
         .db
         .set_max_scan_history(value)
         .map_err(|e| e.to_string())
+}
+
+/// S12 · 读取「关闭窗口时最小化到托盘」开关。前端启动时 hydrate UI。
+#[tauri::command]
+pub fn meta_get_hide_in_tray(state: State<'_, ScanState>) -> bool {
+    state.db.hide_in_tray_when_minimized(false)
+}
+
+/// S12 · 写入开关并同步刷新 close-requested 回调使用的 AtomicBool 缓存。
+/// 失败时调用方需要回滚 UI 状态(GeneralSettingsTab 已实现 onToggle 回滚)。
+#[tauri::command]
+pub fn meta_set_hide_in_tray(value: bool, state: State<'_, ScanState>) -> Result<(), String> {
+    state
+        .db
+        .set_hide_in_tray_when_minimized(value)
+        .map_err(|e| e.to_string())?;
+    state.hide_in_tray.store(value, Ordering::SeqCst);
+    Ok(())
 }

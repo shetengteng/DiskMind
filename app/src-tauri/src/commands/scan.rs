@@ -23,6 +23,12 @@ use crate::state::{expand_root, now_ms, ScanState};
 pub struct StartScanArgs {
     roots: Vec<String>,
     follow_symlinks: bool,
+    /// 来自「设置 → 隐私 → 敏感目录排除」开关。开启后扫描会跳过
+    /// `.ssh / .gnupg / .aws / .kube / .docker / .npmrc` 等凭证目录,
+    /// 避免路径字符串落到 `scan_result`、`dir_summary` 或 LLM 上下文。
+    /// 默认 false,保持向后兼容。
+    #[serde(default)]
+    exclude_sensitive: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -174,7 +180,12 @@ pub fn start_scan(
         return Err("已有扫描在运行".to_string());
     }
 
-    eprintln!("[diskmind] start_scan accepted: {} root(s), follow_symlinks={}", roots.len(), args.follow_symlinks);
+    eprintln!(
+        "[diskmind] start_scan accepted: {} root(s), follow_symlinks={}, exclude_sensitive={}",
+        roots.len(),
+        args.follow_symlinks,
+        args.exclude_sensitive
+    );
     state.cancel_flag.store(false, Ordering::SeqCst);
 
     let cancel = state.cancel_flag.clone();
@@ -182,6 +193,7 @@ pub fn start_scan(
     let db = state.db.clone();
     let app_handle = app.clone();
     let follow_symlinks = args.follow_symlinks;
+    let exclude_sensitive = args.exclude_sensitive;
     let roots_for_summary = roots.clone();
     let started_at_ms = now_ms();
 
@@ -189,9 +201,15 @@ pub fn start_scan(
         let started = Instant::now();
         let progress_handle = app_handle.clone();
 
-        let scan_result = scanner::scan_paths(roots, follow_symlinks, cancel, move |progress: ScanProgress| {
-            let _ = progress_handle.emit("scan:progress", progress);
-        });
+        let scan_result = scanner::scan_paths(
+            roots,
+            follow_symlinks,
+            exclude_sensitive,
+            cancel,
+            move |progress: ScanProgress| {
+                let _ = progress_handle.emit("scan:progress", progress);
+            },
+        );
 
         is_scanning.store(false, Ordering::SeqCst);
 

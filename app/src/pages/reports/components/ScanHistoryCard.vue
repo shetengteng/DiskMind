@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Activity, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Activity, Download, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import {
   Card,
   CardContent,
@@ -33,17 +34,20 @@ import {
 } from '@/components/ui/tooltip'
 import { useReportsStore } from '@/stores/reports'
 import { notify } from '@/lib/notify'
+import { writeTextFile, isTauri, type ScanRunMeta } from '@/api/tauri'
 
 const props = withDefaults(defineProps<{
   limit?: number
   titleKey?: string
   descKey?: string
   purgeable?: boolean
+  exportable?: boolean
 }>(), {
   limit: 0,
   titleKey: 'reports.scanHistory',
   descKey: 'reports.scanHistoryDesc',
   purgeable: false,
+  exportable: false,
 })
 
 const reports = useReportsStore()
@@ -92,6 +96,90 @@ async function confirmPurge() {
   }
 }
 
+const exporting = ref(false)
+
+function escapeCsv(value: string | number | boolean | null | undefined): string {
+  const v = value == null ? '' : String(value)
+  return /[,"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
+
+function buildCsv(rows: ScanRunMeta[]): string {
+  const header = [
+    'run_id',
+    'started_at_iso',
+    'finished_at_iso',
+    'duration_ms',
+    'cancelled',
+    'total_files',
+    'total_bytes',
+    'reclaimable_bytes',
+    'roots',
+    'top_category',
+    'top_category_bytes',
+  ].join(',')
+  const body = rows
+    .map((r) => {
+      const top = r.categoryBreakdown?.[0]
+      return [
+        r.runId,
+        escapeCsv(new Date(r.startedAt).toISOString()),
+        escapeCsv(new Date(r.finishedAt).toISOString()),
+        r.durationMs,
+        r.cancelled,
+        r.totalFiles,
+        r.totalBytes,
+        r.reclaimableBytes,
+        escapeCsv(r.roots.join(' | ')),
+        escapeCsv(top?.category ?? ''),
+        top?.sizeBytes ?? 0,
+      ].join(',')
+    })
+    .join('\n')
+  return `${header}\n${body}\n`
+}
+
+function buildJson(rows: ScanRunMeta[]): string {
+  return `${JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      count: rows.length,
+      runs: rows,
+    },
+    null,
+    2,
+  )}\n`
+}
+
+async function onExport(format: 'csv' | 'json') {
+  if (!isTauri()) {
+    notify.warn(t('reports.exportDesktopOnly'))
+    return
+  }
+  if (exporting.value) return
+  if (reports.runs.length === 0) {
+    notify.info(t('reports.exportEmpty'))
+    return
+  }
+  exporting.value = true
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const ext = format
+    const target = await saveDialog({
+      title: t('reports.exportTitle'),
+      defaultPath: `diskmind-scan-history-${ts}.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    })
+    if (typeof target !== 'string' || target.length === 0) return
+    const content = format === 'csv' ? buildCsv(reports.runs) : buildJson(reports.runs)
+    await writeTextFile(target, content)
+    notify.success(t('reports.exportSuccess', { n: reports.runs.length }))
+  } catch (e) {
+    notify.error(t('reports.exportFailed'), String(e))
+  } finally {
+    exporting.value = false
+  }
+}
+
 function humanize(b: number) {
   if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(2)} GB`
   if (b >= 1024 ** 2) return `${(b / 1024 ** 2).toFixed(1)} MB`
@@ -135,6 +223,26 @@ function rootSummary(roots: string[]) {
           <Button variant="outline" size="sm" class="h-8 gap-1" @click="reports.refresh()">
             <RefreshCw class="size-3" :class="{ 'animate-spin': reports.loading }" /> {{ t('common.refresh') }}
           </Button>
+          <DropdownMenu v-if="exportable">
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-8 gap-1"
+                :disabled="reports.runs.length === 0 || exporting"
+              >
+                <Download class="size-3" /> {{ exporting ? t('common.processing') : t('reports.export') }}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-40">
+              <DropdownMenuItem @click="onExport('csv')">
+                {{ t('reports.exportCsv') }}
+              </DropdownMenuItem>
+              <DropdownMenuItem @click="onExport('json')">
+                {{ t('reports.exportJson') }}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu v-if="purgeable">
             <DropdownMenuTrigger as-child>
               <Button

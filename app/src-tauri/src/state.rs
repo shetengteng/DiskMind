@@ -45,6 +45,11 @@ pub struct ScanState {
     /// 用户点"取消"后下一批不再发起。
     pub ai_classify_running: Arc<AtomicBool>,
     pub ai_classify_cancel: Arc<AtomicBool>,
+    /// S12 · 「关闭窗口时最小化到托盘」开关的热缓存。窗口 close-requested
+    /// 事件回调在主线程上跑,必须是 lock-free 才不会卡 UI。DB 是单一权威
+    /// 源,这个 AtomicBool 由 setup 阶段 hydrate,IPC `meta_set_hide_in_tray`
+    /// 写时双向更新(DB + 缓存)。
+    pub hide_in_tray: Arc<AtomicBool>,
 }
 
 /// 任何会改变 `trash_item` 表(进/出沙箱、永久删除、清空、后台 30 天

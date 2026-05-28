@@ -51,4 +51,54 @@ impl Db {
         )?;
         Ok(())
     }
+
+    /// 「关闭窗口时最小化到托盘」开关的持久化状态(S12 · M5 收官)。
+    /// 默认 false:向后兼容,Windows 用户点 X 仍然退出应用,macOS 维持
+    /// 默认 hide-on-close 系统行为。开启后:任何平台点 X / Cmd+W 都
+    /// 走 hide window 不退出,Tray icon 始终保持可见,用户可从 tray 重
+    /// 新唤出或显式 Quit。
+    pub fn hide_in_tray_when_minimized(&self, default_value: bool) -> bool {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.query_row(
+            "SELECT v FROM meta WHERE k = 'hide_in_tray_when_minimized'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .unwrap_or(default_value)
+    }
+
+    pub fn set_hide_in_tray_when_minimized(&self, value: bool) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "INSERT INTO meta(k, v) VALUES('hide_in_tray_when_minimized', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![if value { "1" } else { "0" }],
+        )?;
+        Ok(())
+    }
+
+    /// 上次用户在崩溃报告 dialog 中 dismiss 的最新 panic 时间戳(毫秒)。
+    /// S13 · 启动时只展示 ts > 此值的 panic 记录,避免每次开 app 都重复
+    /// 弹窗。默认 0(从未 dismiss 过)。
+    pub fn last_seen_crash_ts(&self, default_value: i64) -> i64 {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.query_row(
+            "SELECT v FROM meta WHERE k = 'last_seen_crash_ts'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(default_value)
+    }
+
+    pub fn set_last_seen_crash_ts(&self, ts: i64) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "INSERT INTO meta(k, v) VALUES('last_seen_crash_ts', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![ts.to_string()],
+        )?;
+        Ok(())
+    }
 }

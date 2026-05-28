@@ -22,6 +22,12 @@ pub struct ScanResultRow {
     pub risk: FileRisk,
     #[serde(rename = "aiReason")]
     pub ai_reason: String,
+    /// Round 20 · P0-1.2 增量扫描:文件 mtime(Unix epoch 秒)。`save_scan`
+    /// 用 `(path, mtime, size_bytes)` 三元组与上次最新 run 命中复用,从而
+    /// 跳过 ai_classify_batch 对未变化大文件的重复 LLM 调用。前端无消费方
+    /// (用户不需要看到 mtime),所以 `skip_serializing` 不入 IPC payload。
+    #[serde(default, skip_serializing)]
+    pub mtime: u64,
     /// 该路径在加载快照时已不在原位 — 要么被 DiskMind 沙箱回收站
     /// 移走(`trash_item.status = 'in_trash'`),要么被用户在外部
     /// 直接删除/移动。前端据此过滤或灰显幽灵记录,避免出现 "扫描
@@ -75,6 +81,7 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
                 size_bytes: report_bytes,
                 risk,
                 ai_reason: reason.to_string(),
+                mtime: entry.mtime,
                 missing: false,
             });
             next_id += 1;

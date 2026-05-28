@@ -51,6 +51,7 @@ export interface ScanErrorPayload {
 export interface StartScanArgs {
   roots: string[]
   followSymlinks: boolean
+  excludeSensitive?: boolean
 }
 
 export async function startScan(args: StartScanArgs): Promise<void> {
@@ -267,6 +268,25 @@ export async function metaGetMaxScanHistory(): Promise<number> {
 export async function metaSetMaxScanHistory(value: number): Promise<void> {
   if (!isTauri()) return
   await invoke('meta_set_max_scan_history', { value })
+}
+
+/**
+ * S12 · 「关闭窗口时最小化到托盘」开关。默认 false:Windows 用户点 X 直接
+ * 退出,macOS 维持 hide-on-close 系统默认。开启后任何平台关闭窗口都改为
+ * hide(隐藏到托盘),用户可通过托盘 icon 重新唤出或显式 Quit。
+ */
+export async function metaGetHideInTray(): Promise<boolean> {
+  if (!isTauri()) return false
+  try {
+    return await invoke<boolean>('meta_get_hide_in_tray')
+  } catch {
+    return false
+  }
+}
+
+export async function metaSetHideInTray(value: boolean): Promise<void> {
+  if (!isTauri()) return
+  await invoke('meta_set_hide_in_tray', { value })
 }
 
 /**
@@ -840,5 +860,32 @@ export async function crashLogDir(): Promise<string | null> {
     return await invoke<string>('crash_log_dir')
   } catch {
     return null
+  }
+}
+
+/**
+ * S13 · 启动时查询「上次会话发生过、但用户还没看到」的 panic 列表。
+ * 仅 `level==panic` 的硬崩溃才参与 — frontend 错误用 Settings 入口查。
+ * 失败返回空数组(本地查不到就不弹窗,绝不阻断启动)。
+ */
+export async function crashLogUnseenPanics(): Promise<CrashEntry[]> {
+  if (!isTauri()) return []
+  try {
+    return await invoke<CrashEntry[]>('crash_log_unseen_panics')
+  } catch {
+    return []
+  }
+}
+
+/**
+ * S13 · 用户在 dialog 上 dismiss / 查看完成后调用,把游标推到当前
+ * 最新的 panic ts。下次启动同一批 panic 不会再弹。
+ */
+export async function crashLogMarkPanicsSeen(): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invoke('crash_log_mark_panics_seen')
+  } catch {
+    // ignore — 不影响启动流程
   }
 }

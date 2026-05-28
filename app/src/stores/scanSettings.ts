@@ -13,6 +13,12 @@ export interface ScanOptions {
   detectDuplicates: boolean
   aiAnalysis: boolean
   followSymlinks: boolean
+  /**
+   * 「设置 → 隐私」中的「敏感目录排除」开关。开启后扫描会跳过常见
+   * 凭证 / 密钥 / 云配置目录(.ssh / .gnupg / .aws / .kube / .docker /
+   * .npmrc),避免路径字符串落入 scan_result 或 LLM 上下文。
+   */
+  excludeSensitive: boolean
 }
 
 const STORAGE_KEY = 'diskmind:scanSettings'
@@ -41,6 +47,7 @@ const DEFAULT_OPTIONS: ScanOptions = {
   detectDuplicates: false,
   aiAnalysis: false,
   followSymlinks: false,
+  excludeSensitive: false,
 }
 
 function loadFromStorage(): PersistedShape {
