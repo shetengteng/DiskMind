@@ -131,12 +131,16 @@ const dataset = computed(() =>
 const chartOption = computed(() => ({
   tooltip: {
     trigger: 'item' as const,
-    formatter: (p: { name: string; value: number; data?: { raw?: TreemapNode } }) => {
-      const pct = props.total > 0 ? ((p.value / props.total) * 100).toFixed(1) : '0'
+    // Round 26:formatter 防御 — ECharts treemap 在 hover 到 chart 外缘 padding /
+    // 下钻到空数据集 / 内部 root container 时,p.value 可能是 undefined,
+    // 直接 `.toFixed()` 会抛 "undefined is not an object"。typeof 窄化兜底为 0。
+    formatter: (p: { name: string; value: number | undefined; data?: { raw?: TreemapNode } }) => {
+      const v = typeof p.value === 'number' ? p.value : 0
+      const pct = props.total > 0 ? ((v / props.total) * 100).toFixed(1) : '0'
       const drill = p.data?.raw?.hasChildren ? `<div style="opacity:.55;margin-top:4px">${t('diskMap.treemapDrillHint')}</div>` : ''
       return `<div style="font-size:12px;line-height:1.5">
         <div style="font-weight:500">${p.name}</div>
-        <div style="opacity:.8">${p.value.toFixed(2)} GB · ${pct}%</div>
+        <div style="opacity:.8">${v.toFixed(2)} GB · ${pct}%</div>
         ${drill}
       </div>`
     },
@@ -161,9 +165,12 @@ const chartOption = computed(() => ({
         fontSize: 12,
         fontWeight: 500,
         overflow: 'truncate' as const,
-        formatter: (p: { name: string; value: number }) => {
-          const pct = props.total > 0 ? ((p.value / props.total) * 100).toFixed(0) : '0'
-          return `{name|${p.name}}\n{meta|${p.value.toFixed(1)} GB · ${pct}%}`
+        formatter: (p: { name: string; value: number | undefined }) => {
+          // 同 tooltip 防御:label formatter 在 chart 重绘 / 下钻 transition
+          // 中也会被 ECharts 内部触发到 root 容器,p.value 可能 undefined。
+          const v = typeof p.value === 'number' ? p.value : 0
+          const pct = props.total > 0 ? ((v / props.total) * 100).toFixed(0) : '0'
+          return `{name|${p.name}}\n{meta|${v.toFixed(1)} GB · ${pct}%}`
         },
         rich: {
           name: {
