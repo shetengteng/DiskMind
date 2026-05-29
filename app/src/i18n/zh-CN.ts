@@ -171,6 +171,11 @@ export default {
       starting: 'AI 标签任务启动中…',
       progressDesc: '已为 {updated} / {total} 个文件打标签',
     },
+    // Round 26 · 后端 marker 错误码
+    error: {
+      no_target: '没有可用的扫描目标',
+      already_running: '已有扫描在运行',
+    },
   },
 
   reports: {
@@ -285,6 +290,21 @@ export default {
     actionRestore: '恢复',
     actionDelete: '立即删除',
     actionEmpty: '清空',
+    // Round 26 · 后端 marker 错误码(TrashFailure.message 与 trash 各 op result)
+    error: {
+      source_missing: '源文件不存在',
+      db_insert_failed: '写入数据库失败: {err}',
+      move_failed: '移动失败: {err}',
+      update_sandbox_failed: '更新沙箱路径失败: {err}',
+      item_missing: '项目不存在或已处理',
+      query_failed: '查询失败: {err}',
+      restore_target_exists: '原位置已存在同名文件,跳过恢复',
+      restore_failed: '恢复失败: {err}',
+      mark_restored_failed: '标记恢复失败: {err}',
+      physical_delete_failed: '物理删除失败: {err}',
+      mark_deleted_failed: '标记删除失败: {err}',
+      query_sandbox_failed: '查询沙箱失败: {err}',
+    },
   },
 
   settings: {
@@ -661,6 +681,123 @@ export default {
 
   providerStore: {
     saveFailed: '保存 Provider 失败',
+  },
+
+  // Round 26 · 后端 i18n marker 命名空间
+  // ──────────────────────────────────────────────────────────────────────
+  // 后端用 `$i18n:<key>|<k=v>` 占位符串通过 IPC 流到前端,前端 `localize()`
+  // 解析后调 `t(key, params)`。这些 key 都不应直接出现在 UI 模板中,只
+  // 通过 localize 函数命中。
+
+  // classifier 输出的稳定 ID(DB 直接存,前端在表格显示时翻译)
+  category: {
+    browser_cache: '浏览器缓存',
+    messaging_cache: '通讯应用缓存',
+    dev_artifacts: '开发产物',
+    system_temp: '系统临时',
+    logs: '日志',
+    ios_backup: 'iOS 备份',
+    media_cache: '流媒体缓存',
+    trash_residue: '回收站残留',
+    expired_download: '过期下载',
+    large_media: '大型媒体',
+    review_large: '待审查大文件',
+    // AI 分类失败时的 fallback ai_category(DB 写入 marker)
+    uncategorized: '未分类',
+  },
+
+  classifier: {
+    reason: {
+      browser_cache_safari: 'Safari 浏览器缓存,重启后自动重建,不影响书签和密码。',
+      browser_cache_chrome: 'Chrome 浏览器缓存,清理安全。',
+      browser_cache_firefox: 'Firefox 浏览器缓存,清理安全。',
+      browser_cache_edge: 'Edge 浏览器缓存,清理安全。',
+      browser_cache_chromium: 'Chromium 系浏览器缓存,清理安全。',
+      messaging_cache_zoom: 'Zoom 客户端缓存与日志,清理后不影响登录态。',
+      messaging_cache_slack: 'Slack 缓存与离线消息,清理后下次启动会重新拉取。',
+      messaging_cache_discord: 'Discord 缓存,清理后不影响账号与服务器列表。',
+      messaging_cache_wechat: '微信 / 企业微信本地数据,可能含聊天记录,确认有云备份再清理。',
+      messaging_cache_telegram: 'Telegram 本地缓存,媒体已在云端,清理安全。',
+      dev_artifacts_node_modules: '可通过 `pnpm install` / `npm install` 重新生成。',
+      dev_artifacts_xcode_derived: 'Xcode 派生数据,删除后下次构建会自动重建。',
+      dev_artifacts_ios_simulator: 'iOS 模拟器镜像,清理后需重新下载,建议先删除不用的 device。',
+      dev_artifacts_xcode_devicesupport: 'Xcode iOS DeviceSupport 符号文件,连接真机后会重新生成。',
+      dev_artifacts_cargo: 'Cargo 包缓存,可通过下载重建。',
+      dev_artifacts_gradle: 'Gradle 构建缓存,重新构建会自动重建。',
+      dev_artifacts_maven: 'Maven 本地仓库,重新构建会自动下载。',
+      dev_artifacts_jetbrains: 'JetBrains IDE 缓存与索引,清理后下次启动会重建索引。',
+      dev_artifacts_vscode: 'VSCode 缓存,清理后下次启动重建,不影响配置与插件。',
+      dev_artifacts_docker: 'Docker Desktop 数据卷,可能含正在使用的容器镜像,谨慎清理。',
+      dev_artifacts_pkg_cache: '包管理器缓存,可通过下载重建。',
+      dev_artifacts_go_build: 'Go 构建缓存,重新编译会自动重建。',
+      system_temp_ds_store: 'macOS 目录元数据缓存,自动重建。',
+      logs_app: '应用日志文件,清理后会重新生成。',
+      ios_backup: 'iTunes / Finder 同步的 iOS 设备备份,清理前确认重要数据已迁移。',
+      media_cache_spotify: 'Spotify 本地缓存,清理后下次播放需重新下载。',
+      trash_residue: '系统回收站残留,清空回收站后释放磁盘空间。',
+      expired_download_installer: '安装包,确认应用已安装后可清理。',
+      large_media: '大型媒体文件,建议保留或先备份到云端。',
+      review_large: '未命中清理规则,但占用 >1GB,建议人工或 AI 复核。',
+    },
+  },
+
+  scanner: {
+    error: {
+      no_home_dir: '无法解析用户主目录',
+      io: 'IO 错误: {err}',
+    },
+    progress: {
+      cancelled: '已取消,用时 {seconds}s',
+      completed: '扫描完成,用时 {seconds}s',
+    },
+  },
+
+  file: {
+    error: {
+      write_failed: '写入文件失败: {err}',
+    },
+  },
+
+  chat: {
+    new_conversation: '新对话',
+  },
+
+  ai: {
+    error: {
+      no_provider_configured: '未配置任何启用的 AI Provider,请在设置 → AI Providers 中添加',
+      empty_content: 'provider 返回 200 但 content 为空(异常响应)',
+      ollama_empty_content: 'Ollama 返回 200 但 content 为空(常见于云端代理模型异常),请检查 provider 状态',
+    },
+  },
+
+  ai_classify: {
+    error: {
+      already_running: 'AI 批量分类任务已在运行中,请稍后再试',
+      provider_unavailable: 'Provider 不可用: {err}',
+      fetch_pending: '读取待办失败: {err}',
+      continuous_timeout: '连续多批超时,任务终止(请检查 Provider 状态)',
+      continuous_failures: '连续多批失败,任务终止',
+    },
+    progress: {
+      no_pending: '没有需要打 AI 标签的候选文件',
+      cancelled: '已取消',
+      calling_llm: '正在调用 LLM · 批次 {batch} · {files} 个文件',
+      calling_llm_with_elapsed: '正在调用 LLM · 批次 {batch} · {files} 个文件 · 已等待 {seconds} 秒',
+      slow: 'LLM 响应较慢,已等待 {seconds} 秒 · 批次 {batch} · {files} 个文件',
+      timeout: '批次 {batch} 超时({seconds} 秒),已标记为待重试',
+      batch_failed: '批次失败: {err}',
+    },
+    fallback: {
+      timeout_reason: 'AI 调用超时 - 单批 {seconds} 秒未返回,请检查 Provider 后重试',
+      unrecognized_reason: 'AI 未识别 - 建议人工确认',
+      error_reason: 'AI 调用异常 - 请检查 Provider 状态后重试({err})',
+    },
+  },
+
+  platform: {
+    error: {
+      path_not_found: '路径不存在: {path}',
+    },
   },
 
   // 用户消息气泡里展示的 AI prompt 拼接(用户切到 EN 时也不该看到中文气泡)

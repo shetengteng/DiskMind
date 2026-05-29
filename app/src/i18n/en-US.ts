@@ -171,6 +171,11 @@ export default {
       starting: 'Starting AI tagging task…',
       progressDesc: 'Tagged {updated} / {total} files',
     },
+    // Round 26 · backend marker errors
+    error: {
+      no_target: 'No usable scan targets',
+      already_running: 'A scan is already in progress',
+    },
   },
 
   reports: {
@@ -285,6 +290,21 @@ export default {
     actionRestore: 'Restore',
     actionDelete: 'Delete',
     actionEmpty: 'Empty',
+    // Round 26 · backend marker errors (TrashFailure.message + trash op results)
+    error: {
+      source_missing: 'Source file not found',
+      db_insert_failed: 'Database insert failed: {err}',
+      move_failed: 'Move failed: {err}',
+      update_sandbox_failed: 'Update sandbox path failed: {err}',
+      item_missing: 'Item not found or already processed',
+      query_failed: 'Query failed: {err}',
+      restore_target_exists: 'Original path already has the same file; skipped restore',
+      restore_failed: 'Restore failed: {err}',
+      mark_restored_failed: 'Mark restored failed: {err}',
+      physical_delete_failed: 'Physical delete failed: {err}',
+      mark_deleted_failed: 'Mark deleted failed: {err}',
+      query_sandbox_failed: 'Query sandbox failed: {err}',
+    },
   },
 
   settings: {
@@ -662,6 +682,121 @@ export default {
 
   providerStore: {
     saveFailed: 'Save Provider failed',
+  },
+
+  // Round 26 · backend i18n marker namespaces
+  // ──────────────────────────────────────────────────────────────────────
+  // Backend emits `$i18n:<key>|<k=v>` placeholder strings over IPC; the
+  // frontend `localize()` parses them and calls `t(key, params)`. These
+  // keys never appear directly in templates — only through localize.
+
+  category: {
+    browser_cache: 'Browser cache',
+    messaging_cache: 'Messaging app cache',
+    dev_artifacts: 'Dev artifacts',
+    system_temp: 'System temp',
+    logs: 'Logs',
+    ios_backup: 'iOS backup',
+    media_cache: 'Media cache',
+    trash_residue: 'Trash residue',
+    expired_download: 'Old downloads',
+    large_media: 'Large media',
+    review_large: 'Large files to review',
+    uncategorized: 'Uncategorized',
+  },
+
+  classifier: {
+    reason: {
+      browser_cache_safari: 'Safari browser cache; rebuilds on next launch and does not affect bookmarks or passwords.',
+      browser_cache_chrome: 'Chrome browser cache; safe to clear.',
+      browser_cache_firefox: 'Firefox browser cache; safe to clear.',
+      browser_cache_edge: 'Edge browser cache; safe to clear.',
+      browser_cache_chromium: 'Chromium-based browser cache; safe to clear.',
+      messaging_cache_zoom: 'Zoom client cache and logs; clearing does not affect login state.',
+      messaging_cache_slack: 'Slack cache and offline messages; will re-sync on next launch.',
+      messaging_cache_discord: 'Discord cache; clearing does not affect account or server list.',
+      messaging_cache_wechat: 'WeChat / WeCom local data may include chat history; back up to cloud before clearing.',
+      messaging_cache_telegram: 'Telegram local cache; media is in the cloud, safe to clear.',
+      dev_artifacts_node_modules: 'Regeneratable via `pnpm install` / `npm install`.',
+      dev_artifacts_xcode_derived: 'Xcode derived data; rebuilt on next compile.',
+      dev_artifacts_ios_simulator: 'iOS simulator images; need re-download after clearing — consider deleting unused devices first.',
+      dev_artifacts_xcode_devicesupport: 'Xcode iOS DeviceSupport symbols; regenerated when you connect a real device.',
+      dev_artifacts_cargo: 'Cargo package cache; downloadable on demand.',
+      dev_artifacts_gradle: 'Gradle build cache; rebuilt on next build.',
+      dev_artifacts_maven: 'Maven local repo; downloaded on next build.',
+      dev_artifacts_jetbrains: 'JetBrains IDE cache and indices; rebuilt on next launch.',
+      dev_artifacts_vscode: 'VSCode cache; rebuilt on next launch, configs and extensions unaffected.',
+      dev_artifacts_docker: 'Docker Desktop volumes may contain in-use container images; clear with caution.',
+      dev_artifacts_pkg_cache: 'Package manager cache; downloadable on demand.',
+      dev_artifacts_go_build: 'Go build cache; rebuilt on next compile.',
+      system_temp_ds_store: 'macOS directory metadata; auto-rebuilt.',
+      logs_app: 'Application log files; will be regenerated.',
+      ios_backup: 'iTunes / Finder iOS device backup; verify important data is migrated before deleting.',
+      media_cache_spotify: 'Spotify local cache; will re-download on next playback.',
+      trash_residue: 'System trash residue; emptying the trash frees disk space.',
+      expired_download_installer: 'Installer file; safe to clean once the app is installed.',
+      large_media: 'Large media file; consider keeping or backing up to cloud first.',
+      review_large: 'No cleanup rule matched, but >1GB; recommend manual or AI review.',
+    },
+  },
+
+  scanner: {
+    error: {
+      no_home_dir: 'Could not resolve user home directory',
+      io: 'IO error: {err}',
+    },
+    progress: {
+      cancelled: 'Cancelled in {seconds}s',
+      completed: 'Scan completed in {seconds}s',
+    },
+  },
+
+  file: {
+    error: {
+      write_failed: 'Write file failed: {err}',
+    },
+  },
+
+  chat: {
+    new_conversation: 'New conversation',
+  },
+
+  ai: {
+    error: {
+      no_provider_configured: 'No enabled AI Provider configured. Add one at Settings → AI Providers.',
+      empty_content: 'Provider returned 200 but content is empty (anomalous response)',
+      ollama_empty_content: 'Ollama returned 200 but content is empty (often seen with cloud-proxied models); please check provider status',
+    },
+  },
+
+  ai_classify: {
+    error: {
+      already_running: 'AI batch classify task already running; please retry later',
+      provider_unavailable: 'Provider unavailable: {err}',
+      fetch_pending: 'Read pending failed: {err}',
+      continuous_timeout: 'Multiple batches timed out; task aborted (please check Provider status)',
+      continuous_failures: 'Multiple batches failed; task aborted',
+    },
+    progress: {
+      no_pending: 'No candidates need AI labeling',
+      cancelled: 'Cancelled',
+      calling_llm: 'Calling LLM · batch {batch} · {files} files',
+      calling_llm_with_elapsed: 'Calling LLM · batch {batch} · {files} files · waited {seconds}s',
+      slow: 'LLM is slow — waited {seconds}s · batch {batch} · {files} files',
+      timeout: 'Batch {batch} timed out ({seconds}s); marked for retry',
+      batch_failed: 'Batch failed: {err}',
+    },
+    fallback: {
+      timeout_reason: 'AI call timed out — single batch did not return in {seconds}s, please check Provider and retry',
+      unrecognized_reason: 'AI did not recognize — manual confirmation recommended',
+      error_reason: 'AI call error — please check Provider status and retry ({err})',
+    },
+  },
+
+  platform: {
+    error: {
+      path_not_found: 'Path not found: {path}',
+    },
   },
 
   aiPrompt: {

@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge'
 import { useAiStore } from '@/stores/ai'
 import { useReportsStore } from '@/stores/reports'
 import { humanizeBytes } from '@/lib/buildTree'
+import { localizeCategory } from '@/lib/localize'
 import type { CleaningAdviceTier } from '@/api/tauri'
 
 const ai = useAiStore()
@@ -110,7 +111,8 @@ function buildRunSummary() {
   const categories = run.categoryBreakdown
     .slice(0, 5)
     .map(c => t('aiPrompt.adviceCategoryItem', {
-      category: c.category,
+      // 给 LLM 的 prompt 用本地化 label,模型回答时用相同语言更自然。
+      category: localizeCategory(c.category),
       size: humanizeBytes(c.sizeBytes),
       count: c.count,
     }))

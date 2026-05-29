@@ -10,6 +10,7 @@ import {
 } from '@unovis/vue'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { useScanStore } from '@/stores/scan'
+import { localizeCategory } from '@/lib/localize'
 
 const { t } = useI18n()
 const scan = useScanStore()
@@ -19,13 +20,19 @@ const emit = defineEmits<{
 }>()
 
 interface CategoryDatum {
+  /** stable category ID(英文 snake_case),供 `select` 事件回传给上层。 */
   name: string
+  /** UI 显示用的本地化 label;聚合不依赖它,仅渲染时使用。 */
+  displayName: string
   bytes: number
   count: number
   /** 单位 GB,柱状图的实际度量值。 */
   gb: number
 }
 
+// Round 26 · i18n:聚合 key 仍用 stable ID(让 emit('select') 给上层
+// 派发的也是 stable ID,与 scan store 内部一致),只在 `name` 字段上
+// 单独保留 ID 用于 `select` payload,UI 显示走 `displayName`。
 const data = computed<CategoryDatum[]>(() => {
   const map = new Map<string, { bytes: number; count: number }>()
   for (const r of scan.results) {
@@ -38,6 +45,7 @@ const data = computed<CategoryDatum[]>(() => {
   return [...map.entries()]
     .map(([name, v]) => ({
       name,
+      displayName: localizeCategory(name),
       bytes: v.bytes,
       count: v.count,
       gb: Number((v.bytes / 1024 / 1024 / 1024).toFixed(3)),
@@ -60,7 +68,7 @@ const yAccessor = (d: CategoryDatum) => d.gb
 // 红的暖色,用户反馈“太红了”;改用 --primary,与应用品牌中性色一
 // 致,与周围 UI 始终不冲突。
 const colorAccessor = () => 'var(--primary)'
-const xTickFormat = (i: number) => data.value[i]?.name ?? ''
+const xTickFormat = (i: number) => data.value[i]?.displayName ?? ''
 
 function formatGB(v: number) {
   return `${v.toFixed(v >= 10 ? 1 : 2)} GB`
@@ -71,7 +79,7 @@ function tooltipTemplate(d: CategoryDatum) {
   const gb = formatGB(d.gb)
   return `
     <div class="border-border/50 bg-background grid min-w-[8rem] gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
-      <div class="font-medium text-foreground">${escapeHtml(d.name)}</div>
+      <div class="font-medium text-foreground">${escapeHtml(d.displayName)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
           <span class="size-2 rounded-[2px]" style="background: var(--color-gb)"></span>

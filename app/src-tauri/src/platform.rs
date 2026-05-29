@@ -95,7 +95,10 @@ fn pick_disk_for(path: Option<String>) -> Result<DiskUsageInfo, String> {
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
-        return Err(format!("路径不存在: {path}"));
+        return Err(crate::i18n::i18n_p(
+            "platform.error.path_not_found",
+            &[("path", &path)],
+        ));
     }
 
     #[cfg(target_os = "macos")]

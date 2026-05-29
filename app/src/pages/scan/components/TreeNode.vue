@@ -24,6 +24,7 @@ import type { ScanResultRow } from '@/api/tauri'
 import type { TreeNode as TreeNodeData } from '@/lib/buildTree'
 import { humanizeBytes } from '@/lib/buildTree'
 import { usePathMask } from '@/composables/usePathMask'
+import { localizeCategory } from '@/lib/localize'
 
 // Round 24:从"递归自渲染 + 内部 open ref"改造为"受控单行渲染"。
 //   - 不再渲染子节点(扁化由 ScanResultsTree 顶层 flattenTree 完成)
@@ -72,9 +73,12 @@ const riskBadge = computed(() => ({
 const indentPx = computed(() => props.depth * 16)
 
 const primaryCategory = computed(() => {
-  if (props.node.isFile && props.node.row) return props.node.row.category
+  // Round 26 · i18n:scan_results.category 已迁到 stable English ID
+  // (`browser_cache` / `dev_artifacts` 等),localizeCategory 在显示
+  // 前翻译;同时容忍历史 DB 中残留的中文 category 名(直接原样返回)。
+  if (props.node.isFile && props.node.row) return localizeCategory(props.node.row.category)
   const first = props.node.categories.values().next().value
-  return first ?? '—'
+  return first ? localizeCategory(first) : '—'
 })
 
 type SelectionState = boolean | 'indeterminate'

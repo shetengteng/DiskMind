@@ -102,7 +102,7 @@ pub async fn chat_summarize_title(
 ) -> Result<String, String> {
     let trimmed = question.trim();
     if trimmed.is_empty() {
-        return Ok(String::from("新对话"));
+        return Ok(crate::i18n::i18n("chat.new_conversation"));
     }
     let summary = state
         .ai
@@ -122,7 +122,7 @@ fn trim_title(raw: &str) -> String {
     let cleaned = trimmed.replace('\n', " ").replace('\r', " ");
     let cleaned = cleaned.trim();
     if cleaned.is_empty() {
-        return String::from("新对话");
+        return crate::i18n::i18n("chat.new_conversation");
     }
     if cleaned.chars().count() <= MAX_TITLE_CHARS {
         return cleaned.to_string();

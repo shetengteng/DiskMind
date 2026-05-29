@@ -172,12 +172,12 @@ pub fn start_scan(
 
     if roots.is_empty() {
         eprintln!("[diskmind] start_scan rejected: no resolvable roots from {:?}", args.roots);
-        return Err("没有可用的扫描目标".to_string());
+        return Err(crate::i18n::i18n("scan.error.no_target"));
     }
 
     if state.is_scanning.swap(true, Ordering::SeqCst) {
         eprintln!("[diskmind] start_scan rejected: previous scan still in flight");
-        return Err("已有扫描在运行".to_string());
+        return Err(crate::i18n::i18n("scan.error.already_running"));
     }
 
     eprintln!(

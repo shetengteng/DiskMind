@@ -157,7 +157,7 @@ pub async fn ai_classify_batch_pending(
 
     // 互斥:同时只允许一个批量任务在跑
     if state.ai_classify_running.swap(true, Ordering::SeqCst) {
-        return Err("AI 批量分类任务已在运行中,请稍后再试".into());
+        return Err(crate::i18n::i18n("ai_classify.error.already_running"));
     }
     state.ai_classify_cancel.store(false, Ordering::SeqCst);
 
@@ -184,7 +184,7 @@ pub async fn ai_classify_batch_pending(
                 0,
                 0,
                 0,
-                Some("没有需要打 AI 标签的候选文件".into()),
+                Some(crate::i18n::i18n("ai_classify.progress.no_pending")),
                 0,
             );
             running.store(false, Ordering::SeqCst);
@@ -208,7 +208,10 @@ pub async fn ai_classify_batch_pending(
                     0,
                     0,
                     total_pending,
-                    Some(format!("Provider 不可用: {e}")),
+                    Some(crate::i18n::i18n_p(
+                        "ai_classify.error.provider_unavailable",
+                        &[("err", &e.to_string())],
+                    )),
                     0,
                 );
                 running.store(false, Ordering::SeqCst);
@@ -229,7 +232,7 @@ pub async fn ai_classify_batch_pending(
                     updated_total,
                     failed_batches,
                     total_pending,
-                    Some("已取消".into()),
+                    Some(crate::i18n::i18n("ai_classify.progress.cancelled")),
                     0,
                 );
                 running.store(false, Ordering::SeqCst);
@@ -251,7 +254,10 @@ pub async fn ai_classify_batch_pending(
                         updated_total,
                         failed_batches,
                         total_pending,
-                        Some(format!("读取待办失败: {e}")),
+                        Some(crate::i18n::i18n_p(
+                            "ai_classify.error.fetch_pending",
+                            &[("err", &e.to_string())],
+                        )),
                         0,
                     );
                     running.store(false, Ordering::SeqCst);
@@ -295,10 +301,12 @@ pub async fn ai_classify_batch_pending(
                 updated_total,
                 failed_batches,
                 total_pending,
-                Some(format!(
-                    "正在调用 LLM · 批次 {} · {} 个文件",
-                    batch_idx + 1,
-                    items_count
+                Some(crate::i18n::i18n_p(
+                    "ai_classify.progress.calling_llm",
+                    &[
+                        ("batch", &(batch_idx + 1).to_string()),
+                        ("files", &items_count.to_string()),
+                    ],
                 )),
                 0,
             );
@@ -328,20 +336,31 @@ pub async fn ai_classify_batch_pending(
                     let secs = elapsed.as_secs();
                     // 不带 max_batches:它是任务上限(默认 8),实际批数取决
                     // 于 pending 总数,不应出现在面向用户的文案里。
+                    let secs_str = secs.to_string();
+                    let batch_str = hb_batch_idx.to_string();
+                    let items_str = hb_items.to_string();
                     let (kind, msg) = if secs >= SLOW_WARN_SECS {
                         (
                             "slow",
-                            format!(
-                                "LLM 响应较慢,已等待 {} 秒 · 批次 {} · {} 个文件",
-                                secs, hb_batch_idx, hb_items
+                            crate::i18n::i18n_p(
+                                "ai_classify.progress.slow",
+                                &[
+                                    ("seconds", &secs_str),
+                                    ("batch", &batch_str),
+                                    ("files", &items_str),
+                                ],
                             ),
                         )
                     } else {
                         (
                             "fetching",
-                            format!(
-                                "正在调用 LLM · 批次 {} · {} 个文件 · 已等待 {} 秒",
-                                hb_batch_idx, hb_items, secs
+                            crate::i18n::i18n_p(
+                                "ai_classify.progress.calling_llm_with_elapsed",
+                                &[
+                                    ("batch", &batch_str),
+                                    ("files", &items_str),
+                                    ("seconds", &secs_str),
+                                ],
                             ),
                         )
                     };
@@ -388,7 +407,7 @@ pub async fn ai_classify_batch_pending(
                         updated_total,
                         failed_batches,
                         total_pending,
-                        Some("已取消".into()),
+                        Some(crate::i18n::i18n("ai_classify.progress.cancelled")),
                         0,
                     );
                     running.store(false, Ordering::SeqCst);
@@ -401,14 +420,15 @@ pub async fn ai_classify_batch_pending(
                     let _ = log_batch_timeout(&db, &ai, dur_ms, batch_idx + 1, items_count);
                     // 与 Err 分支同样:把 timeout 的这批 id 标记 "已尝试 - 超时",
                     // 否则下一批 SQL 查询还会查到这 N 条 → 死循环。
+                    let timeout_secs_str = BATCH_TIMEOUT_SECS.to_string();
                     let fallback: Vec<crate::db::ClassifyApplyItem> = item_ids
                         .iter()
                         .map(|id| crate::db::ClassifyApplyItem {
                             id: *id,
-                            ai_category: "未分类".into(),
-                            ai_reason: format!(
-                                "AI 调用超时 - 单批 {} 秒未返回,请检查 Provider 后重试",
-                                BATCH_TIMEOUT_SECS
+                            ai_category: crate::i18n::i18n("ai_classify.fallback.uncategorized"),
+                            ai_reason: crate::i18n::i18n_p(
+                                "ai_classify.fallback.timeout_reason",
+                                &[("seconds", &timeout_secs_str)],
                             ),
                         })
                         .collect();
@@ -420,6 +440,7 @@ pub async fn ai_classify_batch_pending(
                         batch_idx + 1,
                         dur_ms
                     );
+                    let batch_str = (batch_idx + 1).to_string();
                     emit_classify_progress(
                         &app_handle,
                         "timeout",
@@ -427,10 +448,9 @@ pub async fn ai_classify_batch_pending(
                         updated_total,
                         failed_batches,
                         total_pending,
-                        Some(format!(
-                            "批次 {} 超时({} 秒),已标记为待重试",
-                            batch_idx + 1,
-                            BATCH_TIMEOUT_SECS
+                        Some(crate::i18n::i18n_p(
+                            "ai_classify.progress.timeout",
+                            &[("batch", &batch_str), ("seconds", &timeout_secs_str)],
                         )),
                         dur_ms,
                     );
@@ -444,7 +464,7 @@ pub async fn ai_classify_batch_pending(
                             updated_total,
                             failed_batches,
                             total_pending,
-                            Some("连续多批超时,任务终止(请检查 Provider 状态)".into()),
+                            Some(crate::i18n::i18n("ai_classify.error.continuous_timeout")),
                             0,
                         );
                         running.store(false, Ordering::SeqCst);
@@ -467,8 +487,12 @@ pub async fn ai_classify_batch_pending(
                                     .iter()
                                     .map(|id| crate::db::ClassifyApplyItem {
                                         id: *id,
-                                        ai_category: "未分类".into(),
-                                        ai_reason: "AI 未识别 - 建议人工确认".into(),
+                                        ai_category: crate::i18n::i18n(
+                                            "ai_classify.fallback.uncategorized",
+                                        ),
+                                        ai_reason: crate::i18n::i18n(
+                                            "ai_classify.fallback.unrecognized_reason",
+                                        ),
                                     })
                                     .collect();
                                 let n = db
@@ -508,14 +532,17 @@ pub async fn ai_classify_batch_pending(
                             // 必须依赖它,否则 fallback 会让止损条件永不触发。
                             // fallback 文案明确含"AI 调用异常",前端可据此过滤
                             // 出"需要人工 / 重试"的行。
+                            let truncated_err = truncate_for_reason(&e.to_string(), 80);
                             let fallback: Vec<crate::db::ClassifyApplyItem> = item_ids
                                 .iter()
                                 .map(|id| crate::db::ClassifyApplyItem {
                                     id: *id,
-                                    ai_category: "未分类".into(),
-                                    ai_reason: format!(
-                                        "AI 调用异常 - 请检查 Provider 状态后重试({})",
-                                        truncate_for_reason(&e.to_string(), 80)
+                                    ai_category: crate::i18n::i18n(
+                                        "ai_classify.fallback.uncategorized",
+                                    ),
+                                    ai_reason: crate::i18n::i18n_p(
+                                        "ai_classify.fallback.error_reason",
+                                        &[("err", &truncated_err)],
                                     ),
                                 })
                                 .collect();
@@ -527,7 +554,10 @@ pub async fn ai_classify_batch_pending(
                                 updated_total,
                                 failed_batches,
                                 total_pending,
-                                Some(format!("批次失败: {e}")),
+                                Some(crate::i18n::i18n_p(
+                                    "ai_classify.progress.batch_failed",
+                                    &[("err", &e.to_string())],
+                                )),
                                 0,
                             );
                             if failed_batches >= 3 && updated_total == 0 {
@@ -538,7 +568,9 @@ pub async fn ai_classify_batch_pending(
                                     updated_total,
                                     failed_batches,
                                     total_pending,
-                                    Some("连续多批失败,任务终止".into()),
+                                    Some(crate::i18n::i18n(
+                                        "ai_classify.error.continuous_failures",
+                                    )),
                                     0,
                                 );
                                 running.store(false, Ordering::SeqCst);

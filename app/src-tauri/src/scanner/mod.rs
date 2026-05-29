@@ -42,9 +42,16 @@ pub enum ScanError {
 
 impl std::fmt::Display for ScanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Round 26 · i18n marker:Display 的输出会被上层 commands 层
+        // .map_err(|e| e.to_string()) 直接塞进 Err(...) 流到前端;改成
+        // marker 后前端 `localize()` 会识别 `$i18n:` 前缀翻译。
         match self {
-            ScanError::NoHomeDir => write!(f, "无法解析用户主目录"),
-            ScanError::Io(msg) => write!(f, "IO 错误: {}", msg),
+            ScanError::NoHomeDir => write!(f, "{}", crate::i18n::i18n("scanner.error.no_home_dir")),
+            ScanError::Io(msg) => write!(
+                f,
+                "{}",
+                crate::i18n::i18n_p("scanner.error.io", &[("err", msg)])
+            ),
         }
     }
 }
@@ -103,13 +110,14 @@ where
     }
 
     let elapsed = started.elapsed().as_secs_f64();
+    let elapsed_str = format!("{:.1}", elapsed);
     on_progress(ScanProgress {
         files_scanned: files_total,
         bytes_scanned: bytes_total,
         current_path: if cancelled {
-            format!("已取消,用时 {:.1}s", elapsed)
+            crate::i18n::i18n_p("scanner.progress.cancelled", &[("seconds", &elapsed_str)])
         } else {
-            format!("扫描完成,用时 {:.1}s", elapsed)
+            crate::i18n::i18n_p("scanner.progress.completed", &[("seconds", &elapsed_str)])
         },
     });
 

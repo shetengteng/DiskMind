@@ -120,7 +120,7 @@ impl LlmProvider for OllamaProvider {
         // 调用链有清晰错误信息,又能让 ai_call_log 正确写 success=false。
         if content.trim().is_empty() {
             return Err(AiError::BadPayload(
-                "Ollama 返回 200 但 content 为空(常见于云端代理模型异常),请检查 provider 状态".into(),
+                crate::i18n::i18n("ai.error.ollama_empty_content"),
             ));
         }
         Ok(ChatResponse {

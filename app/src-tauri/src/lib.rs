@@ -17,6 +17,7 @@ mod classifier;
 mod commands;
 mod crash_log;
 mod db;
+mod i18n;
 mod platform;
 mod scanner;
 mod state;

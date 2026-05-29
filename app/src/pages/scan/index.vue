@@ -23,6 +23,7 @@ import { useAiStore } from '@/stores/ai'
 import { useTrashStore } from '@/stores/trash'
 import type { ScanResultRow, FileRisk } from '@/api/tauri'
 import { basename } from '@/lib/pathSep'
+import { localize } from '@/lib/localize'
 import ScanProgressCard from './components/ScanProgressCard.vue'
 import ScanResultsToolbar from './components/ScanResultsToolbar.vue'
 import ScanResultsTable from './components/ScanResultsTable.vue'
@@ -348,7 +349,8 @@ async function confirmTrashFolder() {
       text: t('scan.sandboxPartial', {
         ok: res.items.length,
         fail: res.failures.length,
-        first: res.failures[0]!.message,
+        // Round 26 · i18n:后端 marker → 本地化后再注入模板。
+        first: localize(res.failures[0]!.message),
       }),
     }
   }
@@ -375,7 +377,8 @@ async function moveToSandbox() {
       text: t('scan.sandboxPartial', {
         ok: res.items.length,
         fail: res.failures.length,
-        first: res.failures[0]!.message,
+        // Round 26 · i18n:同上 — marker 字符串经 localize() 翻译。
+        first: localize(res.failures[0]!.message),
       }),
     }
   }

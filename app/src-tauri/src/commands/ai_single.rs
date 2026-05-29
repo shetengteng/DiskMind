@@ -140,6 +140,8 @@ pub fn ai_list_call_logs(
 #[tauri::command]
 pub fn write_text_file(path: String, content: String) -> Result<usize, String> {
     let bytes = content.as_bytes().len();
-    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| {
+        crate::i18n::i18n_p("file.error.write_failed", &[("err", &e.to_string())])
+    })?;
     Ok(bytes)
 }

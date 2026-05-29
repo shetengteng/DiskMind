@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { FileRisk } from '@/api/tauri'
+import { localizeCategory } from '@/lib/localize'
 
 const search = defineModel<string>('search', { default: '' })
 const riskFilter = defineModel<'all' | FileRisk>('riskFilter', { default: 'all' })
@@ -55,7 +56,7 @@ const { t } = useI18n()
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="all">{{ t('scan.catAll') }}</SelectItem>
-        <SelectItem v-for="c in categories" :key="c" :value="c">{{ c }}</SelectItem>
+        <SelectItem v-for="c in categories" :key="c" :value="c">{{ localizeCategory(c) }}</SelectItem>
       </SelectContent>
     </Select>
 

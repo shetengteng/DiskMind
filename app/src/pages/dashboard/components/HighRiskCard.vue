@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { useAiStore } from '@/stores/ai'
 import { useScanStore } from '@/stores/scan'
 import { usePathMask } from '@/composables/usePathMask'
+import { localize, localizeCategory } from '@/lib/localize'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -79,9 +80,9 @@ function explainResults() {
           />
           <div class="min-w-0 flex-1">
             <div class="truncate font-mono text-xs">{{ mask(row.path) }}</div>
-            <div class="mt-0.5 truncate text-[11px] text-muted-foreground">{{ row.aiReason }}</div>
+            <div class="mt-0.5 truncate text-[11px] text-muted-foreground">{{ localize(row.aiReason) }}</div>
           </div>
-          <Badge variant="outline" class="shrink-0 text-[10px]">{{ row.category }}</Badge>
+          <Badge variant="outline" class="shrink-0 text-[10px]">{{ localizeCategory(row.category) }}</Badge>
           <span class="shrink-0 tabular-nums font-semibold">{{ row.size }}</span>
         </div>
       </div>

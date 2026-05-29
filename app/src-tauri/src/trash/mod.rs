@@ -76,7 +76,7 @@ pub fn move_to_sandbox(
         if !src.is_file() {
             failures.push(TrashFailure {
                 path: req.path,
-                message: "源文件不存在".into(),
+                message: crate::i18n::i18n("trash.error.source_missing"),
             });
             continue;
         }
@@ -96,7 +96,10 @@ pub fn move_to_sandbox(
             Err(e) => {
                 failures.push(TrashFailure {
                     path: req.path,
-                    message: format!("写入数据库失败: {}", e),
+                    message: crate::i18n::i18n_p(
+                        "trash.error.db_insert_failed",
+                        &[("err", &e.to_string())],
+                    ),
                 });
                 continue;
             }
@@ -108,7 +111,10 @@ pub fn move_to_sandbox(
             let _ = db.trash_mark_deleted(id, ts);
             failures.push(TrashFailure {
                 path: req.path,
-                message: format!("移动失败: {}", e),
+                message: crate::i18n::i18n_p(
+                    "trash.error.move_failed",
+                    &[("err", &e.to_string())],
+                ),
             });
             continue;
         }
@@ -117,7 +123,10 @@ pub fn move_to_sandbox(
         if let Err(e) = db.trash_set_sandbox_path(id, &dst.to_string_lossy()) {
             failures.push(TrashFailure {
                 path: req.path,
-                message: format!("更新沙箱路径失败: {}", e),
+                message: crate::i18n::i18n_p(
+                    "trash.error.update_sandbox_failed",
+                    &[("err", &e.to_string())],
+                ),
             });
             continue;
         }
@@ -141,14 +150,17 @@ pub fn restore_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
             Ok(_) => {
                 failures.push(TrashFailure {
                     path: format!("#{}", id),
-                    message: "项目不存在或已处理".into(),
+                    message: crate::i18n::i18n("trash.error.item_missing"),
                 });
                 continue;
             }
             Err(e) => {
                 failures.push(TrashFailure {
                     path: format!("#{}", id),
-                    message: format!("查询失败: {}", e),
+                    message: crate::i18n::i18n_p(
+                        "trash.error.query_failed",
+                        &[("err", &e.to_string())],
+                    ),
                 });
                 continue;
             }
@@ -163,7 +175,7 @@ pub fn restore_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
         if dst.exists() {
             failures.push(TrashFailure {
                 path: item.original_path.clone(),
-                message: "原位置已存在同名文件,跳过恢复".into(),
+                message: crate::i18n::i18n("trash.error.restore_target_exists"),
             });
             continue;
         }
@@ -171,7 +183,10 @@ pub fn restore_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
         if let Err(e) = move_file(&src, &dst) {
             failures.push(TrashFailure {
                 path: item.original_path.clone(),
-                message: format!("恢复失败: {}", e),
+                message: crate::i18n::i18n_p(
+                    "trash.error.restore_failed",
+                    &[("err", &e.to_string())],
+                ),
             });
             continue;
         }
@@ -179,7 +194,10 @@ pub fn restore_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
         if let Err(e) = db.trash_mark_restored(id, ts) {
             failures.push(TrashFailure {
                 path: item.original_path.clone(),
-                message: format!("标记恢复失败: {}", e),
+                message: crate::i18n::i18n_p(
+                    "trash.error.mark_restored_failed",
+                    &[("err", &e.to_string())],
+                ),
             });
             continue;
         }
@@ -203,14 +221,17 @@ pub fn delete_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
             Ok(_) => {
                 failures.push(TrashFailure {
                     path: format!("#{}", id),
-                    message: "项目不存在或已处理".into(),
+                    message: crate::i18n::i18n("trash.error.item_missing"),
                 });
                 continue;
             }
             Err(e) => {
                 failures.push(TrashFailure {
                     path: format!("#{}", id),
-                    message: format!("查询失败: {}", e),
+                    message: crate::i18n::i18n_p(
+                        "trash.error.query_failed",
+                        &[("err", &e.to_string())],
+                    ),
                 });
                 continue;
             }
@@ -221,7 +242,10 @@ pub fn delete_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
             if let Err(e) = std::fs::remove_file(&sandbox) {
                 failures.push(TrashFailure {
                     path: item.original_path.clone(),
-                    message: format!("物理删除失败: {}", e),
+                    message: crate::i18n::i18n_p(
+                        "trash.error.physical_delete_failed",
+                        &[("err", &e.to_string())],
+                    ),
                 });
                 continue;
             }
@@ -230,7 +254,10 @@ pub fn delete_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
         if let Err(e) = db.trash_mark_deleted(id, ts) {
             failures.push(TrashFailure {
                 path: item.original_path.clone(),
-                message: format!("标记删除失败: {}", e),
+                message: crate::i18n::i18n_p(
+                    "trash.error.mark_deleted_failed",
+                    &[("err", &e.to_string())],
+                ),
             });
             continue;
         }
@@ -251,7 +278,10 @@ pub fn empty_all(db: &Arc<Db>) -> TrashMoveResult {
                 items: Vec::new(),
                 failures: vec![TrashFailure {
                     path: "—".into(),
-                    message: format!("查询沙箱失败: {}", e),
+                    message: crate::i18n::i18n_p(
+                        "trash.error.query_sandbox_failed",
+                        &[("err", &e.to_string())],
+                    ),
                 }],
             }
         }

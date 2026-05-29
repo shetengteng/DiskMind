@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useTrashStore } from '@/stores/trash'
 import { humanizeBytes } from '@/lib/buildTree'
 import { notify } from '@/lib/notify'
+import { localize } from '@/lib/localize'
 import TrashSandboxNotice from './components/TrashSandboxNotice.vue'
 import TrashTable from './components/TrashTable.vue'
 import TrashConfirmDialog, { type TrashAction } from './components/TrashConfirmDialog.vue'
@@ -59,7 +60,10 @@ function reportResult(actionKey: string, ok: number, failures: { message: string
         action,
         ok,
         fail: failures.length,
-        first: failures[0]!.message,
+        // Round 26 · i18n:`failures[0].message` 是后端 marker 字符串
+        // (如 `$i18n:trash.error.move_failed|err=...`),先 localize 再
+        // 注入模板,否则用户会看到生工程串。
+        first: localize(failures[0]!.message),
       }),
     )
   }

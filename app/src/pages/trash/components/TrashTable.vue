@@ -27,6 +27,7 @@ import {
 import { humanizeBytes } from '@/lib/buildTree'
 import type { TrashItem } from '@/api/tauri'
 import { usePathMask } from '@/composables/usePathMask'
+import { localizeCategory } from '@/lib/localize'
 
 const { mask } = usePathMask()
 
@@ -116,7 +117,7 @@ function daysLeft(movedAtMs: number): number {
               {{ humanizeBytes(item.sizeBytes) }}
             </TableCell>
             <TableCell>
-              <Badge variant="outline" class="text-[11px]">{{ item.category }}</Badge>
+              <Badge variant="outline" class="text-[11px]">{{ localizeCategory(item.category) }}</Badge>
             </TableCell>
             <TableCell class="text-xs text-muted-foreground">
               {{ formatRelative(item.movedAt) }}

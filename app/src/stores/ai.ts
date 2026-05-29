@@ -40,6 +40,7 @@ import { useTrashStore } from '@/stores/trash'
 import { usePrivacyStore } from '@/stores/privacy'
 import { maskPath } from '@/lib/pathMask'
 import { notify } from '@/lib/notify'
+import { localize } from '@/lib/localize'
 import { parseAiMessage as parseAiMessageContent } from '@/lib/aiActions'
 import { trashMove as ipcTrashMove, type TrashMoveRequest } from '@/api/tauri'
 import { i18n } from '@/i18n'
@@ -625,8 +626,11 @@ export const useAiStore = defineStore('ai', () => {
     try {
       const result = await ipcTrashMove(requests)
       const okPaths = result.items.map(i => i.originalPath)
+      // Round 26 · i18n:trash 后端返回的 message 是 marker,UI 显示
+      // 给用户的 reason 字段必须先 localize,否则 AI 行动卡片会出现
+      // `$i18n:trash.error.move_failed|err=...` 工程串。
       const failed = [
-        ...result.failures.map(f => ({ path: f.path, reason: f.message })),
+        ...result.failures.map(f => ({ path: f.path, reason: localize(f.message) })),
         ...skippedPaths,
       ]
       msg.action.completedPaths = okPaths
@@ -873,7 +877,9 @@ export const useAiStore = defineStore('ai', () => {
         classifyUpdated.value = payload.updated
         classifyFailedBatches.value = payload.failedBatches
         classifyPending.value = payload.totalPending
-        classifyMessage.value = payload.message
+        // Round 26 · i18n:后端 emit 的 message 是 `$i18n:<key>|<params>`
+        // marker,UI 显示前必须 localize;普通字符串走 fast-path 不损耗。
+        classifyMessage.value = payload.message ? localize(payload.message) : payload.message
         classifyElapsedMs.value = payload.elapsedMs
         if (
           payload.kind === 'done' ||

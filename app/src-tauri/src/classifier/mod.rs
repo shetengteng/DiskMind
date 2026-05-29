@@ -93,139 +93,178 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
     rows
 }
 
+// Round 26 · i18n 改造:
+//
+// 历史上 `match_rule` 返回的是 `(中文 category 名, FileRisk, 中文风险描
+// 述)`,这两个 String 经 IPC 流到前端后无法跟随 vue-i18n locale 切换。
+//
+// 现在所有返回值都改成 **稳定标识符**:
+// - category → English snake_case 短名(如 `browser_cache`),DB 直接存
+//   这个值;前端通过 `category.<id>` 字典翻译显示
+// - ai_reason → `$i18n:classifier.reason.<id>` marker,前端 `localize()`
+//   识别前缀后调 `t()` 翻译
+//
+// 选择 stable ID 而非 marker 给 category 是因为它会作为 SQL JOIN /
+// GROUP BY key 出现(分组聚合 / Reports 维度筛选),用 marker 字符串
+// 含 `$i18n:` 前缀的 key 在 SQL 里不优雅;用扁平 ID 各业务可直接
+// `.eq("browser_cache")` 比对。
+
 fn match_rule(entry: &FileEntry) -> Option<(&'static str, FileRisk, &'static str)> {
     let path_lower = entry.path.to_ascii_lowercase();
     let ext = entry.extension.to_ascii_lowercase();
 
     // ---- 浏览器缓存(Low Risk · 清理 100% 安全)----
-    // 都走 bundle id / 路径段匹配,跨用户路径(Library/Caches 下不同应用)
-    // 覆盖 macOS + 现代主流浏览器。`/library/caches/<id>` 是 macOS sandboxed
-    // app 的标准缓存目录,清理只影响下次冷启动加载速度。
     if path_lower.contains("/library/caches/com.apple.safari") {
         return Some((
-            "浏览器缓存",
+            "browser_cache",
             FileRisk::Low,
-            "Safari 浏览器缓存,重启后自动重建,不影响书签和密码。",
+            "$i18n:classifier.reason.browser_cache_safari",
         ));
     }
     if path_lower.contains("/library/caches/google/chrome")
         || path_lower.contains("/library/caches/com.google.chrome")
     {
-        return Some(("浏览器缓存", FileRisk::Low, "Chrome 浏览器缓存,清理安全。"));
+        return Some((
+            "browser_cache",
+            FileRisk::Low,
+            "$i18n:classifier.reason.browser_cache_chrome",
+        ));
     }
     if path_lower.contains("/library/caches/firefox")
         || path_lower.contains("/library/caches/org.mozilla.firefox")
     {
-        return Some(("浏览器缓存", FileRisk::Low, "Firefox 浏览器缓存,清理安全。"));
+        return Some((
+            "browser_cache",
+            FileRisk::Low,
+            "$i18n:classifier.reason.browser_cache_firefox",
+        ));
     }
     if path_lower.contains("/library/caches/com.microsoft.edgemac")
         || path_lower.contains("/library/caches/microsoft edge")
     {
-        return Some(("浏览器缓存", FileRisk::Low, "Edge 浏览器缓存,清理安全。"));
+        return Some((
+            "browser_cache",
+            FileRisk::Low,
+            "$i18n:classifier.reason.browser_cache_edge",
+        ));
     }
     if path_lower.contains("/library/caches/com.brave.browser")
         || path_lower.contains("/library/caches/com.operasoftware.opera")
         || path_lower.contains("/library/caches/company.thebrowser.browser")
         || path_lower.contains("/library/caches/com.vivaldi.vivaldi")
     {
-        return Some(("浏览器缓存", FileRisk::Low, "Chromium 系浏览器缓存,清理安全。"));
+        return Some((
+            "browser_cache",
+            FileRisk::Low,
+            "$i18n:classifier.reason.browser_cache_chromium",
+        ));
     }
 
     // ---- 通讯应用缓存 / 数据(Low / Medium 视场景)----
-    // bundle id 走 macOS Group Containers + Application Support 双路径,
-    // 这些应用倾向把视频/媒体附件长期缓存,常见 GB 级别。
     if path_lower.contains("/library/caches/us.zoom.xos")
         || path_lower.contains("/library/application support/zoom.us/")
     {
         return Some((
-            "通讯应用缓存",
+            "messaging_cache",
             FileRisk::Low,
-            "Zoom 客户端缓存与日志,清理后不影响登录态。",
+            "$i18n:classifier.reason.messaging_cache_zoom",
         ));
     }
     if path_lower.contains("/library/application support/slack/")
         || path_lower.contains("/library/caches/com.tinyspeck.slackmacgap")
     {
         return Some((
-            "通讯应用缓存",
+            "messaging_cache",
             FileRisk::Low,
-            "Slack 缓存与离线消息,清理后下次启动会重新拉取。",
+            "$i18n:classifier.reason.messaging_cache_slack",
         ));
     }
     if path_lower.contains("/library/application support/discord/")
         || path_lower.contains("/library/caches/com.hnc.discord")
     {
         return Some((
-            "通讯应用缓存",
+            "messaging_cache",
             FileRisk::Low,
-            "Discord 缓存,清理后不影响账号与服务器列表。",
+            "$i18n:classifier.reason.messaging_cache_discord",
         ));
     }
     if path_lower.contains("/library/containers/com.tencent.xinwechat/")
         || path_lower.contains("/library/containers/com.tencent.weworkmac/")
     {
         return Some((
-            "通讯应用缓存",
+            "messaging_cache",
             FileRisk::Medium,
-            "微信 / 企业微信本地数据,可能含聊天记录,确认有云备份再清理。",
+            "$i18n:classifier.reason.messaging_cache_wechat",
         ));
     }
     if path_lower.contains("/library/application support/telegram/")
         || path_lower.contains("/library/group containers/group.org.telegram.")
     {
         return Some((
-            "通讯应用缓存",
+            "messaging_cache",
             FileRisk::Low,
-            "Telegram 本地缓存,媒体已在云端,清理安全。",
+            "$i18n:classifier.reason.messaging_cache_telegram",
         ));
     }
 
     // ---- 开发工具缓存(Low Risk · 全可重建)----
     if path_lower.contains("/node_modules/") {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Low,
-            "可通过 `pnpm install` / `npm install` 重新生成。",
+            "$i18n:classifier.reason.dev_artifacts_node_modules",
         ));
     }
     if path_lower.contains("/library/developer/xcode/deriveddata") {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Low,
-            "Xcode 派生数据,删除后下次构建会自动重建。",
+            "$i18n:classifier.reason.dev_artifacts_xcode_derived",
         ));
     }
     if path_lower.contains("/library/developer/coresimulator/") {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Medium,
-            "iOS 模拟器镜像,清理后需重新下载,建议先删除不用的 device。",
+            "$i18n:classifier.reason.dev_artifacts_ios_simulator",
         ));
     }
     if path_lower.contains("/library/developer/xcode/ios devicesupport") {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Low,
-            "Xcode iOS DeviceSupport 符号文件,连接真机后会重新生成。",
+            "$i18n:classifier.reason.dev_artifacts_xcode_devicesupport",
         ));
     }
     if path_lower.contains("/.cargo/registry") || path_lower.contains("/.cargo/git") {
-        return Some(("开发产物", FileRisk::Low, "Cargo 包缓存,可通过下载重建。"));
+        return Some((
+            "dev_artifacts",
+            FileRisk::Low,
+            "$i18n:classifier.reason.dev_artifacts_cargo",
+        ));
     }
     if path_lower.contains("/.gradle/caches") {
-        return Some(("开发产物", FileRisk::Low, "Gradle 构建缓存,重新构建会自动重建。"));
+        return Some((
+            "dev_artifacts",
+            FileRisk::Low,
+            "$i18n:classifier.reason.dev_artifacts_gradle",
+        ));
     }
     if path_lower.contains("/.m2/repository") {
-        return Some(("开发产物", FileRisk::Low, "Maven 本地仓库,重新构建会自动下载。"));
+        return Some((
+            "dev_artifacts",
+            FileRisk::Low,
+            "$i18n:classifier.reason.dev_artifacts_maven",
+        ));
     }
     if path_lower.contains("/library/caches/jetbrains/")
         || path_lower.contains("/library/caches/com.jetbrains.")
         || path_lower.contains("/library/logs/jetbrains/")
     {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Low,
-            "JetBrains IDE 缓存与索引,清理后下次启动会重建索引。",
+            "$i18n:classifier.reason.dev_artifacts_jetbrains",
         ));
     }
     if path_lower.contains("/library/caches/com.microsoft.vscode")
@@ -233,59 +272,83 @@ fn match_rule(entry: &FileEntry) -> Option<(&'static str, FileRisk, &'static str
         || path_lower.contains("/library/application support/code/cachedata")
     {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Low,
-            "VSCode 缓存,清理后下次启动重建,不影响配置与插件。",
+            "$i18n:classifier.reason.dev_artifacts_vscode",
         ));
     }
     if path_lower.contains("/library/containers/com.docker.docker/")
         || path_lower.contains("/library/group containers/group.com.docker/")
     {
         return Some((
-            "开发产物",
+            "dev_artifacts",
             FileRisk::Medium,
-            "Docker Desktop 数据卷,可能含正在使用的容器镜像,谨慎清理。",
+            "$i18n:classifier.reason.dev_artifacts_docker",
         ));
     }
     if path_lower.contains("/.cache/pip/") || path_lower.contains("/.cache/yarn/") {
-        return Some(("开发产物", FileRisk::Low, "包管理器缓存,可通过下载重建。"));
+        return Some((
+            "dev_artifacts",
+            FileRisk::Low,
+            "$i18n:classifier.reason.dev_artifacts_pkg_cache",
+        ));
     }
     if path_lower.contains("/library/caches/go-build/") {
-        return Some(("开发产物", FileRisk::Low, "Go 构建缓存,重新编译会自动重建。"));
+        return Some((
+            "dev_artifacts",
+            FileRisk::Low,
+            "$i18n:classifier.reason.dev_artifacts_go_build",
+        ));
     }
 
     // ---- 系统临时 / 元数据(Low Risk)----
     if path_lower.ends_with("/.ds_store") {
-        return Some(("系统临时", FileRisk::Low, "macOS 目录元数据缓存,自动重建。"));
+        return Some((
+            "system_temp",
+            FileRisk::Low,
+            "$i18n:classifier.reason.system_temp_ds_store",
+        ));
     }
     if path_lower.contains("/library/logs/") || (ext == "log" && entry.size > LOG_THRESHOLD) {
-        return Some(("日志", FileRisk::Low, "应用日志文件,清理后会重新生成。"));
+        return Some((
+            "logs",
+            FileRisk::Low,
+            "$i18n:classifier.reason.logs_app",
+        ));
     }
 
     // ---- 用户数据 / 备份(Medium / High · 清理前需确认)----
     if path_lower.contains("/library/application support/mobilesync/backup/") {
         return Some((
-            "iOS 备份",
+            "ios_backup",
             FileRisk::Medium,
-            "iTunes / Finder 同步的 iOS 设备备份,清理前确认重要数据已迁移。",
+            "$i18n:classifier.reason.ios_backup",
         ));
     }
     if path_lower.contains("/library/caches/com.spotify.client") {
-        return Some(("流媒体缓存", FileRisk::Low, "Spotify 本地缓存,清理后下次播放需重新下载。"));
+        return Some((
+            "media_cache",
+            FileRisk::Low,
+            "$i18n:classifier.reason.media_cache_spotify",
+        ));
     }
 
     // ---- 回收站残留 ----
     if path_lower.contains("/.trash/") {
         return Some((
-            "回收站残留",
+            "trash_residue",
             FileRisk::Medium,
-            "系统回收站残留,清空回收站后释放磁盘空间。",
+            "$i18n:classifier.reason.trash_residue",
         ));
     }
 
     // ---- 安装包 / 大型媒体 ----
     if matches!(ext.as_str(), "dmg" | "pkg" | "iso") && entry.size > 100 * 1024 * 1024 {
-        return Some(("过期下载", FileRisk::Medium, "安装包,确认应用已安装后可清理。"));
+        return Some((
+            "expired_download",
+            FileRisk::Medium,
+            "$i18n:classifier.reason.expired_download_installer",
+        ));
     }
     if entry.size > LARGE_FILE_THRESHOLD
         && matches!(
@@ -294,17 +357,17 @@ fn match_rule(entry: &FileEntry) -> Option<(&'static str, FileRisk, &'static str
         )
     {
         return Some((
-            "大型媒体",
+            "large_media",
             FileRisk::High,
-            "大型媒体文件,建议保留或先备份到云端。",
+            "$i18n:classifier.reason.large_media",
         ));
     }
 
     if entry.size >= FALLBACK_LARGE_FILE {
         return Some((
-            "待审查大文件",
+            "review_large",
             FileRisk::High,
-            "未命中清理规则,但占用 >1GB,建议人工或 AI 复核。",
+            "$i18n:classifier.reason.review_large",
         ));
     }
 
@@ -357,11 +420,11 @@ mod tests {
     #[test]
     fn bundle_id_browser_cache_rules() {
         let cases = [
-            ("/Users/x/Library/Caches/com.apple.Safari/data", "浏览器缓存"),
-            ("/Users/x/Library/Caches/com.google.Chrome/Cache", "浏览器缓存"),
-            ("/Users/x/Library/Caches/com.microsoft.edgemac/foo", "浏览器缓存"),
-            ("/Users/x/Library/Caches/com.brave.Browser/foo", "浏览器缓存"),
-            ("/Users/x/Library/Caches/company.thebrowser.Browser/foo", "浏览器缓存"),
+            ("/Users/x/Library/Caches/com.apple.Safari/data", "browser_cache"),
+            ("/Users/x/Library/Caches/com.google.Chrome/Cache", "browser_cache"),
+            ("/Users/x/Library/Caches/com.microsoft.edgemac/foo", "browser_cache"),
+            ("/Users/x/Library/Caches/com.brave.Browser/foo", "browser_cache"),
+            ("/Users/x/Library/Caches/company.thebrowser.Browser/foo", "browser_cache"),
         ];
         for (path, expected) in cases {
             let entry = stub_entry(path, MIN_REPORT_SIZE + 1, "");
@@ -377,12 +440,12 @@ mod tests {
     #[test]
     fn bundle_id_dev_tools_rules() {
         let cases = [
-            ("/Users/x/Library/Caches/JetBrains/IntelliJIdea2024.1/log", "开发产物"),
-            ("/Users/x/Library/Application Support/Code/Cache/file", "开发产物"),
-            ("/Users/x/Library/Developer/CoreSimulator/Devices/abc/data", "开发产物"),
-            ("/Users/x/.gradle/caches/modules-2/files", "开发产物"),
-            ("/Users/x/.m2/repository/com/example/foo.jar", "开发产物"),
-            ("/Users/x/Library/Caches/go-build/00/file.o", "开发产物"),
+            ("/Users/x/Library/Caches/JetBrains/IntelliJIdea2024.1/log", "dev_artifacts"),
+            ("/Users/x/Library/Application Support/Code/Cache/file", "dev_artifacts"),
+            ("/Users/x/Library/Developer/CoreSimulator/Devices/abc/data", "dev_artifacts"),
+            ("/Users/x/.gradle/caches/modules-2/files", "dev_artifacts"),
+            ("/Users/x/.m2/repository/com/example/foo.jar", "dev_artifacts"),
+            ("/Users/x/Library/Caches/go-build/00/file.o", "dev_artifacts"),
         ];
         for (path, expected) in cases {
             let entry = stub_entry(path, MIN_REPORT_SIZE + 1, "");
@@ -395,10 +458,10 @@ mod tests {
     #[test]
     fn bundle_id_communication_apps() {
         let cases = [
-            ("/Users/x/Library/Application Support/Slack/Cache/file", "通讯应用缓存"),
-            ("/Users/x/Library/Application Support/discord/Cache", "通讯应用缓存"),
-            ("/Users/x/Library/Containers/com.tencent.xinWeChat/Data", "通讯应用缓存"),
-            ("/Users/x/Library/Application Support/zoom.us/data", "通讯应用缓存"),
+            ("/Users/x/Library/Application Support/Slack/Cache/file", "messaging_cache"),
+            ("/Users/x/Library/Application Support/discord/Cache", "messaging_cache"),
+            ("/Users/x/Library/Containers/com.tencent.xinWeChat/Data", "messaging_cache"),
+            ("/Users/x/Library/Application Support/zoom.us/data", "messaging_cache"),
         ];
         for (path, expected) in cases {
             let entry = stub_entry(path, MIN_REPORT_SIZE + 1, "");
@@ -417,9 +480,11 @@ mod tests {
         );
         let result = match_rule(&entry);
         assert!(result.is_some());
-        let (category, risk, _) = result.unwrap();
-        assert_eq!(category, "iOS 备份");
+        let (category, risk, reason) = result.unwrap();
+        assert_eq!(category, "ios_backup");
         assert!(matches!(risk, FileRisk::Medium));
+        // ai_reason 必须是 i18n marker 而非裸中文 — Round 26 i18n 契约。
+        assert!(reason.starts_with("$i18n:classifier.reason."));
     }
 
     // ---- classify 主入口端到端测试 -------------------------------------
@@ -476,7 +541,7 @@ mod tests {
         let entry = stub_entry("/users/x/unknown.bin", FALLBACK_LARGE_FILE + 1, "bin");
         let rows = classify(vec![entry]);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].category, "待审查大文件");
+        assert_eq!(rows[0].category, "review_large");
         assert!(matches!(rows[0].risk, FileRisk::High));
     }
 

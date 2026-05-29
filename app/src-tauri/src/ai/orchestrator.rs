@@ -71,7 +71,7 @@ impl AiOrchestrator {
         all.retain(|p| p.enabled);
         if all.is_empty() {
             return Err(AiError::MissingConfig(
-                "未配置任何启用的 AI Provider,请在设置 → AI Providers 中添加".into(),
+                crate::i18n::i18n("ai.error.no_provider_configured"),
             ));
         }
         // 优先 default,其次按 updated_at 倒序作为稳定回退。
@@ -190,7 +190,10 @@ impl AiOrchestrator {
                     // 这里统一把"空 content"视为 BadPayload,触发 fallback 到
                     // 下一个 provider,并保证 ai_call_log 写 success=false。
                     if resp.content.trim().is_empty() {
-                        let msg = "provider 返回 200 但 content 为空(异常响应)";
+                        // marker 同时被 ai_call_log(审计日志)和 BadPayload
+                        // (用户可见 fallback reason)消费 — 前端 `localize()`
+                        // 翻译,后端日志保留 marker 便于 grep。
+                        let msg = crate::i18n::i18n("ai.error.empty_content");
                         self.write_log(
                             p,
                             scenario,
@@ -198,9 +201,9 @@ impl AiOrchestrator {
                             resp.usage.clone(),
                             dur,
                             false,
-                            Some(msg.into()),
+                            Some(msg.clone()),
                         );
-                        last_err = Some(AiError::BadPayload(msg.into()));
+                        last_err = Some(AiError::BadPayload(msg));
                         continue;
                     }
                     // 兜底:部分 OpenAI 兼容代理(如本地 LiteLLM/Cursor proxy

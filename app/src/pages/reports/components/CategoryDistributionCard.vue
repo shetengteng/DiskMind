@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { useReportsStore } from '@/stores/reports'
+import { localizeCategory } from '@/lib/localize'
 
 const reports = useReportsStore()
 const { t } = useI18n()
@@ -50,7 +51,7 @@ function humanize(b: number) {
           class="flex items-center gap-2.5"
         >
           <span class="size-2.5 rounded-sm bg-primary/70" />
-          <span class="flex-1 truncate text-xs">{{ cat.category }}</span>
+          <span class="flex-1 truncate text-xs">{{ localizeCategory(cat.category) }}</span>
           <Progress
             :model-value="total > 0 ? (cat.sizeBytes / total) * 100 : 0"
             class="h-2 w-32"

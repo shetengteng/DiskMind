@@ -1,32 +1,43 @@
 import { toast } from 'vue-sonner'
 import { logFrontendError } from '@/api/tauri'
+import { localize } from '@/lib/localize'
 
 /**
  * 统一的 toast 辅助函数。普通调用方应优先用本模块而非直接
  * `import { toast }`,以保证应用内默认时长 / 日志行为一致。对于需要深
  * 度定制(action 按钮、与 Promise 联动的 toast)的场景,仍可直接从
  * `vue-sonner` 引入 `toast`。
+ *
+ * Round 26 · i18n:所有 message / description 入口都过 `localize()` —
+ * 后端用 `$i18n:<key>|<params>` marker 流过来的字符串自动翻译;普通
+ * 文本走 fast-path 原样返回,零损耗。这意味着调用方无需感知字符串来
+ * 源,只要传"显示给用户的字符串"即可。
  */
 export const notify = {
   success(message: string, description?: string) {
-    toast.success(message, description ? { description } : undefined)
+    toast.success(localize(message), description ? { description: localize(description) } : undefined)
   },
   info(message: string, description?: string) {
-    toast.info(message, description ? { description } : undefined)
+    toast.info(localize(message), description ? { description: localize(description) } : undefined)
   },
   warn(message: string, description?: string) {
-    toast.warning(message, description ? { description } : undefined)
+    toast.warning(localize(message), description ? { description: localize(description) } : undefined)
   },
   error(message: string, description?: string) {
-    if (description) console.error('[notify.error]', message, description)
-    else console.error('[notify.error]', message)
-    toast.error(message, description ? { description } : undefined)
+    const m = localize(message)
+    const d = description ? localize(description) : undefined
+    if (d) console.error('[notify.error]', m, d)
+    else console.error('[notify.error]', m)
+    toast.error(m, d ? { description: d } : undefined)
   },
 }
 
 function describe(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
+  // Rust 端 invoke 失败抛进来的是 String error;若内容是 marker 字符串,
+  // localize() 会翻译成当前 locale 文本,普通字符串原样穿透。这条统一
+  // 入口让 `withToast` / Vue / window-level handler 都自动受益。
+  if (err instanceof Error) return localize(err.message)
+  if (typeof err === 'string') return localize(err)
   try {
     return JSON.stringify(err)
   } catch {

@@ -19,6 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ScanResultRow, FileRisk } from '@/api/tauri'
 import { usePathMask } from '@/composables/usePathMask'
+import { localizeCategory } from '@/lib/localize'
 
 const { mask } = usePathMask()
 
@@ -224,7 +225,7 @@ const gridCols = 'grid-cols-[40px_minmax(0,1fr)_100px_72px_80px] md:grid-cols-[4
           </div>
           <div class="hidden md:block">
             <Badge variant="outline" class="h-5 px-1.5 py-0 text-[10px] leading-none">
-              {{ rows[vrow.index]!.category }}
+              {{ localizeCategory(rows[vrow.index]!.category) }}
             </Badge>
           </div>
           <div class="font-mono tabular-nums">{{ rows[vrow.index]!.size }}</div>
