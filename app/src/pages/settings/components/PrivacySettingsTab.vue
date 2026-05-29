@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound } from 'lucide-vue-next'
 import {
@@ -41,29 +41,36 @@ const scanSettings = useScanSettingsStore()
 // ----- 沙箱配置 -----
 // 保留天数与后端 `meta` 表双向绑定。Select 是字符串型,这里维护成 string
 // 以避免 v-model 与 SelectItem 的 value 不匹配。
+//
+// Round 32 · 之前用 `watch(retentionDays) + retentionReady` flag 区分"初
+// 始化"和"用户操作",但 Vue 的 watch 默认 post-render 异步触发,与
+// onMounted 里 ready=true 的同步赋值之间存在 race:每次切到 Privacy tab
+// 重新 mount 时,从默认 '30' 改写为后端真实值的 watch 调度晚于 ready=
+// true 一拍,误把"系统初始化"判为"用户操作"并 toast。直接改用
+// `@update:model-value` 事件绑定 — 只有用户点击 SelectItem 才进 save
+// 路径,根除 race。
 const sandboxPath = ref<string | null>(null)
 const retentionDays = ref<string>('30')
-// 首次 mount 时不该把 `30` 当用户修改回写回去,用一个 ready flag 跳过。
-const retentionReady = ref(false)
 
 onMounted(async () => {
   sandboxPath.value = await trashSandboxRoot()
   const days = await trashGetRetentionDays()
   retentionDays.value = String(days)
-  retentionReady.value = true
 })
 
-watch(retentionDays, async (v) => {
-  if (!retentionReady.value) return
+async function onRetentionChange(v: string) {
   const n = Number(v)
   if (!Number.isFinite(n) || n < 1 || n > 365) return
+  // 同步本地 ref 让 Select trigger 立即反映用户选择;若后端失败,toast
+  // 提示但不回滚 — 下一次 reload 时再从 backend 拉真实值即可。
+  retentionDays.value = v
   try {
     await trashSetRetentionDays(n)
     notify.success(t('settings.privacy.retentionSaved', { n }))
   } catch (e) {
     notify.error(t('settings.privacy.retentionSaveFailed'), String(e))
   }
-})
+}
 
 async function onRevealSandbox() {
   if (!sandboxPath.value) return
@@ -248,7 +255,7 @@ async function onExportAuditLog() {
               {{ t('settings.privacy.retentionDesc') }}
             </p>
           </div>
-          <Select v-model="retentionDays">
+          <Select :model-value="retentionDays" @update:model-value="(v) => onRetentionChange(String(v))">
             <SelectTrigger class="h-9 w-[120px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7">{{ t('settings.privacy.retentionDays', { n: 7 }) }}</SelectItem>
