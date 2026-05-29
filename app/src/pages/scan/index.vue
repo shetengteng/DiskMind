@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3, Sparkles } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle } from 'lucide-vue-next'
@@ -33,6 +33,7 @@ const scan = useScanStore()
 const ai = useAiStore()
 const trash = useTrashStore()
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 
 // AI 标签批量补打:进度条 + 按钮显示需要的反应式片段
@@ -83,6 +84,20 @@ const resultView = ref<ResultView>(
   (route.query.view as ResultView) === 'map' ? 'map' : 'list',
 )
 
+// resultView ↔ URL ?view= 双向同步:
+// - 用户 Tab 切换 → 写回 URL,刷新/分享链接能恢复;
+// - 路由 query 外部变化(如 dashboard 风险块跳转 `?view=map`)→ Tab 也跟着切。
+// hash history 下 router.replace 只改 hash 不会触发 Tauri WebView 重载,
+// 这是 Round 3 历史包袱(web history 模式遇到 reload 才删掉双向同步)的
+// 安全升级。用 router.replace 而不是 push,避免污染浏览历史。
+watch(resultView, view => {
+  const current = (route.query.view as string | undefined) ?? 'list'
+  if (current === view) return
+  void router.replace({
+    query: { ...route.query, view: view === 'list' ? undefined : view },
+  })
+})
+
 type ListMode = 'tree' | 'table'
 const listMode = ref<ListMode>('tree')
 
@@ -92,6 +107,10 @@ watch(
   () => scan.results,
   rows => {
     data.value = rows.map(r => ({ ...r, selected: false }))
+    // results 重置时,如果 URL 还带着 fromAdvice 意图,需要重新跑一次选中。
+    // 用 nextTick 延后到所有 setup const 初始化完之后再调,避免 immediate
+    // watch 同步触发时 TDZ 访问尚未初始化的 riskFilter / categoryFilter 等。
+    void nextTick(() => void applyAdviceSelectionIfPending())
   },
   { immediate: true, deep: false },
 )
@@ -122,8 +141,63 @@ watch(
     if (typeof q.category === 'string') {
       categoryFilter.value = q.category
     }
+    const view = q.view === 'map' ? 'map' : 'list'
+    if (resultView.value !== view) resultView.value = view
+    void applyAdviceSelectionIfPending()
   },
 )
+
+/**
+ * Round 22 · 「AI 清理建议 → 跳转到扫描页自动选中」入口。
+ *
+ * Reports 页 AiCleaningAdviceCard 用 router.push('/scan?fromAdvice=safe&adviceRunId=42')
+ * 跳过来,这里消费 query 并按 tier 标准选中候选文件:
+ *   risk_level + categories 双过滤,risk 是"小于等于 tier.risk_level"的允许集
+ *   (safe → low / balanced → low+medium / aggressive → low+medium+high)。
+ *
+ * 选中完成后清掉 query 防止重复触发,同时把列表切回 list 视图,确保用户
+ * 能立即看到选中行。adviceRunId 与当前 scan.results 不匹配时(用户在两次
+ * 跳转之间又重扫了),不执行选中避免错位。
+ *
+ * 注:RISK_ORDER 放函数内部而非模块顶层,既避免 TDZ 风险(模块顶层 const
+ * 被 immediate watch 同步访问时尚未初始化)又便于和函数体内的语义聚合。
+ */
+async function applyAdviceSelectionIfPending() {
+  const RISK_ORDER: Record<FileRisk, number> = { low: 0, medium: 1, high: 2 }
+  const tier = route.query.fromAdvice
+  if (tier !== 'safe' && tier !== 'balanced' && tier !== 'aggressive') return
+  if (data.value.length === 0) return
+
+  const tierData = ai.adviceResult?.tiers.find(x => x.name === tier)
+  if (!tierData) {
+    // advice 还没加载或类型不对,清掉 query 避免后续误触
+    void router.replace({ query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined } })
+    return
+  }
+
+  const maxRisk = RISK_ORDER[tierData.risk_level]
+  const allowedCategories = new Set(tierData.categories)
+  const useCategoryFilter = allowedCategories.size > 0
+
+  // 先清空所有选中再按 tier 标准重新打勾,避免叠加上次选择
+  for (const r of data.value) r.selected = false
+  for (const r of data.value) {
+    if (RISK_ORDER[r.risk] > maxRisk) continue
+    if (useCategoryFilter && !allowedCategories.has(r.category)) continue
+    r.selected = true
+  }
+
+  // tier 选中天然会和当前 risk/category filter 冲突,所以一并清掉 — 选了再
+  // 被 filter 隐藏会让用户误以为没选中
+  riskFilter.value = 'all'
+  categoryFilter.value = 'all'
+  resultView.value = 'list'
+  listMode.value = 'table'
+
+  await router.replace({
+    query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined },
+  })
+}
 
 const allCategories = computed(() => [...new Set(scan.results.map(r => r.category))])
 

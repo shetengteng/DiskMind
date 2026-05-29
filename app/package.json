@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@tabler/icons-vue": "^3.44.0",
@@ -35,13 +40,18 @@
     "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^24.12.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vitest/coverage-v8": "^4.1.7",
+    "@vue/test-utils": "^2.4.10",
     "@vue/tsconfig": "^0.9.1",
     "esbuild": "^0.28.0",
+    "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
+    "vitest": "^4.1.7",
     "vue-tsc": "^3.2.8"
   }
 }

@@ -557,6 +557,8 @@ export default {
     reclaimable: 'Reclaimable',
     coversCategories: 'Cleans:',
     runSummaryTemplate: 'Latest scan covered {roots}, {files} files scanned ({bytes}), {reclaimable} reclaimable candidates identified. Category breakdown: {categories}. Please propose safe / balanced / aggressive cleanup tiers.',
+    jumpAction: 'Apply selection',
+    jumpHint: 'Apply {tier} selection in Scan results',
   },
   palette: {
     title: 'Command Palette',

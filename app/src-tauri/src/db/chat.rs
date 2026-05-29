@@ -223,3 +223,160 @@ impl Db {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Round 22 · 测试三件套。回归 chat 持久化的事务一致性 + CASCADE
+    //! 删除契约 + 列表排序契约。关注点:
+    //!
+    //! 1. `chat_message_append` 必须事务内同时更新 `message_count` /
+    //!    `updated_at`,否则 AI Drawer 左侧栏的"上次活跃 / 消息数"会
+    //!    悄无声息地飘掉。
+    //! 2. `chat_session_list` 按 `updated_at DESC` 排序,与 idx_chat_session_updated
+    //!    设计意图一致。
+    //! 3. `chat_session_delete` 触发 FK CASCADE,消息表跟着掉,否则
+    //!    Drawer 删 session 后还能看到孤儿消息。
+    //! 4. `chat_session_rename` 不更新 `updated_at`,避免改名干扰列表排序。
+    //! 5. `chat_message_update_action` 只改 action_json,内容不丢。
+
+    use super::*;
+    use rusqlite::params;
+    use std::sync::Mutex;
+    use std::thread;
+    use std::time::Duration;
+    use tempfile::TempDir;
+
+    static SERIALIZE: Mutex<()> = Mutex::new(());
+
+    fn fresh_db(dir: &TempDir) -> Db {
+        Db::open(dir.path().join("chat.db")).unwrap()
+    }
+
+    fn append(db: &Db, session_id: &str, role: &str, content: &str) -> i64 {
+        db.chat_message_append(&ChatMessageAppend {
+            session_id: session_id.to_string(),
+            role: role.to_string(),
+            content: content.to_string(),
+            prompt_tokens: None,
+            completion_tokens: None,
+            files_json: None,
+            action_json: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn session_create_starts_with_zero_messages() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let s = db.chat_session_create("sess-1", "Untitled").unwrap();
+        assert_eq!(s.id, "sess-1");
+        assert_eq!(s.title, "Untitled");
+        assert_eq!(s.message_count, 0);
+        assert!(s.last_provider.is_none());
+    }
+
+    #[test]
+    fn append_updates_count_and_timestamp() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let _ = db.chat_session_create("sess-2", "T").unwrap();
+        let initial = db.chat_session_list(10).unwrap()[0].clone();
+
+        // 等 2ms 确保 now_ms_db 取到不同值;在毫秒级时钟里 1ms 就够,2ms 防抖
+        thread::sleep(Duration::from_millis(2));
+        append(&db, "sess-2", "user", "你好");
+        thread::sleep(Duration::from_millis(2));
+        append(&db, "sess-2", "assistant", "你好,有什么可以帮您?");
+
+        let after = db.chat_session_list(10).unwrap()[0].clone();
+        assert_eq!(after.message_count, 2);
+        assert!(
+            after.updated_at >= initial.updated_at,
+            "updated_at should monotonically advance after append"
+        );
+    }
+
+    #[test]
+    fn list_orders_by_updated_at_desc() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        db.chat_session_create("a", "first").unwrap();
+        thread::sleep(Duration::from_millis(2));
+        db.chat_session_create("b", "second").unwrap();
+        thread::sleep(Duration::from_millis(2));
+        append(&db, "a", "user", "新消息把 a 推到最前");
+
+        let list = db.chat_session_list(10).unwrap();
+        assert_eq!(list[0].id, "a", "session a got newer updated_at via append");
+        assert_eq!(list[1].id, "b");
+    }
+
+    #[test]
+    fn rename_does_not_bump_updated_at() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        db.chat_session_create("rn", "old").unwrap();
+        let before = db.chat_session_list(10).unwrap()[0].updated_at;
+        thread::sleep(Duration::from_millis(5));
+        db.chat_session_rename("rn", "new").unwrap();
+
+        let after = &db.chat_session_list(10).unwrap()[0];
+        assert_eq!(after.title, "new");
+        assert_eq!(
+            after.updated_at, before,
+            "rename must not change updated_at (排序保持原样)"
+        );
+    }
+
+    #[test]
+    fn delete_cascades_to_messages() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        db.chat_session_create("d", "to delete").unwrap();
+        append(&db, "d", "user", "msg1");
+        append(&db, "d", "assistant", "reply1");
+        assert_eq!(db.chat_session_messages("d").unwrap().len(), 2);
+
+        db.chat_session_delete("d").unwrap();
+        assert!(db.chat_session_list(10).unwrap().is_empty());
+
+        let conn = db.conn.lock().unwrap();
+        let orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chat_message WHERE session_id = ?",
+                params!["d"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphans, 0, "CASCADE must purge orphan chat_message rows");
+    }
+
+    #[test]
+    fn update_action_does_not_touch_content() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        db.chat_session_create("u", "T").unwrap();
+        let msg_id = append(&db, "u", "assistant", "原始内容");
+
+        db.chat_message_update_action(msg_id, Some(r#"{"state":"done"}"#))
+            .unwrap();
+
+        let msgs = db.chat_session_messages("u").unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "原始内容");
+        assert_eq!(msgs[0].action_json.as_deref(), Some(r#"{"state":"done"}"#));
+    }
+}

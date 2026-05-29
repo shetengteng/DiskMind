@@ -176,3 +176,190 @@ pub const CLASSIFY_BATCH_SYSTEM: &str = r#"你是 DiskMind 的批量分类增强
 - 系统 / 应用关键路径 → 提醒"建议保留"
 - 已知缓存 / 编译产物 / 旧安装包 → 提醒"可安全删除"
 - 不确定的 → 提醒"建议人工确认""#;
+
+#[cfg(test)]
+mod tests {
+    //! Round 22 · LLM Prompt snapshot 回归测试。
+    //!
+    //! 这些测试不验证模型的输出(模型不可重现),而是锁定我们**喂给模型
+    //! 的 system prompt 自身**:协议关键字、JSON schema 结构、长度上限。
+    //!
+    //! 为什么这是高 ROI:
+    //! - 一旦不小心删掉 `<diskmind-output>` 包装协议的提示,`extract_json`
+    //!   的 sentinel 解析层会全军覆没,Reports 页面"一键清理建议"瞬间挂掉
+    //! - 一旦把"长度上限"或"必须返回 enhanced 数组"等关键约束写糊了,
+    //!   token 飙升 / batch 分类静默失败的成本都会非常高
+    //!
+    //! 测试策略:不依赖 `insta` 之类的全文 snapshot 库(全文 snapshot 改一
+    //! 个字就要重新审批,噪声大),改为**关键 token 断言** — 列出每个
+    //! prompt 必须包含的"协议字段 + schema 字段 + 行为约束"关键字,任何
+    //! 一个被去掉/改名都炸测试。要改 prompt 内容,先改测试,验证改动是
+    //! 有意识的而不是手滑。
+
+    use super::*;
+
+    /// 通用合理性:不为空 / 长度有上限(避免无意义膨胀)。
+    fn assert_sane_size(name: &str, prompt: &str, min: usize, max: usize) {
+        assert!(
+            !prompt.trim().is_empty(),
+            "{name} prompt must not be empty"
+        );
+        let len = prompt.len();
+        assert!(
+            len >= min,
+            "{name} prompt too short: {len} < {min} (lost content?)"
+        );
+        assert!(
+            len <= max,
+            "{name} prompt too long: {len} > {max} (token bloat risk)"
+        );
+    }
+
+    fn assert_contains_all(name: &str, prompt: &str, needles: &[&str]) {
+        for needle in needles {
+            assert!(
+                prompt.contains(needle),
+                "{name} prompt missing required token: {needle:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn chat_system_locks_action_protocol() {
+        assert_sane_size("CHAT_SYSTEM", CHAT_SYSTEM, 800, 4000);
+        assert_contains_all(
+            "CHAT_SYSTEM",
+            CHAT_SYSTEM,
+            &[
+                // 角色与场景
+                "DiskMind",
+                "本地 AI 清理助手",
+                // 数据访问契约 — 不可丢
+                "扫描结果会作为 system message 注入",
+                // 动作协议关键 token
+                "<diskmind-action>",
+                "</diskmind-action>",
+                "\"type\": \"trash\"",
+                // 安全约束 — 不可编造路径
+                "禁止编造路径",
+                // 路径不在结果中的处理
+                "禁止",
+                "动作块",
+            ],
+        );
+    }
+
+    #[test]
+    fn explain_file_locks_output_envelope() {
+        assert_sane_size("EXPLAIN_FILE_SYSTEM", EXPLAIN_FILE_SYSTEM, 300, 1500);
+        assert_contains_all(
+            "EXPLAIN_FILE_SYSTEM",
+            EXPLAIN_FILE_SYSTEM,
+            &[
+                "<diskmind-output>",
+                "</diskmind-output>",
+                "summary",
+                "risk_assessment",
+                "recommended_action",
+                "reasons",
+                // 三档枚举值,前端 AiExplainDialog 直接 case 这三个
+                "keep",
+                "review",
+                "delete",
+            ],
+        );
+    }
+
+    #[test]
+    fn cleaning_advice_locks_tier_schema() {
+        assert_sane_size(
+            "CLEANING_ADVICE_SYSTEM",
+            CLEANING_ADVICE_SYSTEM,
+            400,
+            1800,
+        );
+        assert_contains_all(
+            "CLEANING_ADVICE_SYSTEM",
+            CLEANING_ADVICE_SYSTEM,
+            &[
+                "<diskmind-output>",
+                "</diskmind-output>",
+                "\"tiers\"",
+                // tier name 枚举
+                "safe",
+                "balanced",
+                "aggressive",
+                // schema 字段
+                "total_bytes",
+                "risk_level",
+                "description",
+                "categories",
+                // 长度上限
+                "30 字",
+            ],
+        );
+    }
+
+    #[test]
+    fn classify_batch_locks_enhanced_array_protocol() {
+        assert_sane_size("CLASSIFY_BATCH_SYSTEM", CLASSIFY_BATCH_SYSTEM, 600, 2500);
+        assert_contains_all(
+            "CLASSIFY_BATCH_SYSTEM",
+            CLASSIFY_BATCH_SYSTEM,
+            &[
+                "<diskmind-output>",
+                "</diskmind-output>",
+                "\"enhanced\"",
+                // 输入 schema 关键字段
+                "id",
+                "path",
+                "size_bytes",
+                "category_current",
+                // 输出 schema 关键字段
+                "ai_category",
+                "ai_reason",
+                // 完整性硬约束 — 漏 / 多 / 改 id 都禁止
+                "不能漏",
+                "不能多",
+                "不能改 id",
+            ],
+        );
+    }
+
+    #[test]
+    fn chat_title_summary_is_short_and_unambiguous() {
+        assert_sane_size(
+            "CHAT_TITLE_SUMMARY_SYSTEM",
+            CHAT_TITLE_SUMMARY_SYSTEM,
+            150,
+            800,
+        );
+        assert_contains_all(
+            "CHAT_TITLE_SUMMARY_SYSTEM",
+            CHAT_TITLE_SUMMARY_SYSTEM,
+            &[
+                "会话标题生成器",
+                "只输出一行标题文本",
+                // 禁止 markdown / json / 表情(避免污染侧栏)
+                "禁止输出 markdown",
+                "8-15 个汉字",
+            ],
+        );
+    }
+
+    /// 横切契约:所有结构化输出 prompt 都必须用 `<diskmind-output>` envelope。
+    /// 这是 `ai/orchestrator.rs::extract_json` 的解析依据,丢一个就解析层全炸。
+    #[test]
+    fn structured_outputs_share_envelope() {
+        for (name, prompt) in [
+            ("EXPLAIN_FILE_SYSTEM", EXPLAIN_FILE_SYSTEM),
+            ("CLEANING_ADVICE_SYSTEM", CLEANING_ADVICE_SYSTEM),
+            ("CLASSIFY_BATCH_SYSTEM", CLASSIFY_BATCH_SYSTEM),
+        ] {
+            assert!(
+                prompt.contains("<diskmind-output>") && prompt.contains("</diskmind-output>"),
+                "{name} must wrap output in <diskmind-output>...</diskmind-output> for sentinel parser"
+            );
+        }
+    }
+}

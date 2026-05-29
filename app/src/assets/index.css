@@ -100,11 +100,14 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.488 0.243 264.376);
+  /* dark mode chart palette 微调:shadcn 默认 chart-1/4/5 的 L 偏低(0.49/0.63/0.65),
+   * 在深色背景上对比不足、看起来发闷;把 L 提到 ~0.70,同时把饱和度略降
+   * 0.02-0.04 避免荧光感。chart-2/3 已经够亮,保持。 */
+  --chart-1: oklch(0.7 0.2 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --chart-4: oklch(0.72 0.22 303.9);
+  --chart-5: oklch(0.72 0.21 16.439);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);

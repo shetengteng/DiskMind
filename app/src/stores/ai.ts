@@ -710,6 +710,14 @@ export const useAiStore = defineStore('ai', () => {
       return
     }
 
+    // 不带 runId 的调用会"调完即丢"(后端 ai_cleaning_advice 只在 runId 存在
+    // 时 upsert 缓存),下次重载又得重调消耗 token。UI 入口已经保证传 runId,
+    // 这里做防御性拦截,防止上游回归引入静默退化。
+    if (runId === undefined || runId === null) {
+      adviceError.value = '当前没有可用的扫描记录,请先完成一次扫描'
+      return
+    }
+
     const providers = useProvidersStore()
     if (providers.items.length === 0) {
       await providers.reload()
@@ -726,7 +734,7 @@ export const useAiStore = defineStore('ai', () => {
       adviceUpdatedAt.value = result.generatedAt > 0 ? result.generatedAt : Date.now()
       adviceProviderName.value = result.providerName
       adviceModel.value = result.model
-      adviceRunId.value = runId ?? null
+      adviceRunId.value = runId
       adviceFromCache.value = false
       void refreshTodayStats()
     } catch (e) {

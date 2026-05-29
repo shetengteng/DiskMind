@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Playwright / Vitest 跑测产物
+test-results
+playwright-report
+coverage
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

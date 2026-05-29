@@ -72,3 +72,121 @@ impl Db {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Round 22 · 测试三件套。回归 `ai_cleaning_advice` 缓存契约:run_id
+    //! UNIQUE 约束 + upsert 覆盖语义 + scan_run CASCADE DELETE 触发的孤儿
+    //! 行清理 — 这三条直接决定 Reports 页"切换 Tab 不丢缓存" + "扫描
+    //! 历史滚动清理后不留垃圾数据"两个产品级承诺。
+    //!
+    //! 因 `run_id` 是 FK,测试需要先插一条 scan_run 行做父表。我们直接
+    //! 写最小 scan_run row 而不通过 `save_scan`,避免被 save_scan 的滚动
+    //! 清理 / fingerprint 去重路径间接影响。
+
+    use super::*;
+    use rusqlite::params;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    static SERIALIZE: Mutex<()> = Mutex::new(());
+
+    fn fresh_db(dir: &TempDir) -> Db {
+        Db::open(dir.path().join("advice.db")).unwrap()
+    }
+
+    fn insert_scan_run(db: &Db) -> i64 {
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO scan_run(started_at, finished_at, duration_ms, cancelled, total_files, total_bytes, roots_json, fingerprint) \
+             VALUES (?, ?, ?, 0, 0, 0, '[]', '')",
+            params![100, 200, 100],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn upsert_then_get_returns_payload() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let run_id = insert_scan_run(&db);
+        db.ai_cleaning_advice_upsert(
+            run_id,
+            r#"{"tiers":[]}"#,
+            Some("openai"),
+            Some("gpt-4o-mini"),
+        )
+        .unwrap();
+
+        let cached = db.ai_cleaning_advice_get(run_id).unwrap().unwrap();
+        assert_eq!(cached.run_id, run_id);
+        assert_eq!(cached.advice_json, r#"{"tiers":[]}"#);
+        assert_eq!(cached.provider_name.as_deref(), Some("openai"));
+        assert_eq!(cached.model.as_deref(), Some("gpt-4o-mini"));
+        assert!(cached.generated_at > 0);
+    }
+
+    #[test]
+    fn upsert_replaces_existing_row() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let run_id = insert_scan_run(&db);
+        db.ai_cleaning_advice_upsert(run_id, r#"{"v":1}"#, Some("p1"), Some("m1"))
+            .unwrap();
+        db.ai_cleaning_advice_upsert(run_id, r#"{"v":2}"#, Some("p2"), Some("m2"))
+            .unwrap();
+
+        let cached = db.ai_cleaning_advice_get(run_id).unwrap().unwrap();
+        assert_eq!(cached.advice_json, r#"{"v":2}"#);
+        assert_eq!(cached.provider_name.as_deref(), Some("p2"));
+
+        let count: i64 = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM ai_cleaning_advice WHERE run_id = ?",
+                [run_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count, 1, "UNIQUE(run_id) must keep exactly one row");
+    }
+
+    #[test]
+    fn get_missing_run_returns_none() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let result = db.ai_cleaning_advice_get(99_999).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn scan_run_cascade_drops_advice() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let run_id = insert_scan_run(&db);
+        db.ai_cleaning_advice_upsert(run_id, r#"{}"#, None, None)
+            .unwrap();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM scan_run WHERE id = ?", [run_id])
+                .unwrap();
+        }
+
+        let cached = db.ai_cleaning_advice_get(run_id).unwrap();
+        assert!(
+            cached.is_none(),
+            "CASCADE should drop advice when scan_run row goes away"
+        );
+    }
+}

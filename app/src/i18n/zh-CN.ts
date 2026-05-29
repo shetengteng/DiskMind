@@ -557,6 +557,8 @@ export default {
     reclaimable: '预计可回收',
     coversCategories: '主要清理:',
     runSummaryTemplate: '本次扫描覆盖 {roots},共扫描 {files} 个文件 ({bytes}),识别出可回收候选 {reclaimable}。分类分布:{categories}。请基于以上情况,给出 safe / balanced / aggressive 三档清理建议。',
+    jumpAction: '到扫描结果中选中',
+    jumpHint: '到扫描结果中按「{tier}」标准批量选中',
   },
   palette: {
     title: '命令面板',

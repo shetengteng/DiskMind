@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
@@ -46,5 +47,23 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome120' : 'safari16',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+  },
+
+  // Vitest 配置:Round 22 测试三件套 Vue 组件单测层。jsdom 提供 DOM API
+  // 模拟,vitest globals 关掉避免污染全局命名空间。setupFiles 走 Pinia + vue-i18n
+  // 的默认安装,避免每个测试都重复样板。
+  test: {
+    environment: 'jsdom',
+    globals: false,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+    setupFiles: ['./test/setup.ts'],
+    css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['src/stores/**', 'src/pages/**/components/**', 'src/lib/**'],
+      exclude: ['src/**/*.d.ts', 'src/components/ui/**', 'e2e/**'],
+    },
   },
 })

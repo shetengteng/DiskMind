@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import {
   Brain,
+  ChevronRight,
   Database,
   Loader2,
   RefreshCw,
@@ -28,31 +30,47 @@ import type { CleaningAdviceTier } from '@/api/tauri'
 
 const ai = useAiStore()
 const reports = useReportsStore()
+const router = useRouter()
 const { t } = useI18n()
-
-onMounted(() => {
-  if (!reports.loaded) void reports.ensureLoaded()
-})
 
 const latestRun = computed(() => reports.runs[0] ?? null)
 const hasData = computed(() => latestRun.value !== null)
 
-// 监听最新一次扫描的 run.id 变化:首次出现 / 切到新的 run 时,自动从 DB
-// 缓存加载已有的 advice。命中 → 直接展示(零 LLM 调用);未命中 → 卡片
-// 自动回到"空态",等用户点"生成"按钮。这是把 Round 19 "按 run 缓存"
-// 落到 UI 的关键钩子。
-watch(
-  () => latestRun.value?.id ?? null,
-  async (runId, prev) => {
-    if (runId === null) {
-      ai.clearCleaningAdvice()
-      return
-    }
-    if (runId === prev && ai.adviceResult) return
-    await ai.loadCleaningAdvice(runId)
+// 把"按 run 缓存"落到 UI 的核心同步逻辑。原实现用 `watch immediate`,
+// 在 Tab 切换组件销毁重建的场景下会反复触发,而且 reports.runs 异步
+// 加载未完成时 latestRun=null 会误触发 `clearCleaningAdvice` 擦掉 store
+// 中已经有效的 advice,造成"切换后看不到记录"的体感 bug。
+//
+// 新方案:
+// 1. 不用 immediate;onMounted 显式调一次 syncFromRun
+// 2. store 已有当前 runId 的 advice → 完全跳过 IPC(zero-flash)
+// 3. runId === null 仅在"从有效值变成 null"(用户清空历史等)时清,
+//    首次挂载或 reports 未就绪时保留 store 现状
+async function syncFromRun(runId: number | null, prev: number | null) {
+  if (runId === null) {
+    // 仅在"之前有值现在没了"才清,首次挂载/reports 未就绪不清
+    if (prev !== null) ai.clearCleaningAdvice()
+    return
+  }
+  if (ai.adviceRunId === runId && ai.adviceResult) return
+  await ai.loadCleaningAdvice(runId)
+}
+
+onMounted(async () => {
+  if (!reports.loaded) await reports.ensureLoaded()
+  await syncFromRun(latestRun.value?.runId ?? null, ai.adviceRunId)
+})
+
+const stopWatch = watch(
+  () => latestRun.value?.runId ?? null,
+  (runId, prev) => {
+    void syncFromRun(runId, prev ?? null)
   },
-  { immediate: true },
 )
+
+onUnmounted(() => {
+  stopWatch()
+})
 
 const tierMeta: Record<
   CleaningAdviceTier['name'],
@@ -105,7 +123,11 @@ function buildRunSummary() {
 async function generate() {
   const summary = buildRunSummary()
   if (!summary) return
-  await ai.generateCleaningAdvice(summary, latestRun.value?.id ?? undefined)
+  // runId 必传:没有 runId 调 LLM 会"调完就丢"无法缓存,下次切换/重启
+  // 仍要重调浪费 token。latestRun 没就绪时短路即可。
+  const runId = latestRun.value?.runId
+  if (runId === undefined || runId === null) return
+  await ai.generateCleaningAdvice(summary, runId)
 }
 
 const updatedLabel = computed(() => {
@@ -116,6 +138,28 @@ const updatedLabel = computed(() => {
   const mm = String(d.getMinutes()).padStart(2, '0')
   return t('aiAdvice.updatedAt', { time: `${hh}:${mm}` })
 })
+
+/**
+ * 点击某档建议 → 跳到扫描结果页,按 tier 标准自动选中候选文件。
+ *
+ * - 用 query `fromAdvice=safe|balanced|aggressive` 携带意图,scan/index.vue
+ *   接管后从 ai store 取对应 tier 数据(risk_level + categories)做选中。
+ * - 走 router.push(非 replace)留下历史,用户可以"返回"回到 Reports 页。
+ * - 当前 latestRun.runId 也一并塞 query,scan/index.vue 用它来对齐:如果
+ *   用户已经切到另一次 run 的结果,query 里的 runId 不匹配则不执行选中,
+ *   避免"选了上次 run 的文件"这种错位。
+ */
+function jumpToScanWithTier(tierName: 'safe' | 'balanced' | 'aggressive') {
+  const runId = latestRun.value?.runId
+  if (!runId) return
+  void router.push({
+    path: '/scan',
+    query: {
+      fromAdvice: tierName,
+      adviceRunId: String(runId),
+    },
+  })
+}
 </script>
 
 <template>
@@ -186,11 +230,14 @@ const updatedLabel = computed(() => {
       </div>
 
       <div v-else-if="ai.adviceResult" class="grid gap-3 md:grid-cols-3">
-        <div
+        <button
           v-for="tier in ai.adviceResult.tiers"
           :key="tier.name"
-          class="flex flex-col gap-3 rounded-md border p-4"
+          type="button"
+          class="group flex flex-col gap-3 rounded-md border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           :class="tierMeta[tier.name]?.className ?? 'border-border'"
+          :aria-label="t('aiAdvice.jumpHint', { tier: tier.label || t(tierMeta[tier.name]?.labelKey ?? 'aiAdvice.tierSafe') })"
+          @click="jumpToScanWithTier(tier.name)"
         >
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 font-medium">
@@ -217,7 +264,12 @@ const updatedLabel = computed(() => {
               </Badge>
             </div>
           </div>
-        </div>
+
+          <div class="mt-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+            <span>{{ t('aiAdvice.jumpAction') }}</span>
+            <ChevronRight class="size-3 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </button>
       </div>
 
       <div v-else class="flex flex-col items-center justify-center gap-3 py-8 text-center">

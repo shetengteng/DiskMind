@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS scan_run (
     fingerprint TEXT NOT NULL DEFAULT ''
 );
 
+-- Reports 趋势图 / `list_runs` 默认按 finished_at DESC 排序,无索引
+-- 在 30+ runs 时会走全表扫描;DESC 索引让 ORDER BY finished_at DESC
+-- LIMIT N 走索引 reverse scan,O(N) 不再 O(rows)。
+CREATE INDEX IF NOT EXISTS idx_scan_run_finished ON scan_run(finished_at DESC);
+
 CREATE TABLE IF NOT EXISTS scan_result (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -82,6 +87,12 @@ CREATE TABLE IF NOT EXISTS scan_result (
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_result_run ON scan_result(run_id);
+-- Reports 聚合查询 `SELECT category, SUM(size_bytes) FROM scan_result
+-- GROUP BY category WHERE run_id IN (...)` 在 (run_id, category) 复合索引
+-- 上跑 covering index lookup,避免单 run_id 索引后还要回表过滤 category。
+-- 单独 (run_id) 索引保留:trash item 关联 / classifier 单 run 全量回灌等
+-- 场景仍按 run_id 单维度查询。
+CREATE INDEX IF NOT EXISTS idx_scan_result_run_category ON scan_result(run_id, category);
 -- idx_scan_result_ai_pending 在迁移块里 ALTER TABLE 之后创建,不能放
 -- 在这里:升级路径下旧表此时还没有 ai_classified_at 列,Schema 顺序
 -- 执行会 panic("no such column: ai_classified_at")。

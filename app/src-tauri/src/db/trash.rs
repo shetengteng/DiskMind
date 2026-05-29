@@ -185,3 +185,112 @@ impl Db {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Round 22 · 测试三件套之 Rust 单测补强。覆盖 trash 表的完整生命周期:
+    //! insert → list(只看 in_trash)→ mark_restored / mark_deleted(状态机
+    //! 推进)→ list_stale(30 天巡检过滤)→ stats(只统计 in_trash 聚合)。
+    //!
+    //! 这是回收站功能的 DB 层契约 — 一旦 status 字段语义被改坏,前端
+    //! `useTrashStore` 看到的 list 就会污染或丢失,数据迁移会变得不可逆。
+
+    use super::*;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    static SERIALIZE: Mutex<()> = Mutex::new(());
+
+    fn fresh_db(dir: &TempDir) -> Db {
+        Db::open(dir.path().join("trash.db")).unwrap()
+    }
+
+    fn insert_sample(db: &Db, path: &str, size: u64, moved_at: i64) -> i64 {
+        db.trash_insert(
+            path,
+            &format!("/sandbox{path}"),
+            size,
+            "测试类别",
+            "low",
+            "test reason",
+            moved_at,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn trash_insert_assigns_in_trash_status() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let id = insert_sample(&db, "/users/x/a.bin", 1024, 1000);
+        let item = db.trash_get(id).unwrap().expect("inserted item must exist");
+        assert_eq!(item.status, "in_trash");
+        assert_eq!(item.size_bytes, 1024);
+        assert!(item.restored_at.is_none());
+        assert!(item.deleted_at.is_none());
+    }
+
+    #[test]
+    fn trash_list_filters_only_in_trash() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let id1 = insert_sample(&db, "/a", 100, 1000);
+        let id2 = insert_sample(&db, "/b", 200, 2000);
+        let id3 = insert_sample(&db, "/c", 300, 3000);
+        db.trash_mark_restored(id1, 1500).unwrap();
+        db.trash_mark_deleted(id3, 3500).unwrap();
+
+        let list = db.trash_list().unwrap();
+        assert_eq!(list.len(), 1, "only id2 should remain in_trash");
+        assert_eq!(list[0].id, id2);
+    }
+
+    #[test]
+    fn trash_mark_restored_persists_timestamp() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let id = insert_sample(&db, "/restore-me", 555, 1000);
+        db.trash_mark_restored(id, 1234).unwrap();
+        let item = db.trash_get(id).unwrap().unwrap();
+        assert_eq!(item.status, "restored");
+        assert_eq!(item.restored_at, Some(1234));
+    }
+
+    #[test]
+    fn trash_list_stale_applies_cutoff() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        insert_sample(&db, "/old1", 100, 1000);
+        insert_sample(&db, "/old2", 200, 2000);
+        insert_sample(&db, "/fresh", 300, 5000);
+
+        let stale = db.trash_list_stale(3000).unwrap();
+        assert_eq!(stale.len(), 2, "only items moved_at < 3000 should match");
+        assert_eq!(stale[0].original_path, "/old1");
+    }
+
+    #[test]
+    fn trash_stats_aggregates_in_trash_only() {
+        let _g = SERIALIZE.lock().unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let id1 = insert_sample(&db, "/a", 1000, 1000);
+        insert_sample(&db, "/b", 2000, 2000);
+        let id3 = insert_sample(&db, "/c", 4000, 3000);
+        db.trash_mark_restored(id1, 1500).unwrap();
+        db.trash_mark_deleted(id3, 3500).unwrap();
+
+        let stats = db.trash_stats().unwrap();
+        assert_eq!(stats.count, 1);
+        assert_eq!(stats.total_bytes, 2000, "restored / deleted excluded");
+    }
+}
