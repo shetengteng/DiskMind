@@ -166,33 +166,38 @@ export function localizeProviderName(name: string | null | undefined): string {
 }
 
 /**
- * Round 30 · provider kind 老中文标签 → stable English ID 反查映射。
- * 与 category 同样的"v13 迁移 + 前端兜底"双保险设计:DB v13 把 `provider.kind`
- * 列里所有 "OpenAI 兼容" 改写为 "openai_compat",前端这里则在升级窗口期
- * (DB 还没跑 v13 / Web 预览 / 测试夹具)把中文反查为 stable ID 再翻译。
+ * Round 30/32 · provider kind 历史值 → stable English ID 反查映射。
+ *
+ * 涵盖两种历史形式:
+ * 1. 中文 label("OpenAI 兼容")— Round 30 之前 frontend 类型直接用中文
+ * 2. PascalCase("Ollama" / "Anthropic" / "Local" / "Gemini")— 更早期
+ *    曾用 PascalCase enum 值
+ *
+ * 与 DB v13 migration 互为多层防御:DB 已经清干净后此表是 no-op;升级
+ * 窗口期(用户没重启 / Web 预览 / 测试夹具)在前端这里就能正确翻译。
  */
-const LEGACY_ZH_KIND_TO_STABLE_ID: Readonly<Record<string, string>> = {
+const LEGACY_KIND_TO_STABLE: Readonly<Record<string, string>> = {
   'OpenAI 兼容': 'openai_compat',
   Anthropic: 'anthropic',
   Ollama: 'ollama',
+  Local: 'ollama',
+  Gemini: 'openai_compat',
 }
 
 /**
  * provider kind 的 stable ID(`openai_compat` / `anthropic` / `ollama`)
- * 在 UI 渲染时翻译为本地化标签。同时兼容老中文(`OpenAI 兼容`)。
+ * 在 UI 渲染时翻译为本地化标签。兼容老中文 + PascalCase 两种历史形式。
  *
  * @example
  *   localizeProviderKind('openai_compat') // → 'OpenAI 兼容' / 'OpenAI Compatible'
- *   localizeProviderKind('OpenAI 兼容') // → 'OpenAI 兼容' / 'OpenAI Compatible' (Round 30 双向翻译)
+ *   localizeProviderKind('OpenAI 兼容')   // → 同上(中文反查)
+ *   localizeProviderKind('Ollama')        // → 'Ollama'(PascalCase 反查 → 'ollama' 字典)
  */
 export function localizeProviderKind(id: string | null | undefined): string {
   if (!id) return ''
-  let resolved = id
-  if (/[\u4e00-\u9fff]/.test(id)) {
-    const stable = LEGACY_ZH_KIND_TO_STABLE_ID[id]
-    if (!stable) return id
-    resolved = stable
-  }
+  // 历史值反查表覆盖中文 + PascalCase 两种;表外的就视作已是 stable ID
+  // 直接走字典,完全未知字符串字典也查不到 → 原样返回。
+  const resolved = LEGACY_KIND_TO_STABLE[id] ?? id
   const key = `settings.providers.kind.${resolved}`
   const translated = i18n.global.t(key)
   return translated === key ? resolved : translated

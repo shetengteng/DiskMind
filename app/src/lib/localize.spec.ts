@@ -126,10 +126,24 @@ describe('localizeProviderKind', () => {
   })
 
   it('legacy Chinese kind is mapped to stable ID then translated', () => {
-    // Round 30 · v13 迁移前的脏数据走 LEGACY_ZH_KIND_TO_STABLE_ID 反查
+    // Round 30 · v13 迁移前的脏数据走 LEGACY_KIND_TO_STABLE 反查
     expect(localizeProviderKind('OpenAI 兼容')).toBe('OpenAI 兼容')
     i18n.global.locale.value = 'en-US'
     expect(localizeProviderKind('OpenAI 兼容')).toBe('OpenAI Compatible')
+    i18n.global.locale.value = 'zh-CN'
+  })
+
+  it('legacy PascalCase kind values are normalized to stable ID', () => {
+    // Round 32 · 用户 DB 里残留的 'Ollama' / 'Anthropic' / 'Local' /
+    // 'Gemini' 等 PascalCase 老值要能正确翻译,而不是查 'kind.Ollama'
+    // 这种字典里不存在的 key 然后在 console 打 warn。
+    expect(localizeProviderKind('Ollama')).toBe('Ollama')
+    expect(localizeProviderKind('Anthropic')).toBe('Anthropic')
+    expect(localizeProviderKind('Local')).toBe('Ollama') // sentinel → ollama
+    expect(localizeProviderKind('Gemini')).toBe('OpenAI 兼容') // sentinel
+    i18n.global.locale.value = 'en-US'
+    expect(localizeProviderKind('Ollama')).toBe('Ollama')
+    expect(localizeProviderKind('Local')).toBe('Ollama')
     i18n.global.locale.value = 'zh-CN'
   })
 
