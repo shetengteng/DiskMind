@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3, Sparkles } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -107,10 +107,9 @@ watch(
   () => scan.results,
   rows => {
     data.value = rows.map(r => ({ ...r, selected: false }))
-    // results 重置时,如果 URL 还带着 fromAdvice 意图,需要重新跑一次选中。
-    // 用 nextTick 延后到所有 setup const 初始化完之后再调,避免 immediate
-    // watch 同步触发时 TDZ 访问尚未初始化的 riskFilter / categoryFilter 等。
-    void nextTick(() => void applyAdviceSelectionIfPending())
+    // results 重置时,如果有 pending advice 投递,需要重新尝试选中(对应
+    // "用户来时 scan.results 还没就绪"的边界场景)
+    applyAdviceSelectionIfPending()
   },
   { immediate: true, deep: false },
 )
@@ -143,43 +142,47 @@ watch(
     }
     const view = q.view === 'map' ? 'map' : 'list'
     if (resultView.value !== view) resultView.value = view
-    void applyAdviceSelectionIfPending()
   },
 )
 
 /**
- * Round 22 · 「AI 清理建议 → 跳转到扫描页自动选中」入口。
+ * Round 22 · 「AI 清理建议 → 跳转到扫描页自动选中」消费端。
  *
- * Reports 页 AiCleaningAdviceCard 用 router.push('/scan?fromAdvice=safe&adviceRunId=42')
- * 跳过来,这里消费 query 并按 tier 标准选中候选文件:
- *   risk_level + categories 双过滤,risk 是"小于等于 tier.risk_level"的允许集
- *   (safe → low / balanced → low+medium / aggressive → low+medium+high)。
+ * 第一版用 URL query 传意图,Tauri webview hash 模式 + router.replace 触发
+ * navigation reactive race,用户复现"页面卡死无法点击"。第二版改成 Pinia
+ * store 单向投递(`ai.pendingAdviceSelection`),消费一次后立刻清空,完全
+ * 不再依赖 route.query 来回触发。
  *
- * 选中完成后清掉 query 防止重复触发,同时把列表切回 list 视图,确保用户
- * 能立即看到选中行。adviceRunId 与当前 scan.results 不匹配时(用户在两次
- * 跳转之间又重扫了),不执行选中避免错位。
+ * 选中逻辑:`RISK_ORDER[r.risk] <= RISK_ORDER[tier.risk_level]` AND
+ * `r.category ∈ tier.categories`(后者 categories 为空时退化为仅按 risk
+ * 过滤,避免 LLM 偶尔输出空 categories 时全部不选)。
  *
- * 注:RISK_ORDER 放函数内部而非模块顶层,既避免 TDZ 风险(模块顶层 const
- * 被 immediate watch 同步访问时尚未初始化)又便于和函数体内的语义聚合。
+ * mounted hook + watch(scan.results) 双轨触发,覆盖三个时序:
+ *   a. Reports → push('/scan') 时 scan.results 已就绪 → onMounted 命中
+ *   b. 用户来时 scan.results 还没就绪 → watch(scan.results) 命中
+ *   c. ai.adviceResult 还没加载 → 早退,等 reports 触发的 advice 重载后
+ *      下一次 scan.results 抖动再试(罕见,日常 advice 已缓存在 store)
+ *
+ * 安全保证:消费前判断 data.value 长度,避免在空数据上"假装选中";消费成功
+ * 后立即 `ai.consumeAdviceSelection()` 防止重复触发。
  */
-async function applyAdviceSelectionIfPending() {
-  const RISK_ORDER: Record<FileRisk, number> = { low: 0, medium: 1, high: 2 }
-  const tier = route.query.fromAdvice
-  if (tier !== 'safe' && tier !== 'balanced' && tier !== 'aggressive') return
+function applyAdviceSelectionIfPending() {
+  const pending = ai.pendingAdviceSelection
+  if (!pending) return
   if (data.value.length === 0) return
 
-  const tierData = ai.adviceResult?.tiers.find(x => x.name === tier)
+  const tierData = ai.adviceResult?.tiers.find(x => x.name === pending.tier)
   if (!tierData) {
-    // advice 还没加载或类型不对,清掉 query 避免后续误触
-    void router.replace({ query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined } })
+    // advice 数据丢失,清掉意图防止后续 watch 误触
+    ai.consumeAdviceSelection()
     return
   }
 
+  const RISK_ORDER: Record<FileRisk, number> = { low: 0, medium: 1, high: 2 }
   const maxRisk = RISK_ORDER[tierData.risk_level]
   const allowedCategories = new Set(tierData.categories)
   const useCategoryFilter = allowedCategories.size > 0
 
-  // 先清空所有选中再按 tier 标准重新打勾,避免叠加上次选择
   for (const r of data.value) r.selected = false
   for (const r of data.value) {
     if (RISK_ORDER[r.risk] > maxRisk) continue
@@ -187,17 +190,18 @@ async function applyAdviceSelectionIfPending() {
     r.selected = true
   }
 
-  // tier 选中天然会和当前 risk/category filter 冲突,所以一并清掉 — 选了再
-  // 被 filter 隐藏会让用户误以为没选中
+  // 选中行被当前 filter 隐藏会让用户误以为没选中,主动复位
   riskFilter.value = 'all'
   categoryFilter.value = 'all'
   resultView.value = 'list'
   listMode.value = 'table'
 
-  await router.replace({
-    query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined },
-  })
+  ai.consumeAdviceSelection()
 }
+
+onMounted(() => {
+  applyAdviceSelectionIfPending()
+})
 
 const allCategories = computed(() => [...new Set(scan.results.map(r => r.category))])
 

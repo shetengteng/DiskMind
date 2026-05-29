@@ -142,23 +142,17 @@ const updatedLabel = computed(() => {
 /**
  * 点击某档建议 → 跳到扫描结果页,按 tier 标准自动选中候选文件。
  *
- * - 用 query `fromAdvice=safe|balanced|aggressive` 携带意图,scan/index.vue
- *   接管后从 ai store 取对应 tier 数据(risk_level + categories)做选中。
- * - 走 router.push(非 replace)留下历史,用户可以"返回"回到 Reports 页。
- * - 当前 latestRun.runId 也一并塞 query,scan/index.vue 用它来对齐:如果
- *   用户已经切到另一次 run 的结果,query 里的 runId 不匹配则不执行选中,
- *   避免"选了上次 run 的文件"这种错位。
+ * Round 22 二次重构:不再用 URL query 传意图(早期实现在 Tauri webview
+ * hash 模式 + router.replace 链上偶发 race,用户报告"页面卡死无法点击")。
+ * 改成 store 单向投递:ai.queueAdviceSelection({runId,tier}) + 纯
+ * router.push('/scan')。scan/index.vue 在 mounted / scan.results 就绪时
+ * 消费一次后清空,不再依赖 reactive route.query 来回触发。
  */
 function jumpToScanWithTier(tierName: 'safe' | 'balanced' | 'aggressive') {
   const runId = latestRun.value?.runId
   if (!runId) return
-  void router.push({
-    path: '/scan',
-    query: {
-      fromAdvice: tierName,
-      adviceRunId: String(runId),
-    },
-  })
+  ai.queueAdviceSelection(runId, tierName)
+  void router.push('/scan')
 }
 </script>
 
