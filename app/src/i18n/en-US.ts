@@ -598,4 +598,91 @@ export default {
       openCrashLogDesc: 'View Rust panic & frontend error logs',
     },
   },
+
+  // Round 25: i18n for the store layer / user-message prompt scaffolding /
+  // LLM system context. Previously these were hard-coded Chinese, leaving
+  // EN users with Chinese welcome / statusLabel / notify / "请详细分析..."
+  // prompt bubbles even after switching language.
+  aiStore: {
+    notConfigured: 'Not configured',
+    welcome: "Hi, I'm the DiskMind AI assistant.\n\nYou can ask me:\n- Is this file safe to delete?\n- Which files in ~/Downloads are junk?\n- Why is this file taking 4.8 GB?\n\nOr click [Ask AI] in scan results to analyze a specific file.",
+    notifyTitle: 'AI',
+    status: {
+      cloudOk: '{provider} · {n} today',
+      localOk: '{provider} · Local',
+      calling: 'Analyzing…',
+      failed: 'Connection failed · click to view',
+      unconfigured: 'AI not enabled · click to configure',
+      idle: 'Idle',
+    },
+    error: {
+      callFailed: '_AI call failed: {msg}_',
+      startFailed: '_AI start failed: {msg}_',
+      browserMode: '_Browser mode cannot invoke AI; please start the desktop app via `pnpm tauri:dev`._',
+      noProvider: '_No enabled AI Provider; add one at Settings → AI Providers._',
+      explainBrowserMode: 'Browser mode cannot invoke AI; please start in desktop mode',
+      explainNoProvider: 'No enabled AI Provider; add one at Settings → AI Providers',
+      adviceBrowserMode: 'Browser mode cannot invoke AI; please start in desktop mode',
+      adviceNoScan: 'No scan record available; complete a scan first',
+      adviceNoProvider: 'No enabled AI Provider; add one at Settings → AI Providers',
+    },
+    cleanup: {
+      title: 'AI Cleanup',
+      skipNotInScan: 'Not in the most recent scan results',
+      suggestion: 'AI assistant suggests cleanup',
+      nothingToRun: 'Nothing to run: {detail}',
+      success: 'Moved {n} items to recycle bin',
+      allFailed: 'All failed: {paths}',
+      partialSuccess: 'Partial success ({n}/{total}); failed: {paths}',
+      callFailed: 'Call failed: {msg}',
+      cancelled: 'Cancelled',
+    },
+    classify: {
+      title: 'AI Classify',
+      needDesktop: 'Requires desktop mode',
+      alreadyRunning: 'Task already running',
+      noProvider: 'No enabled AI Provider',
+      successWithFail: 'Done. {n} rows updated, {f} batches failed',
+      success: 'Done. {n} rows updated',
+      cancelled: 'Cancelled',
+      taskFailed: 'Task failed',
+    },
+    session: {
+      newConversation: 'New conversation',
+    },
+  },
+
+  scanStore: {
+    failedTitle: 'Scan failed',
+    inProgress: 'Scan in progress; please wait or cancel',
+    browserMode: 'Browser mode cannot invoke scan; please start the desktop app via `pnpm tauri:dev`.',
+    noTarget: 'Add at least one scan target at Settings → Scan',
+    startFailedTitle: 'Scan start failed',
+  },
+
+  providerStore: {
+    saveFailed: 'Save Provider failed',
+  },
+
+  aiPrompt: {
+    analyzeFile: 'Please analyze in detail: `{path}` ({size}). Is this file safe to delete?',
+    analyzeSelected: 'I have selected {n} files ({gb} GB total). Please assess the cleanup risk for each one and give a final recommendation.',
+    analyzeFolder: 'Please evaluate the {n} files under folder `{name}` ({gb} GB total); analyze the cleanup risk for each one and give an overall recommendation.',
+    analyzeDirSize: 'Please analyze the {gb} GB taken by directory {dir}: what is it mainly composed of, and is there room to clean up?',
+    analyzeRiskOverview: 'Please walk me through the latest scan overview — what should I focus on?',
+    adviceCategoryItem: '{category} ({size}, {count} items)',
+  },
+
+  aiContext: {
+    scanResultsHeader: '## Current scan results (system-injected, for AI reference)',
+    scanTime: '- Scanned at: {time}',
+    scanRoots: '- Scan roots: {roots}',
+    fileSummary: '- Total files: {n}, total size: {gb} GB',
+    candidateSummary: '- Candidates: {n} items, est. reclaimable: {gb} GB',
+    topCandidatesHeader: '### Top {n} candidates (sorted by size desc)',
+    topCandidatesTableHeader: '| # | Path | Size | Category | Risk |',
+    topCandidatesDivider: '|---|------|------|----------|------|',
+    topDirsHeader: '### Top 8 directories by size',
+    topDirsItem: '- `{name}` — {gb} GB · {n} files',
+  },
 } as const

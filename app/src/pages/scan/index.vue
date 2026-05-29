@@ -246,7 +246,7 @@ function toggleMany(ids: number[], value: boolean) {
 }
 
 function askAiAbout(row: ScanResultRow) {
-  ai.openDrawer(`请详细分析:\`${row.path}\` (${row.size}) 这个文件是否可以安全删除?`, [
+  ai.openDrawer(t('aiPrompt.analyzeFile', { path: row.path, size: row.size }), [
     { path: row.path, name: basename(row.path) || row.path, size: row.size, risk: row.risk },
   ])
 }
@@ -271,7 +271,7 @@ function askAiExplain(row: ScanResultRow) {
 function askAiBatch() {
   if (selectedRows.value.length === 0) return
   ai.openDrawer(
-    `我选择了 ${selectedRows.value.length} 个文件 (共 ${totalSelectedSize.value} GB),请逐一评估清理风险并给出最终建议。`,
+    t('aiPrompt.analyzeSelected', { n: selectedRows.value.length, gb: totalSelectedSize.value }),
     selectedRows.value.map(r => ({
       path: r.path,
       name: basename(r.path) || r.path,
@@ -287,7 +287,7 @@ function askAiFolder(folderName: string, fileIds: number[]) {
   if (rows.length === 0) return
   const totalGb = (rows.reduce((acc, r) => acc + r.sizeBytes, 0) / 1024 / 1024 / 1024).toFixed(2)
   ai.openDrawer(
-    `请评估文件夹 \`${folderName}\` 下的 ${rows.length} 个文件 (共 ${totalGb} GB),逐一分析清理风险并给出整体建议。`,
+    t('aiPrompt.analyzeFolder', { name: folderName, n: rows.length, gb: totalGb }),
     rows.map(r => ({
       path: r.path,
       name: basename(r.path) || r.path,

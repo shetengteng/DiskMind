@@ -14,6 +14,10 @@ import {
 } from '@/api/tauri'
 import { useScanSettingsStore } from '@/stores/scanSettings'
 import { notify } from '@/lib/notify'
+import { i18n } from '@/i18n'
+
+const t = (key: string, params?: Record<string, unknown>) =>
+  params ? i18n.global.t(key, params) : i18n.global.t(key)
 
 export type ScanPhase = 'idle' | 'discovering' | 'classifying' | 'done' | 'error'
 
@@ -117,7 +121,7 @@ export const useScanStore = defineStore('scan', () => {
       console.error('[scan] scan:error received', p.message)
       errorMessage.value = p.message
       phase.value = 'error'
-      notify.error('扫描失败', p.message)
+      notify.error(t('scanStore.failedTitle'), p.message)
     })
   }
 
@@ -127,7 +131,7 @@ export const useScanStore = defineStore('scan', () => {
     // 段时再次从 dashboard 触发扫描会被吞掉。
     if (phase.value === 'discovering' || phase.value === 'classifying') {
       console.warn('[scan] startScan ignored — already in phase', phase.value)
-      notify.warn('扫描正在进行中,请等待完成或取消')
+      notify.warn(t('scanStore.inProgress'))
       return
     }
 
@@ -141,7 +145,7 @@ export const useScanStore = defineStore('scan', () => {
     dirSummary.value = []
 
     if (!isTauri()) {
-      errorMessage.value = '请通过 `pnpm tauri:dev` 启动桌面端,浏览器模式无法调用扫描。'
+      errorMessage.value = t('scanStore.browserMode')
       phase.value = 'error'
       notify.error(errorMessage.value)
       return
@@ -150,7 +154,7 @@ export const useScanStore = defineStore('scan', () => {
     const settings = useScanSettingsStore()
     const roots = settings.selectedRoots()
     if (roots.length === 0) {
-      errorMessage.value = '请先在设置 → 扫描中至少勾选一个目标'
+      errorMessage.value = t('scanStore.noTarget')
       phase.value = 'error'
       notify.error(errorMessage.value)
       return
@@ -172,7 +176,7 @@ export const useScanStore = defineStore('scan', () => {
       console.error('[scan] start_scan IPC rejected', e)
       errorMessage.value = msg
       phase.value = 'error'
-      notify.error('扫描启动失败', msg)
+      notify.error(t('scanStore.startFailedTitle'), msg)
     }
   }
 

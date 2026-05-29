@@ -114,7 +114,10 @@ function drillUp() {
 function askAi() {
   if (!selectedNode.value) return
   ai.openDrawer(
-    `请帮我分析磁盘上 ${pathLabel.value}/${selectedNode.value.name} 目录占用的 ${selectedNode.value.size.toFixed(1)} GB,主要由什么构成?是否有清理空间?`,
+    t('aiPrompt.analyzeDirSize', {
+      dir: `${pathLabel.value}/${selectedNode.value.name}`,
+      gb: selectedNode.value.size.toFixed(1),
+    }),
   )
 }
 </script>

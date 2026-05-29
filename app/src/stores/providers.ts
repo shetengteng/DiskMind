@@ -10,6 +10,9 @@ import {
   type Provider,
   type ProviderUpsert,
 } from '@/api/tauri'
+import { i18n } from '@/i18n'
+
+const t = (key: string) => i18n.global.t(key)
 
 export const useProvidersStore = defineStore('providers', () => {
   const items = ref<Provider[]>([])
@@ -40,7 +43,7 @@ export const useProvidersStore = defineStore('providers', () => {
   async function save(p: ProviderUpsert): Promise<boolean> {
     const updated = await providerSave(p)
     if (!updated) {
-      errorMessage.value = '保存 Provider 失败'
+      errorMessage.value = t('providerStore.saveFailed')
       return false
     }
     await reload()

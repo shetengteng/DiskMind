@@ -109,7 +109,11 @@ function buildRunSummary() {
   const roots = run.roots.length > 0 ? run.roots.join(', ') : '/'
   const categories = run.categoryBreakdown
     .slice(0, 5)
-    .map(c => `${c.category} (${humanizeBytes(c.sizeBytes)}, ${c.count} 个)`)
+    .map(c => t('aiPrompt.adviceCategoryItem', {
+      category: c.category,
+      size: humanizeBytes(c.sizeBytes),
+      count: c.count,
+    }))
     .join('、')
   return t('aiAdvice.runSummaryTemplate', {
     roots,

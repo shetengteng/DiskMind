@@ -38,7 +38,7 @@ const topRows = computed(() => {
 })
 
 function explainResults() {
-  ai.openDrawer('帮我解读最近一次扫描的整体情况,有哪些重点关注?')
+  ai.openDrawer(t('aiPrompt.analyzeRiskOverview'))
 }
 </script>
 

@@ -598,4 +598,93 @@ export default {
       openCrashLogDesc: '查看 Rust panic / 前端异常日志',
     },
   },
+
+  // Round 25:store 层 / 用户消息 prompt 拼接 / 给 LLM 的 system context 全部 i18n。
+  // 之前这些都是中文硬编码,切到 EN 时仍显示中文(welcome / statusLabel /
+  // notify toast / "请详细分析这个文件..." 用户气泡 等)。
+  aiStore: {
+    notConfigured: '未配置',
+    welcome: '你好,我是 DiskMind AI 助手。\n\n你可以问我:\n- 这个文件能不能删?\n- 帮我看看 ~/Downloads 哪些是垃圾\n- 为什么这个文件占了 4.8 GB?\n\n或在扫描结果中点击 [问 AI] 按钮,我会直接分析对应文件。',
+    notifyTitle: 'AI',
+    status: {
+      cloudOk: '{provider} · 今日 {n} 次',
+      localOk: '{provider} · 本地',
+      calling: '正在分析…',
+      failed: '连接失败 · 点击查看',
+      unconfigured: 'AI 未启用 · 点击配置',
+      idle: '空闲',
+    },
+    error: {
+      callFailed: '_AI 调用失败:{msg}_',
+      startFailed: '_启动 AI 调用失败:{msg}_',
+      browserMode: '_浏览器模式无法调用 AI,请通过 `pnpm tauri:dev` 启动桌面端。_',
+      noProvider: '_未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加_',
+      explainBrowserMode: '浏览器模式无法调用 AI,请通过桌面端启动',
+      explainNoProvider: '未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加',
+      adviceBrowserMode: '浏览器模式无法调用 AI,请通过桌面端启动',
+      adviceNoScan: '当前没有可用的扫描记录,请先完成一次扫描',
+      adviceNoProvider: '未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加',
+    },
+    cleanup: {
+      title: 'AI 清理',
+      skipNotInScan: '不在最近一次扫描结果中',
+      suggestion: 'AI 助手建议清理',
+      nothingToRun: '没有可执行的项: {detail}',
+      success: '已将 {n} 项移入回收站',
+      allFailed: '全部失败: {paths}',
+      partialSuccess: '部分成功 ({n}/{total}),失败: {paths}',
+      callFailed: '调用失败: {msg}',
+      cancelled: '已取消',
+    },
+    classify: {
+      title: 'AI 标签',
+      needDesktop: '需要在桌面端运行',
+      alreadyRunning: '任务正在运行中',
+      noProvider: '未配置任何启用的 AI Provider',
+      successWithFail: '完成,共更新 {n} 条,{f} 批失败',
+      success: '完成,共更新 {n} 条',
+      cancelled: '已取消',
+      taskFailed: '任务失败',
+    },
+    session: {
+      newConversation: '新对话',
+    },
+  },
+
+  scanStore: {
+    failedTitle: '扫描失败',
+    inProgress: '扫描正在进行中,请等待完成或取消',
+    browserMode: '请通过 `pnpm tauri:dev` 启动桌面端,浏览器模式无法调用扫描。',
+    noTarget: '请先在设置 → 扫描中至少勾选一个目标',
+    startFailedTitle: '扫描启动失败',
+  },
+
+  providerStore: {
+    saveFailed: '保存 Provider 失败',
+  },
+
+  // 用户消息气泡里展示的 AI prompt 拼接(用户切到 EN 时也不该看到中文气泡)
+  aiPrompt: {
+    analyzeFile: '请详细分析:`{path}` ({size}) 这个文件是否可以安全删除?',
+    analyzeSelected: '我选择了 {n} 个文件 (共 {gb} GB),请逐一评估清理风险并给出最终建议。',
+    analyzeFolder: '请评估文件夹 `{name}` 下的 {n} 个文件 (共 {gb} GB),逐一分析清理风险并给出整体建议。',
+    analyzeDirSize: '请帮我分析磁盘上 {dir} 目录占用的 {gb} GB,主要由什么构成?是否有清理空间?',
+    analyzeRiskOverview: '帮我解读最近一次扫描的整体情况,有哪些重点关注?',
+    adviceCategoryItem: '{category} ({size}, {count} 个)',
+  },
+
+  // 给 LLM 的 system context 拼接(用户不直接看到,但 i18n 一致性 + 让英文模型
+  // 收到英文上下文质量更稳)
+  aiContext: {
+    scanResultsHeader: '## 当前扫描结果（系统注入,供 AI 引用）',
+    scanTime: '- 扫描时间: {time}',
+    scanRoots: '- 扫描根目录: {roots}',
+    fileSummary: '- 文件总数: {n}, 总占用: {gb} GB',
+    candidateSummary: '- 候选数量: {n} 项, 可回收估算: {gb} GB',
+    topCandidatesHeader: '### Top {n} 候选文件（按大小降序）',
+    topCandidatesTableHeader: '| # | 路径 | 大小 | 分类 | 风险 |',
+    topCandidatesDivider: '|---|------|------|------|------|',
+    topDirsHeader: '### 主要目录占用 (Top 8)',
+    topDirsItem: '- `{name}` — {gb} GB · {n} 文件',
+  },
 } as const

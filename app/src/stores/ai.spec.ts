@@ -57,6 +57,11 @@ vi.mock('@/lib/notify', () => ({
 }))
 
 import { useAiStore } from './ai'
+import { i18n } from '@/i18n'
+
+// Round 25:adviceError 文案改走 i18n,不再硬编码中文。这里断言"翻译后的
+// 当前文案"而不是字面量,既不依赖测试时 locale,也跟随字典演化自动更新。
+const expectedNoScanMsg = i18n.global.t('aiStore.error.adviceNoScan')
 
 describe('useAiStore', () => {
   beforeEach(() => {
@@ -69,7 +74,7 @@ describe('useAiStore', () => {
     it('sets error and does not call IPC when runId is undefined', async () => {
       const ai = useAiStore()
       await ai.generateCleaningAdvice('summary', undefined)
-      expect(ai.adviceError).toContain('没有可用的扫描记录')
+      expect(ai.adviceError).toBe(expectedNoScanMsg)
       expect(mocks.aiCleaningAdvice).not.toHaveBeenCalled()
     })
 
@@ -77,7 +82,7 @@ describe('useAiStore', () => {
       const ai = useAiStore()
       // @ts-expect-error - 故意传 null 模拟前端边界场景
       await ai.generateCleaningAdvice('summary', null)
-      expect(ai.adviceError).toContain('没有可用的扫描记录')
+      expect(ai.adviceError).toBe(expectedNoScanMsg)
       expect(mocks.aiCleaningAdvice).not.toHaveBeenCalled()
     })
 

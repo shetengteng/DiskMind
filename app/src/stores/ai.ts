@@ -42,6 +42,14 @@ import { maskPath } from '@/lib/pathMask'
 import { notify } from '@/lib/notify'
 import { parseAiMessage as parseAiMessageContent } from '@/lib/aiActions'
 import { trashMove as ipcTrashMove, type TrashMoveRequest } from '@/api/tauri'
+import { i18n } from '@/i18n'
+
+// Round 25:store 不在 component setup context,无法 useI18n();通过 i18n.global.t
+// 直接拿当前 locale 的翻译。每次读 t 都是动态的,locale 切换后再次调用会拿到新文案。
+const t = (key: string, params?: Record<string, unknown>) =>
+  // vue-i18n v9 composition mode: i18n.global.t signature accepts (key, named-params)
+  // 这里用最稳的 (key, named) overload,与 useI18n() 行为一致
+  params ? i18n.global.t(key, params) : i18n.global.t(key)
 
 export type AiStatus = 'cloud-ok' | 'local-ok' | 'idle' | 'calling' | 'failed' | 'unconfigured'
 
@@ -109,7 +117,9 @@ function welcomeMessage(): AiMessage {
   return {
     id: genId('init'),
     role: 'assistant',
-    content: '你好,我是 DiskMind AI 助手。\n\n你可以问我:\n- 这个文件能不能删?\n- 帮我看看 ~/Downloads 哪些是垃圾\n- 为什么这个文件占了 4.8 GB?\n\n或在扫描结果中点击 [问 AI] 按钮,我会直接分析对应文件。',
+    // 每次调用都现取 t,locale 切换后会话切换/重置时新生成的欢迎语会跟随当前语言。
+    // 已存在的 message 数组里旧的欢迎语不会自动变(预期 — 历史消息不重写)
+    content: t('aiStore.welcome'),
     timestamp: Date.now(),
   }
 }
@@ -152,7 +162,9 @@ function rowToMessage(row: ChatMessageRow): AiMessage {
 export const useAiStore = defineStore('ai', () => {
   const isOpen = ref(false)
   const status = ref<AiStatus>('idle')
-  const currentProvider = ref<string>('未配置')
+  // Round 25:provider 名空态从中文字面量改为 null sentinel。UI 文本由 t() 渲染,
+  // 比较逻辑用 null 做哨兵,避免"切到 EN 后字符串等值比较恒不成立"的隐 bug。
+  const currentProvider = ref<string | null>(null)
   const currentModel = ref<string>('')
   const todayCalls = ref(0)
   const todayCostUsd = ref(0)
@@ -206,19 +218,20 @@ export const useAiStore = defineStore('ai', () => {
   let activeAssistantId: string | null = null
 
   const statusLabel = computed(() => {
+    const provider = currentProvider.value ?? t('aiStore.notConfigured')
     switch (status.value) {
       case 'cloud-ok':
-        return `${currentProvider.value} · 今日 ${todayCalls.value} 次`
+        return t('aiStore.status.cloudOk', { provider, n: todayCalls.value })
       case 'local-ok':
-        return `${currentProvider.value} · 本地`
+        return t('aiStore.status.localOk', { provider })
       case 'calling':
-        return '正在分析…'
+        return t('aiStore.status.calling')
       case 'failed':
-        return '连接失败 · 点击查看'
+        return t('aiStore.status.failed')
       case 'unconfigured':
-        return 'AI 未启用 · 点击配置'
+        return t('aiStore.status.unconfigured')
       default:
-        return '空闲'
+        return t('aiStore.status.idle')
     }
   })
 
@@ -302,7 +315,7 @@ export const useAiStore = defineStore('ai', () => {
       }
       activeStreamId = null
       activeAssistantId = null
-      status.value = currentProvider.value === '未配置' ? 'unconfigured' : 'cloud-ok'
+      status.value = currentProvider.value === null ? 'unconfigured' : 'cloud-ok'
       void refreshTodayStats()
     })
     unsubError = await onAiChatError(p => {
@@ -313,12 +326,12 @@ export const useAiStore = defineStore('ai', () => {
       if (activeAssistantId) {
         const msg = messages.value.find(m => m.id === activeAssistantId)
         if (msg && !msg.content) {
-          msg.content = `_AI 调用失败:${p.message}_`
+          msg.content = t('aiStore.error.callFailed', { msg: p.message })
         }
       }
       activeStreamId = null
       activeAssistantId = null
-      notify.error('AI', p.message)
+      notify.error(t('aiStore.notifyTitle'), p.message)
       void refreshTodayStats()
     })
   }
@@ -375,21 +388,27 @@ export const useAiStore = defineStore('ai', () => {
     const m = (p: string) => maskPath(p, privacy.pathMask)
 
     const lines: string[] = []
-    lines.push('## 当前扫描结果（系统注入,供 AI 引用）')
+    lines.push(t('aiContext.scanResultsHeader'))
     if (scan.lastScanAt) {
-      lines.push(`- 扫描时间: ${new Date(scan.lastScanAt).toLocaleString()}`)
+      lines.push(t('aiContext.scanTime', { time: new Date(scan.lastScanAt).toLocaleString() }))
     }
     if (scan.lastScanRoots.length > 0) {
-      lines.push(`- 扫描根目录: ${scan.lastScanRoots.map(m).join(', ')}`)
+      lines.push(t('aiContext.scanRoots', { roots: scan.lastScanRoots.map(m).join(', ') }))
     }
-    lines.push(`- 文件总数: ${scan.totalFiles.toLocaleString()}, 总占用: ${(scan.totalBytes / 1024 / 1024 / 1024).toFixed(2)} GB`)
-    lines.push(`- 候选数量: ${scan.results.length} 项, 可回收估算: ${scan.totalReclaimableGb.toFixed(2)} GB`)
+    lines.push(t('aiContext.fileSummary', {
+      n: scan.totalFiles.toLocaleString(),
+      gb: (scan.totalBytes / 1024 / 1024 / 1024).toFixed(2),
+    }))
+    lines.push(t('aiContext.candidateSummary', {
+      n: scan.results.length,
+      gb: scan.totalReclaimableGb.toFixed(2),
+    }))
 
     const topN = Math.min(30, scan.results.length)
     lines.push('')
-    lines.push(`### Top ${topN} 候选文件（按大小降序）`)
-    lines.push('| # | 路径 | 大小 | 分类 | 风险 |')
-    lines.push('|---|------|------|------|------|')
+    lines.push(t('aiContext.topCandidatesHeader', { n: topN }))
+    lines.push(t('aiContext.topCandidatesTableHeader'))
+    lines.push(t('aiContext.topCandidatesDivider'))
     for (let i = 0; i < topN; i++) {
       const r = scan.results[i]!
       lines.push(`| ${i + 1} | \`${m(r.path)}\` | ${r.size} | ${r.category} | ${r.risk} |`)
@@ -398,10 +417,14 @@ export const useAiStore = defineStore('ai', () => {
     if (scan.dirSummary.length > 0) {
       const topDirs = scan.dirSummary.slice(0, 8)
       lines.push('')
-      lines.push('### 主要目录占用 (Top 8)')
+      lines.push(t('aiContext.topDirsHeader'))
       for (const d of topDirs) {
         const gb = (d.sizeBytes / 1024 / 1024 / 1024).toFixed(2)
-        lines.push(`- \`${m(d.name)}\` — ${gb} GB · ${d.fileCount.toLocaleString()} 文件`)
+        lines.push(t('aiContext.topDirsItem', {
+          name: m(d.name),
+          gb,
+          n: d.fileCount.toLocaleString(),
+        }))
       }
     }
 
@@ -427,7 +450,7 @@ export const useAiStore = defineStore('ai', () => {
       messages.value.push({
         id: genId('a'),
         role: 'assistant',
-        content: '_浏览器模式无法调用 AI,请通过 `pnpm tauri:dev` 启动桌面端。_',
+        content: t('aiStore.error.browserMode'),
         timestamp: Date.now(),
       })
       status.value = 'unconfigured'
@@ -442,7 +465,7 @@ export const useAiStore = defineStore('ai', () => {
       messages.value.push({
         id: genId('a'),
         role: 'assistant',
-        content: '_未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加_',
+        content: t('aiStore.error.noProvider'),
         timestamp: Date.now(),
       })
       status.value = 'unconfigured'
@@ -480,7 +503,7 @@ export const useAiStore = defineStore('ai', () => {
 
     // 首问触发标题摘要:先 fallback 设前 12 字,LLM 摘要回来再覆盖
     if (isFirstQuestion) {
-      const fallback = question.trim().slice(0, 12) || '新对话'
+      const fallback = question.trim().slice(0, 12) || t('aiStore.session.newConversation')
       void renameSession(sid, fallback)
       void ipcChatSummarizeTitle(question)
         .then(title => {
@@ -532,11 +555,11 @@ export const useAiStore = defineStore('ai', () => {
       isStreaming.value = false
       const msg = messages.value.find(m => m.id === assistantMsg.id)
       if (msg) {
-        msg.content = `_启动 AI 调用失败:${e}_`
+        msg.content = t('aiStore.error.startFailed', { msg: String(e) })
       }
       activeStreamId = null
       activeAssistantId = null
-      notify.error('AI', String(e))
+      notify.error(t('aiStore.notifyTitle'), String(e))
     }
   }
 
@@ -577,7 +600,7 @@ export const useAiStore = defineStore('ai', () => {
     for (const it of action.items) {
       const hit = scanIndex.get(it.path)
       if (!hit) {
-        skippedPaths.push({ path: it.path, reason: '不在最近一次扫描结果中' })
+        skippedPaths.push({ path: it.path, reason: t('aiStore.cleanup.skipNotInScan') })
         continue
       }
       requests.push({
@@ -585,14 +608,16 @@ export const useAiStore = defineStore('ai', () => {
         sizeBytes: hit.sizeBytes,
         category: hit.category,
         risk: hit.risk,
-        aiReason: action.reason || action.title || 'AI 助手建议清理',
+        aiReason: action.reason || action.title || t('aiStore.cleanup.suggestion'),
       })
     }
 
     if (requests.length === 0) {
       msg.action.status = 'error'
-      msg.action.message = `没有可执行的项: ${skippedPaths.map(s => `${s.path}(${s.reason})`).join('; ')}`
-      notify.error('AI 清理', msg.action.message)
+      msg.action.message = t('aiStore.cleanup.nothingToRun', {
+        detail: skippedPaths.map(s => `${s.path}(${s.reason})`).join('; '),
+      })
+      notify.error(t('aiStore.cleanup.title'), msg.action.message)
       persistActionState(msg)
       return
     }
@@ -607,16 +632,22 @@ export const useAiStore = defineStore('ai', () => {
       msg.action.completedPaths = okPaths
       if (failed.length === 0) {
         msg.action.status = 'done'
-        msg.action.message = `已将 ${okPaths.length} 项移入回收站`
-        notify.success('AI 清理', msg.action.message)
+        msg.action.message = t('aiStore.cleanup.success', { n: okPaths.length })
+        notify.success(t('aiStore.cleanup.title'), msg.action.message)
       } else if (okPaths.length === 0) {
         msg.action.status = 'error'
-        msg.action.message = `全部失败: ${failed.map(f => f.path).join(', ')}`
-        notify.error('AI 清理', msg.action.message)
+        msg.action.message = t('aiStore.cleanup.allFailed', {
+          paths: failed.map(f => f.path).join(', '),
+        })
+        notify.error(t('aiStore.cleanup.title'), msg.action.message)
       } else {
         msg.action.status = 'done'
-        msg.action.message = `部分成功 (${okPaths.length}/${requests.length + skippedPaths.length}),失败: ${failed.map(f => f.path).join(', ')}`
-        notify.warn('AI 清理', msg.action.message)
+        msg.action.message = t('aiStore.cleanup.partialSuccess', {
+          n: okPaths.length,
+          total: requests.length + skippedPaths.length,
+          paths: failed.map(f => f.path).join(', '),
+        })
+        notify.warn(t('aiStore.cleanup.title'), msg.action.message)
       }
 
       // R1 事件总线:`trashMove` IPC 完成时后端会 emit `trash:changed`,
@@ -630,8 +661,8 @@ export const useAiStore = defineStore('ai', () => {
       } catch { /* trash store optional */ }
     } catch (e) {
       msg.action.status = 'error'
-      msg.action.message = `调用失败: ${String(e)}`
-      notify.error('AI 清理', msg.action.message)
+      msg.action.message = t('aiStore.cleanup.callFailed', { msg: String(e) })
+      notify.error(t('aiStore.cleanup.title'), msg.action.message)
     } finally {
       persistActionState(msg)
     }
@@ -641,7 +672,7 @@ export const useAiStore = defineStore('ai', () => {
     const msg = messages.value.find(m => m.id === messageId)
     if (!msg?.action || msg.action.status !== 'pending') return
     msg.action.status = 'cancelled'
-    msg.action.message = '已取消'
+    msg.action.message = t('aiStore.cleanup.cancelled')
     persistActionState(msg)
   }
 
@@ -653,7 +684,7 @@ export const useAiStore = defineStore('ai', () => {
     explainError.value = null
 
     if (!isTauri()) {
-      explainError.value = '浏览器模式无法调用 AI,请通过桌面端启动'
+      explainError.value = t('aiStore.error.explainBrowserMode')
       return
     }
 
@@ -662,7 +693,7 @@ export const useAiStore = defineStore('ai', () => {
       await providers.reload()
     }
     if (providers.enabled.length === 0) {
-      explainError.value = '未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加'
+      explainError.value = t('aiStore.error.explainNoProvider')
       return
     }
 
@@ -706,7 +737,7 @@ export const useAiStore = defineStore('ai', () => {
     adviceError.value = null
 
     if (!isTauri()) {
-      adviceError.value = '浏览器模式无法调用 AI,请通过桌面端启动'
+      adviceError.value = t('aiStore.error.adviceBrowserMode')
       return
     }
 
@@ -714,7 +745,7 @@ export const useAiStore = defineStore('ai', () => {
     // 时 upsert 缓存),下次重载又得重调消耗 token。UI 入口已经保证传 runId,
     // 这里做防御性拦截,防止上游回归引入静默退化。
     if (runId === undefined || runId === null) {
-      adviceError.value = '当前没有可用的扫描记录,请先完成一次扫描'
+      adviceError.value = t('aiStore.error.adviceNoScan')
       return
     }
 
@@ -723,7 +754,7 @@ export const useAiStore = defineStore('ai', () => {
       await providers.reload()
     }
     if (providers.enabled.length === 0) {
-      adviceError.value = '未配置任何启用的 AI Provider,请到 设置 → AI Providers 添加'
+      adviceError.value = t('aiStore.error.adviceNoProvider')
       return
     }
 
@@ -739,7 +770,7 @@ export const useAiStore = defineStore('ai', () => {
       void refreshTodayStats()
     } catch (e) {
       adviceError.value = String(e)
-      notify.error('AI', String(e))
+      notify.error(t('aiStore.notifyTitle'), String(e))
     } finally {
       adviceLoading.value = false
     }
@@ -864,13 +895,16 @@ export const useAiStore = defineStore('ai', () => {
           if (payload.kind === 'done') {
             const summary =
               payload.failedBatches > 0
-                ? `完成,共更新 ${payload.updated} 条,${payload.failedBatches} 批失败`
-                : `完成,共更新 ${payload.updated} 条`
-            notify.success('AI 标签', summary)
+                ? t('aiStore.classify.successWithFail', {
+                    n: payload.updated,
+                    f: payload.failedBatches,
+                  })
+                : t('aiStore.classify.success', { n: payload.updated })
+            notify.success(t('aiStore.classify.title'), summary)
           } else if (payload.kind === 'cancelled') {
-            notify.info('AI 标签', '已取消')
+            notify.info(t('aiStore.classify.title'), t('aiStore.classify.cancelled'))
           } else if (payload.kind === 'error') {
-            notify.error('AI 标签', payload.message ?? '任务失败')
+            notify.error(t('aiStore.classify.title'), payload.message ?? t('aiStore.classify.taskFailed'))
           }
         }
       })
@@ -893,11 +927,11 @@ export const useAiStore = defineStore('ai', () => {
 
   async function runBatchClassify(opts?: Partial<AiClassifyBatchArgs>) {
     if (!isTauri()) {
-      notify.warn('AI 标签', '需要在桌面端运行')
+      notify.warn(t('aiStore.classify.title'), t('aiStore.classify.needDesktop'))
       return
     }
     if (classifyRunning.value) {
-      notify.warn('AI 标签', '任务正在运行中')
+      notify.warn(t('aiStore.classify.title'), t('aiStore.classify.alreadyRunning'))
       return
     }
 
@@ -908,7 +942,7 @@ export const useAiStore = defineStore('ai', () => {
       await providers.reload()
     }
     if (providers.enabled.length === 0) {
-      notify.warn('AI 标签', '未配置任何启用的 AI Provider')
+      notify.warn(t('aiStore.classify.title'), t('aiStore.classify.noProvider'))
       return
     }
 
@@ -934,7 +968,7 @@ export const useAiStore = defineStore('ai', () => {
       classifyRunning.value = false
       classifyKind.value = 'error'
       classifyMessage.value = String(e)
-      notify.error('AI 标签', String(e))
+      notify.error(t('aiStore.classify.title'), String(e))
     }
   }
 
@@ -969,7 +1003,7 @@ export const useAiStore = defineStore('ai', () => {
     if (sessionId.value) return sessionId.value
     const id = newSessionId()
     try {
-      const created = await ipcChatSessionCreate(id, '新对话')
+      const created = await ipcChatSessionCreate(id, t('aiStore.session.newConversation'))
       sessions.value = [created, ...sessions.value]
     } catch (e) {
       // DB 写失败时仍返回 id,后续 append 也会失败但不至于卡死 UI。
@@ -1066,7 +1100,7 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (providers.enabled.length === 0) {
       status.value = 'unconfigured'
-      currentProvider.value = '未配置'
+      currentProvider.value = null
     } else {
       const def = providers.defaultProvider ?? providers.enabled[0]
       currentProvider.value = def.name
