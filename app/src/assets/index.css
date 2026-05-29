@@ -79,6 +79,19 @@
   --bar-rank-3: oklch(0.75 0.13 222);
   --bar-rank-4: oklch(0.81 0.10 220);
   --bar-rank-5: oklch(0.86 0.07 224);
+  /* Round 32 · Categorical palette — 10 hue 跨色环平均分布,同 lightness
+   * (0.62) / chroma (0.14),主题统一感强且每个 category 有 deterministic
+   * 颜色。配合 lib/localize::categoryColorIndex() 稳定 hash 使用。 */
+  --cat-1: oklch(0.62 0.14 240);  /* blue */
+  --cat-2: oklch(0.62 0.14 200);  /* cyan */
+  --cat-3: oklch(0.62 0.14 165);  /* teal */
+  --cat-4: oklch(0.62 0.14 135);  /* green */
+  --cat-5: oklch(0.62 0.14 95);   /* gold */
+  --cat-6: oklch(0.62 0.14 50);   /* orange */
+  --cat-7: oklch(0.62 0.14 15);   /* coral */
+  --cat-8: oklch(0.62 0.14 310);  /* magenta */
+  --cat-9: oklch(0.62 0.14 280);  /* violet */
+  --cat-10: oklch(0.62 0.14 220); /* deep blue */
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
@@ -126,6 +139,18 @@
   --bar-rank-3: oklch(0.70 0.14 226);
   --bar-rank-4: oklch(0.66 0.12 226);
   --bar-rank-5: oklch(0.62 0.10 226);
+  /* Round 32 · 深色模式下 lightness 上拉至 0.72,chroma 提到 0.16,
+   * 让 categorical color 在深色背景上有足够对比 + 不刺眼。 */
+  --cat-1: oklch(0.72 0.16 240);
+  --cat-2: oklch(0.72 0.16 200);
+  --cat-3: oklch(0.72 0.16 165);
+  --cat-4: oklch(0.72 0.16 135);
+  --cat-5: oklch(0.72 0.16 95);
+  --cat-6: oklch(0.72 0.16 50);
+  --cat-7: oklch(0.72 0.16 15);
+  --cat-8: oklch(0.72 0.16 310);
+  --cat-9: oklch(0.72 0.16 280);
+  --cat-10: oklch(0.72 0.16 220);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);

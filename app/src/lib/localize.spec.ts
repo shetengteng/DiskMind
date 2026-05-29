@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { i18n } from '@/i18n'
 import {
+  categoryColorIndex,
   localize,
   localizeCategory,
   localizeFieldInPlace,
@@ -148,6 +149,43 @@ describe('localizeProviderKind', () => {
     expect(localizeProviderKind('openai_compat')).toBe('OpenAI Compatible')
     expect(localizeProviderKind('ollama')).toBe('Ollama')
     i18n.global.locale.value = 'zh-CN'
+  })
+})
+
+describe('categoryColorIndex', () => {
+  it('returns deterministic index for same input across calls', () => {
+    expect(categoryColorIndex('browser_cache')).toBe(categoryColorIndex('browser_cache'))
+    expect(categoryColorIndex('dev_artifacts')).toBe(categoryColorIndex('dev_artifacts'))
+  })
+
+  it('returns 1..10 inclusive', () => {
+    const samples = [
+      'browser_cache', 'messaging_cache', 'dev_artifacts', 'ios_backup',
+      'large_media', 'expired_download', 'trash_residue', 'system_log',
+      'docker_image', 'node_modules', 'random_xyz',
+    ]
+    for (const s of samples) {
+      const v = categoryColorIndex(s)
+      expect(v).toBeGreaterThanOrEqual(1)
+      expect(v).toBeLessThanOrEqual(10)
+    }
+  })
+
+  it('different categories likely map to different colors', () => {
+    // 不强制 100% 不冲突(hash 必然有冲突),但抽样 8 个常见 category
+    // 至少应该覆盖 ≥ 5 个不同的色位 — 否则 palette 利用率太差
+    const cats = [
+      'browser_cache', 'messaging_cache', 'dev_artifacts', 'ios_backup',
+      'large_media', 'expired_download', 'trash_residue', 'system_log',
+    ]
+    const set = new Set(cats.map(categoryColorIndex))
+    expect(set.size).toBeGreaterThanOrEqual(5)
+  })
+
+  it('returns 1 for null/undefined/empty', () => {
+    expect(categoryColorIndex(null)).toBe(1)
+    expect(categoryColorIndex(undefined)).toBe(1)
+    expect(categoryColorIndex('')).toBe(1)
   })
 })
 

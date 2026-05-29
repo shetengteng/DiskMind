@@ -83,18 +83,27 @@ function escapeHtml(s: string | null | undefined) {
 
 function tooltipTemplate(d: RiskDatum) {
   if (!d) return ''
-  const total = data.value.reduce((acc, x) => acc + x.bytes, 0)
-  const pct = total > 0 ? ((d.bytes / total) * 100).toFixed(1) : '0.0'
-  const gb = (d.bytes / 1024 / 1024 / 1024).toFixed(2)
+  // Round 32 · NaN 修复:unovis 过渡帧 / partial datum 下,`d.bytes` /
+  // `d.count` 可能短暂为 undefined,导致 `d.bytes / total` 退化为 NaN
+  // 然后 `(NaN).toFixed(1)` 给出 "NaN" 字符串(用户报告"中 鼠标移动上去
+  // 显示 NaN")。通过 `d.key` 反查 store 真实 datum,数值字段全部用
+  // typeof guard 兜底为 0。
+  const datum = data.value.find(x => x.key === d.key) ?? d
+  const bytes = typeof datum.bytes === 'number' ? datum.bytes : 0
+  const count = typeof datum.count === 'number' ? datum.count : 0
+  const name = datum.name ?? d.name ?? ''
+  const total = data.value.reduce((acc, x) => acc + (typeof x.bytes === 'number' ? x.bytes : 0), 0)
+  const pct = total > 0 ? ((bytes / total) * 100).toFixed(1) : '0.0'
+  const gb = (bytes / 1024 / 1024 / 1024).toFixed(2)
   return `
     <div class="border-border/50 bg-background grid min-w-[10rem] gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
-      <div class="font-medium text-foreground">${escapeHtml(d.name)}</div>
+      <div class="font-medium text-foreground">${escapeHtml(name)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
           <span class="size-2 rounded-[2px]" style="background: var(--color-${d.key})"></span>
           ${escapeHtml(gb)} GB
         </span>
-        <span class="font-mono tabular-nums text-foreground">${d.count} · ${pct}%</span>
+        <span class="font-mono tabular-nums text-foreground">${count} · ${pct}%</span>
       </div>
     </div>
   `

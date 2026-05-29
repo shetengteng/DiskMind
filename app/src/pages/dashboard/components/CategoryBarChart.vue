@@ -81,21 +81,27 @@ function formatGB(v: number) {
 
 function tooltipTemplate(d: CategoryDatum) {
   if (!d) return ''
-  const gb = formatGB(d.gb)
-  // 通过 datum 在 sorted data[] 中的索引 → rank token,让 tooltip 的色块
-  // 与该 bar 的实际颜色对齐。findIndex 走 stable ID 等值匹配,而不是
-  // 引用相等 — unovis hover handler 在过渡帧可能传入 datum 的 stale 拷贝。
+  // Round 32 · 与 RiskDonutChart 同样的 NaN/undefined 防御 — unovis 过
+  // 渡帧 / partial datum 下数值字段可能短暂 undefined,直接 toFixed()
+  // 会拿到 "NaN"。通过 stable ID 反查 store 真实 datum 后再用类型守卫
+  // 兜底成 0。同时反查 sorted index → rank token,让 tooltip 色块与 bar
+  // 颜色严格对齐。
   const idx = data.value.findIndex(x => x.name === d.name)
+  const datum = idx >= 0 ? data.value[idx]! : d
+  const gbNum = typeof datum.gb === 'number' ? datum.gb : 0
+  const count = typeof datum.count === 'number' ? datum.count : 0
+  const displayName = datum.displayName ?? d.displayName ?? ''
   const rank = idx < 0 ? 1 : Math.min(idx, 4) + 1
+  const gb = formatGB(gbNum)
   return `
     <div class="border-border/50 bg-background grid min-w-[8rem] gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
-      <div class="font-medium text-foreground">${escapeHtml(d.displayName)}</div>
+      <div class="font-medium text-foreground">${escapeHtml(displayName)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
           <span class="size-2 rounded-[2px]" style="background: var(--bar-rank-${rank})"></span>
           ${escapeHtml(gb)}
         </span>
-        <span class="font-mono tabular-nums text-foreground">${d.count}</span>
+        <span class="font-mono tabular-nums text-foreground">${count}</span>
       </div>
     </div>
   `

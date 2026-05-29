@@ -134,6 +134,24 @@ const LEGACY_TEMPLATE_NAME_MAP: Readonly<Record<string, string>> = {
 }
 
 /**
+ * Round 32 · category 视觉调色板 — 把 stable category ID 稳定哈希到
+ * `--cat-{1..10}` palette 中的一个,让同一个 category 在任意位置 / 任意
+ * 排序下都拿到固定颜色,UI 上能直接靠颜色辨认。
+ *
+ * 哈希用 FNV-1a 32bit 变体,纯整数运算,跨平台稳定。返回 1..10 整数。
+ */
+const CAT_COLOR_COUNT = 10
+
+export function categoryColorIndex(category: string | null | undefined): number {
+  if (!category) return 1
+  let h = 2166136261
+  for (let i = 0; i < category.length; i++) {
+    h = ((h ^ category.charCodeAt(i)) * 16777619) | 0
+  }
+  return (Math.abs(h) % CAT_COLOR_COUNT) + 1
+}
+
+/**
  * provider.name 的本地化兜底。仅命中已知模板老默认值时映射,其它字符串
  * (用户自定义 / 已是英文 / 完全无关)原样返回。
  *
