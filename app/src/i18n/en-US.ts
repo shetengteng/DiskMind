@@ -536,6 +536,9 @@ export default {
     treemapFootHint: '· Click a tile to drill in · breadcrumbs to navigate back',
     detailUsageSummary: 'Using {size} GB · {pct}% of total',
     detailChildren: 'Typical children',
+    leafEmpty: 'This directory has no measurable subdirectories',
+    leafEmptyHint: 'It may contain only zero-byte files or symlinks. Use the back button to return to the parent.',
+    leafBack: 'Back to parent',
   },
 
   aiExplain: {

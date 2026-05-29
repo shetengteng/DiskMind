@@ -1,6 +1,8 @@
 use crate::scanner::FileEntry;
 use serde::{Deserialize, Serialize};
 
+pub mod user_rules;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum FileRisk {
     #[serde(rename = "low")]
@@ -58,8 +60,28 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
     let mut next_id: u64 = 1;
     let mut rows: Vec<ScanResultRow> = Vec::new();
 
+    // Round 29 · 用户自定义规则的 Arc 快照在循环外取一次,避免每个 entry
+    // 都跑一次 RwLock::read。规则集很少改,即使在 classify 进行中 reload,
+    // 这一轮 classify 用旧规则、下一轮用新规则也是合理语义。
+    let user_set = user_rules::snapshot();
+
     for entry in entries {
-        if let Some((category, risk, reason)) = match_rule(&entry) {
+        // 用户规则优先于 builtin。命中即用,不进 builtin。这样用户能针
+        // 对自己电脑的特殊缓存目录加规则,而不必修改 / 禁用 builtin。
+        let matched = user_set
+            .match_first(&entry)
+            .map(|(c, r, k)| {
+                // user_rules 返回 String reason_key,转回 builtin 同接口
+                // 形态 (&str, FileRisk, &str)。这里 leak 一个 'static 生
+                // 命周期不优雅 — 改用本地 owned String 临时变量。
+                (c, r, k)
+            })
+            .or_else(|| {
+                match_rule(&entry)
+                    .map(|(c, r, k)| (c.to_string(), r, k.to_string()))
+            });
+
+        if let Some((category, risk, reason)) = matched {
             // 按逻辑大小(用户感知)过滤。
             if entry.size < MIN_REPORT_SIZE {
                 continue;
@@ -76,11 +98,11 @@ pub fn classify(entries: Vec<FileEntry>) -> Vec<ScanResultRow> {
             rows.push(ScanResultRow {
                 id: next_id,
                 path: entry.path,
-                category: category.to_string(),
+                category,
                 size: humanize_bytes(report_bytes),
                 size_bytes: report_bytes,
                 risk,
-                ai_reason: reason.to_string(),
+                ai_reason: reason,
                 mtime: entry.mtime,
                 missing: false,
             });

@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
 );
 "#;
 
-const DATA_VERSION: i64 = 11;
+const DATA_VERSION: i64 = 12;
 
 /// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
 /// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里
@@ -346,6 +346,52 @@ impl Db {
             tx.commit()?;
             eprintln!(
                 "[diskmind] db migration v11: rewrote legacy zh categories to stable English IDs"
+            );
+        }
+
+        // v12 · Round 29 · provider.api_key 老明文 → ChaCha20-Poly1305 密文。
+        // 检测 enc:v1: 前缀作为已加密 sentinel,空字符串(unconfigured)跳过。
+        // 加密失败(machine-uid 取不到 / 异常环境)单条跳过 + 警告,让其它
+        // 行继续迁移,避免一个 provider 卡死整库升级。
+        if prev < 12 {
+            let mut to_encrypt: Vec<(String, String)> = Vec::new();
+            {
+                let mut stmt = conn.prepare("SELECT id, api_key FROM provider")?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (id, api_key) = row?;
+                    if !api_key.is_empty() && !crate::crypto::is_encrypted(&api_key) {
+                        to_encrypt.push((id, api_key));
+                    }
+                }
+            }
+            let tx = conn.transaction()?;
+            let mut migrated = 0u64;
+            for (id, plain) in &to_encrypt {
+                match crate::crypto::encrypt_api_key(plain) {
+                    Ok(enc) => {
+                        tx.execute(
+                            "UPDATE provider SET api_key = ?1 WHERE id = ?2",
+                            params![enc, id],
+                        )?;
+                        migrated += 1;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[diskmind] db migration v12: failed to encrypt provider {} (skipped): {}",
+                            id, e
+                        );
+                    }
+                }
+            }
+            tx.commit()?;
+            eprintln!(
+                "[diskmind] db migration v12: encrypted {} provider api_key{} (of {} total candidates)",
+                migrated,
+                if migrated == 1 { "" } else { "s" },
+                to_encrypt.len()
             );
         }
 

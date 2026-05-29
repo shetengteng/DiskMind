@@ -44,6 +44,15 @@ sha2 = "0.10"
 thiserror = "2"
 async-stream = "0.3"
 tauri-plugin-dialog = "2.7.1"
+# Round 29 · Provider API Key AEAD 加密。chacha20poly1305 是 RFC8439 的
+# 纯 Rust 实现,无 native deps,内存安全;machine-uid 用 gethostuuid(3) /
+# Windows registry 拿稳定的设备唯一 ID 派生主密钥(无需 root 权限)。
+chacha20poly1305 = "0.10"
+machine-uid = "0.6"
+base64 = "0.22"
+# Round 29 · classifier 用户自定义规则外置。toml 用 serde 反序列化用户在
+# `app_data/rules.toml` 里写的额外匹配规则,无 native deps。
+toml = "0.8"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"

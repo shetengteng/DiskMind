@@ -16,6 +16,7 @@ mod ai;
 mod classifier;
 mod commands;
 mod crash_log;
+mod crypto;
 mod db;
 mod i18n;
 mod platform;
@@ -94,6 +95,13 @@ pub fn run() {
             crash_log::init_dir(logs_dir);
             let db = Arc::new(Db::open(db_path.clone()).expect("open db failed"));
             let ai = Arc::new(AiOrchestrator::new(db.clone()));
+
+            // Round 29 · 启动时加载用户自定义 classifier 规则。文件不存在
+            // / 解析失败,user_rules::load_from 内部已经退化到空规则集,
+            // builtin 链路继续工作 — 不在 setup 阶段中断启动流程。
+            let user_rules_path = app_data.join("rules.toml");
+            let user_rules_set = crate::classifier::user_rules::load_from(&user_rules_path);
+            crate::classifier::user_rules::install(user_rules_set);
             // S12 · 从 DB hydrate 「关闭即最小化到托盘」初值,作为 close-requested
             // 回调可 lock-free 查询的热缓存。失败默认 false(保持旧版退出行为)。
             let hide_in_tray = Arc::new(AtomicBool::new(db.hide_in_tray_when_minimized(false)));
@@ -273,6 +281,9 @@ pub fn run() {
             commands::meta::meta_set_hide_in_tray,
             commands::meta::meta_get_locale,
             commands::meta::meta_set_locale,
+            // --- classifier (user rules) ---
+            commands::classifier::classifier_reload_user_rules,
+            commands::classifier::classifier_user_rules_path,
             // --- provider ---
             commands::provider::provider_list,
             commands::provider::provider_save,

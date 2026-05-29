@@ -536,6 +536,9 @@ export default {
     treemapFootHint: '· 单击进入子目录 · 面包屑可回退',
     detailUsageSummary: '占用 {size} GB · 总占比 {pct}%',
     detailChildren: '典型子项',
+    leafEmpty: '该目录下没有可度量的子目录',
+    leafEmptyHint: '可能只包含 0 字节的文件或软链接。点击返回回到上一层。',
+    leafBack: '返回上一层',
   },
 
   aiExplain: {

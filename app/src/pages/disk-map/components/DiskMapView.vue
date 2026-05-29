@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Sparkles, ScanSearch, ChevronRight, Home, ArrowUp } from 'lucide-vue-next'
+import { Sparkles, ScanSearch, ChevronRight, Home, ArrowUp, FolderOpen } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useAiStore } from '@/stores/ai'
@@ -183,7 +183,32 @@ function askAi() {
       </Button>
     </div>
 
-    <div class="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <!-- B · 下钻到空目录(子目录全是 0 字节 / 软链接 / 全部被过滤)的
+         视觉兜底。原 treemap 区会渲染成一片空白没有任何提示,用户难以
+         理解发生了什么 — 改为显式 empty state + 一键回退。仅在已有
+         扫描数据 + 当前层 nodes 为空时才出,避免和顶部 rows.length===0
+         的"未扫描"兜底冲突。 -->
+    <Card v-if="nodes.length === 0" class="border-dashed">
+      <CardContent class="flex flex-col items-center justify-center gap-3 py-10 text-center">
+        <div class="flex size-12 items-center justify-center rounded-full bg-muted">
+          <FolderOpen class="size-5 text-muted-foreground" />
+        </div>
+        <div>
+          <p class="text-sm font-medium">{{ t('diskMap.leafEmpty') }}</p>
+          <p class="mt-1 text-xs text-muted-foreground">{{ t('diskMap.leafEmptyHint') }}</p>
+        </div>
+        <Button
+          v-if="drillStack.length > 1"
+          variant="outline"
+          size="sm"
+          @click="drillUp"
+        >
+          <ArrowUp class="mr-1.5 size-3.5" /> {{ t('diskMap.leafBack') }}
+        </Button>
+      </CardContent>
+    </Card>
+
+    <div v-else class="grid gap-4 lg:grid-cols-[1fr_320px]">
       <DiskMapTreemap
         :nodes="nodes"
         :total="total"

@@ -4,11 +4,19 @@
 //!
 //! `provider_update_status` 只更新连通性探测结果(`status` + `latency_ms`),
 //! 由 `ai_test_provider` 调用,与凭证 / 模型 / enabled 分离。
+//!
+//! Round 29 · `api_key` 列以 `enc:v1:<base64>` 形式存 ChaCha20-Poly1305
+//! 密文。**写入路径**(`provider_upsert`)在 SQL 之前先 encrypt;**读出
+//! 路径**(`provider_list` / 内部回查)读完立即 decrypt,IPC 出去的是明文
+//! 让上层调用方 / 前端 UI 能正常用。decrypt 失败时(机器换了 / 密文损坏)
+//! fallback 到空串,与"未配置"等价 — 让用户重新输入比让 ai_chat 拿一段
+//! 损坏密文去打 OpenAI 来得安全。
 
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use super::{now_ms_db, Db};
+use crate::crypto;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -18,7 +26,9 @@ pub struct Provider {
     pub kind: String,
     pub base_url: String,
     pub model: String,
-    /// API key。目前以明文存于 SQLite,已知技术债;alpha 前考虑迁 keychain。
+    /// API key。Round 29 起 SQLite 列里存 `enc:v1:<base64>` 密文,
+    /// IPC 出去的这个字段是 decrypt 后的**明文**(`provider_list` 等
+    /// 读路径自动解密)— 给前端 UI 显示 + 调 LLM provider 用。
     #[serde(default)]
     pub api_key: String,
     pub enabled: bool,
@@ -55,6 +65,18 @@ fn default_status() -> String {
     "untested".into()
 }
 
+/// 把 DB 里的密文 `api_key` 解密成明文。换机器 / 密文损坏时返回空串
+/// (与"未配置"等价,UI 会引导用户重新输入),不让坏密文污染 IPC 出口。
+fn decrypt_or_empty(stored: String) -> String {
+    crypto::decrypt_api_key(&stored).unwrap_or_else(|e| {
+        eprintln!(
+            "[diskmind] provider api_key decrypt failed (treating as unconfigured): {}",
+            e
+        );
+        String::new()
+    })
+}
+
 impl Db {
     pub fn provider_list(&self) -> rusqlite::Result<Vec<Provider>> {
         let conn = self.conn.lock().expect("db poisoned");
@@ -69,7 +91,7 @@ impl Db {
                     kind: row.get(2)?,
                     base_url: row.get(3)?,
                     model: row.get(4)?,
-                    api_key: row.get(5)?,
+                    api_key: decrypt_or_empty(row.get::<_, String>(5)?),
                     enabled: row.get::<_, i64>(6)? != 0,
                     is_default: row.get::<_, i64>(7)? != 0,
                     status: row.get(8)?,
@@ -83,6 +105,20 @@ impl Db {
     }
 
     pub fn provider_upsert(&self, p: ProviderUpsert) -> rusqlite::Result<Provider> {
+        // 加密放在 lock 外:加密不需要 DB 连接,放进 critical section 会
+        // 拉长锁持有时间。失败时(machine-uid 取不到 / OS 异常)退化到
+        // 明文存储 + 警告 — 比直接 panic 让用户保存不下凭证好。
+        let api_key_enc = match crypto::encrypt_api_key(&p.api_key) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "[diskmind] provider api_key encrypt failed (storing plaintext fallback): {}",
+                    e
+                );
+                p.api_key.clone()
+            }
+        };
+
         let mut conn = self.conn.lock().expect("db poisoned");
         let tx = conn.transaction()?;
         let now = now_ms_db();
@@ -105,7 +141,7 @@ impl Db {
                 latency_ms = excluded.latency_ms, \
                 updated_at = excluded.updated_at",
             params![
-                p.id, p.name, p.kind, p.base_url, p.model, p.api_key,
+                p.id, p.name, p.kind, p.base_url, p.model, api_key_enc,
                 p.enabled as i64, p.is_default as i64, p.status, p.latency_ms, now,
             ],
         )?;
@@ -119,7 +155,7 @@ impl Db {
                     kind: row.get(2)?,
                     base_url: row.get(3)?,
                     model: row.get(4)?,
-                    api_key: row.get(5)?,
+                    api_key: decrypt_or_empty(row.get::<_, String>(5)?),
                     enabled: row.get::<_, i64>(6)? != 0,
                     is_default: row.get::<_, i64>(7)? != 0,
                     status: row.get(8)?,
