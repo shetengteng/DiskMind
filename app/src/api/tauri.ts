@@ -201,7 +201,8 @@ export async function trashStats(): Promise<TrashStats | null> {
 }
 
 export async function trashMove(items: TrashMoveRequest[]): Promise<TrashMoveResult> {
-  if (!isTauri()) return { items: [], failures: items.map(i => ({ path: i.path, message: '需要在桌面端运行' })) }
+  // Web preview fallback。message 走 i18n marker,UI 通过 localize() 翻译。
+  if (!isTauri()) return { items: [], failures: items.map(i => ({ path: i.path, message: '$i18n:common.desktopRequired' })) }
   return await invoke<TrashMoveResult>('trash_move', { items })
 }
 
@@ -314,11 +315,19 @@ export async function metaSetLocale(value: string): Promise<void> {
  * Linux xdg-open)。失败时抛错,由调用方 toast。
  */
 export async function revealInExplorer(path: string): Promise<void> {
-  if (!isTauri()) throw new Error('需要在桌面端运行')
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
   await invoke('reveal_in_explorer', { path })
 }
 
-export type ProviderKind = 'OpenAI 兼容' | 'Anthropic' | 'Gemini' | 'Local'
+/**
+ * Round 30 · provider kind 切换到 stable English ID。后端 `ProviderKind::parse`
+ * 接受 `openai_compat` / `anthropic` / `ollama`(也兼容历史中文 `OpenAI 兼容`),
+ * UI 显示走 `localizeProviderKind()` 翻译。
+ *
+ * 历史值 `'OpenAI 兼容'` / `'Local'` / `'Gemini'` 在 v13 migration 之后会从
+ * DB 里清除,但前端 `localizeProviderKind` 仍然兜底 — 升级窗口期不报错。
+ */
+export type ProviderKind = 'openai_compat' | 'anthropic' | 'ollama'
 export type ProviderStatus = 'ok' | 'untested' | 'error' | 'local'
 
 export interface Provider {
@@ -503,7 +512,7 @@ export interface AiCallLog {
 }
 
 export async function aiChat(args: AiChatArgs): Promise<void> {
-  if (!isTauri()) throw new Error('需要在桌面端运行')
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
   await invoke('ai_chat', { args })
 }
 
@@ -700,7 +709,7 @@ export interface AiClassifyProgressPayload {
 }
 
 export async function aiClassifyBatchPending(args: AiClassifyBatchArgs): Promise<void> {
-  if (!isTauri()) throw new Error('需要在桌面端运行')
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
   await invoke('ai_classify_batch_pending', { args })
 }
 
@@ -733,7 +742,7 @@ export function onAiClassifyProgress(
  * 返回写入字节数(只是辅助 UI 反馈,前端可以忽略)。
  */
 export async function writeTextFile(path: string, content: string): Promise<number> {
-  if (!isTauri()) throw new Error('需要在桌面端运行')
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
   return await invoke<number>('write_text_file', { path, content })
 }
 

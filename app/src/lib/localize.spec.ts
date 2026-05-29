@@ -1,6 +1,11 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { i18n } from '@/i18n'
-import { localize, localizeCategory, localizeFieldInPlace } from './localize'
+import {
+  localize,
+  localizeCategory,
+  localizeFieldInPlace,
+  localizeProviderKind,
+} from './localize'
 
 beforeAll(() => {
   // 测试 locale 切换路径,默认 zh-CN。
@@ -104,6 +109,44 @@ describe('localizeCategory', () => {
   it('returns empty string for null/undefined', () => {
     expect(localizeCategory(null)).toBe('')
     expect(localizeCategory(undefined)).toBe('')
+  })
+})
+
+describe('localizeProviderKind', () => {
+  beforeAll(() => {
+    i18n.global.locale.value = 'zh-CN'
+  })
+
+  it('translates English stable ID', () => {
+    expect(localizeProviderKind('openai_compat')).toBe('OpenAI 兼容')
+    expect(localizeProviderKind('anthropic')).toBe('Anthropic')
+    expect(localizeProviderKind('ollama')).toBe('Ollama')
+  })
+
+  it('legacy Chinese kind is mapped to stable ID then translated', () => {
+    // Round 30 · v13 迁移前的脏数据走 LEGACY_ZH_KIND_TO_STABLE_ID 反查
+    expect(localizeProviderKind('OpenAI 兼容')).toBe('OpenAI 兼容')
+    i18n.global.locale.value = 'en-US'
+    expect(localizeProviderKind('OpenAI 兼容')).toBe('OpenAI Compatible')
+    i18n.global.locale.value = 'zh-CN'
+  })
+
+  it('unknown Chinese (not in legacy map) falls back to original', () => {
+    expect(localizeProviderKind('未知厂商')).toBe('未知厂商')
+  })
+
+  it('returns empty string for null/undefined', () => {
+    expect(localizeProviderKind(null)).toBe('')
+    expect(localizeProviderKind(undefined)).toBe('')
+    expect(localizeProviderKind('')).toBe('')
+  })
+
+  it('switches locale after vue-i18n locale change', () => {
+    expect(localizeProviderKind('openai_compat')).toBe('OpenAI 兼容')
+    i18n.global.locale.value = 'en-US'
+    expect(localizeProviderKind('openai_compat')).toBe('OpenAI Compatible')
+    expect(localizeProviderKind('ollama')).toBe('Ollama')
+    i18n.global.locale.value = 'zh-CN'
   })
 })
 

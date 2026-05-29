@@ -39,6 +39,7 @@ export default {
     fileTooLarge: 'This action cannot be undone',
     poweredBy: 'Powered by',
     noResults: 'No matching results',
+    desktopRequired: 'Requires desktop runtime',
   },
 
   nav: {
@@ -398,6 +399,18 @@ export default {
       statusUntested: 'Untested',
       connOk: '{name} connected · {latency}ms',
       connFail: '{name} failed: {error}',
+      // Round 30 · provider kind 走 stable English ID 存 DB,UI 渲染时
+      // 通过本字段翻译。匹配后端 ProviderKind::parse 接受的三个 ID。
+      kind: {
+        openai_compat: 'OpenAI Compatible',
+        anthropic: 'Anthropic',
+        ollama: 'Ollama',
+      },
+      // template 名带本地化标识的(如 "Ollama 本地" → "Ollama Local"),
+      // 走单独 key,品牌名(DeepSeek / OpenAI / etc.)不翻译直接放代码里。
+      template: {
+        ollama_local: 'Ollama Local',
+      },
     },
     providerEdit: {
       addButton: 'Add Provider',

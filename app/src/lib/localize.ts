@@ -119,6 +119,39 @@ const LEGACY_ZH_CATEGORY_TO_STABLE_ID: Readonly<Record<string, string>> = {
 }
 
 /**
+ * Round 30 · provider kind 老中文标签 → stable English ID 反查映射。
+ * 与 category 同样的"v13 迁移 + 前端兜底"双保险设计:DB v13 把 `provider.kind`
+ * 列里所有 "OpenAI 兼容" 改写为 "openai_compat",前端这里则在升级窗口期
+ * (DB 还没跑 v13 / Web 预览 / 测试夹具)把中文反查为 stable ID 再翻译。
+ */
+const LEGACY_ZH_KIND_TO_STABLE_ID: Readonly<Record<string, string>> = {
+  'OpenAI 兼容': 'openai_compat',
+  Anthropic: 'anthropic',
+  Ollama: 'ollama',
+}
+
+/**
+ * provider kind 的 stable ID(`openai_compat` / `anthropic` / `ollama`)
+ * 在 UI 渲染时翻译为本地化标签。同时兼容老中文(`OpenAI 兼容`)。
+ *
+ * @example
+ *   localizeProviderKind('openai_compat') // → 'OpenAI 兼容' / 'OpenAI Compatible'
+ *   localizeProviderKind('OpenAI 兼容') // → 'OpenAI 兼容' / 'OpenAI Compatible' (Round 30 双向翻译)
+ */
+export function localizeProviderKind(id: string | null | undefined): string {
+  if (!id) return ''
+  let resolved = id
+  if (/[\u4e00-\u9fff]/.test(id)) {
+    const stable = LEGACY_ZH_KIND_TO_STABLE_ID[id]
+    if (!stable) return id
+    resolved = stable
+  }
+  const key = `settings.providers.kind.${resolved}`
+  const translated = i18n.global.t(key)
+  return translated === key ? resolved : translated
+}
+
+/**
  * classifier category 的 stable English ID(`browser_cache` / `dev_artifacts`
  * 等)在 UI 渲染时翻译。同时兼容历史 DB 中残留的中文 category 名。
  *

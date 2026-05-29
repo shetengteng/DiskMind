@@ -39,6 +39,7 @@ export default {
     fileTooLarge: '此操作不可逆',
     poweredBy: 'Powered by',
     noResults: '没有匹配的结果',
+    desktopRequired: '需要在桌面端运行',
   },
 
   nav: {
@@ -398,6 +399,14 @@ export default {
       statusUntested: '未测试',
       connOk: '{name} 连接成功 · {latency}ms',
       connFail: '{name} 连接失败:{error}',
+      kind: {
+        openai_compat: 'OpenAI 兼容',
+        anthropic: 'Anthropic',
+        ollama: 'Ollama',
+      },
+      template: {
+        ollama_local: 'Ollama 本地',
+      },
     },
     providerEdit: {
       addButton: '添加 Provider',

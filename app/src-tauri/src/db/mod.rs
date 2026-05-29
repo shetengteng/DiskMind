@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
 );
 "#;
 
-const DATA_VERSION: i64 = 12;
+const DATA_VERSION: i64 = 13;
 
 /// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
 /// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里
@@ -395,6 +395,36 @@ impl Db {
             );
         }
 
+        // v13 · Round 30 · provider.kind 老中文标签 → stable English ID。
+        // 与 v11 (category) 同样的 "数据干净化 + 前端 UI 翻译" 设计:本迁移
+        // 一次性把 DB 里残留的 "OpenAI 兼容" 改写为 "openai_compat",ProviderKind::parse
+        // 仍然兼容两种格式,所以即便有节点跳过迁移也不会崩。
+        if prev < 13 {
+            const LEGACY_ZH_KIND_TO_STABLE_ID: &[(&str, &str)] = &[
+                ("OpenAI 兼容", "openai_compat"),
+                ("Anthropic", "anthropic"),
+                ("Ollama", "ollama"),
+                // 历史误存的 sentinel,统一吸到 openai_compat 兜底
+                ("Local", "ollama"),
+                ("Gemini", "openai_compat"),
+            ];
+            let tx = conn.transaction()?;
+            let mut migrated = 0u64;
+            for (legacy, stable) in LEGACY_ZH_KIND_TO_STABLE_ID {
+                let n = tx.execute(
+                    "UPDATE provider SET kind = ?1 WHERE kind = ?2",
+                    params![stable, legacy],
+                )?;
+                migrated += n as u64;
+            }
+            tx.commit()?;
+            eprintln!(
+                "[diskmind] db migration v13: rewrote {} provider.kind row{} to stable English IDs",
+                migrated,
+                if migrated == 1 { "" } else { "s" }
+            );
+        }
+
         if prev < DATA_VERSION {
             conn.execute(
                 "INSERT INTO meta(k, v) VALUES('data_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
@@ -584,5 +614,106 @@ mod migration_v11_tests {
             })
             .unwrap();
         assert_eq!(cat, "browser_cache");
+    }
+
+    /// v13 migration · provider.kind 老中文 → stable English ID 改写测试。
+    ///
+    /// 用直接构造 v12 库的方式模拟"已经跑过 v12 但还没跑 v13"的中间态:
+    /// 先 Db::open 一次跑到 DATA_VERSION,然后 raw INSERT 一些老中文 kind,
+    /// 然后把 data_version 拨回到 12,再 Db::open 触发 v13 分支。
+    #[test]
+    fn v13_rewrites_zh_provider_kind_to_stable_ids() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("test.db");
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            for (id, kind) in &[
+                ("p1", "OpenAI 兼容"),
+                ("p2", "Anthropic"),
+                ("p3", "Ollama"),
+                ("p4", "openai_compat"),
+                ("p5", "Local"),
+                ("p6", "Gemini"),
+            ] {
+                conn.execute(
+                    "INSERT INTO provider(id, name, kind, base_url, model, api_key, \
+                     enabled, is_default, status, latency_ms, updated_at) \
+                     VALUES(?1, 'n', ?2, 'u', 'm', '', 1, 0, 'untested', NULL, 0)",
+                    params![id, kind],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO meta(k, v) VALUES('data_version', '12') \
+                 ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                [],
+            )
+            .unwrap();
+        }
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let kinds: Vec<(String, String)> = conn
+            .prepare("SELECT id, kind FROM provider ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("p1".to_string(), "openai_compat".to_string()), // OpenAI 兼容 → ID
+                ("p2".to_string(), "anthropic".to_string()),    // Anthropic → 小写
+                ("p3".to_string(), "ollama".to_string()),       // Ollama → 小写
+                ("p4".to_string(), "openai_compat".to_string()), // 已是 ID,不动
+                ("p5".to_string(), "ollama".to_string()),       // Local sentinel → ollama
+                ("p6".to_string(), "openai_compat".to_string()), // Gemini sentinel → openai_compat
+            ]
+        );
+
+        let version: String = conn
+            .query_row(
+                "SELECT v FROM meta WHERE k = 'data_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(version, DATA_VERSION.to_string());
+    }
+
+    #[test]
+    fn v13_is_idempotent_on_already_stable_kinds() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("test.db");
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO provider(id, name, kind, base_url, model, api_key, \
+                 enabled, is_default, status, latency_ms, updated_at) \
+                 VALUES('p1', 'n', 'openai_compat', 'u', 'm', '', 1, 0, 'untested', NULL, 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let kind: String = conn
+            .query_row("SELECT kind FROM provider WHERE id = 'p1'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+        assert_eq!(kind, "openai_compat");
     }
 }

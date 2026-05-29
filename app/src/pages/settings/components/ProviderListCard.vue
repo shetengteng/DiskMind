@@ -20,6 +20,7 @@ import {
 import { useProvidersStore } from '@/stores/providers'
 import type { Provider } from '@/api/tauri'
 import { notify } from '@/lib/notify'
+import { localizeProviderKind } from '@/lib/localize'
 import ProviderEditDialog, { type EditingProvider } from './ProviderEditDialog.vue'
 
 const { t } = useI18n()
@@ -30,12 +31,12 @@ onMounted(async () => {
 })
 
 const editOpen = ref(false)
-const editing = ref<EditingProvider>({ kind: 'OpenAI 兼容', enabled: true })
+const editing = ref<EditingProvider>({ kind: 'openai_compat', enabled: true })
 
 const enabledCount = computed(() => providers.enabledCount)
 
 function openAdd() {
-  editing.value = { kind: 'OpenAI 兼容', enabled: true }
+  editing.value = { kind: 'openai_compat', enabled: true }
   editOpen.value = true
 }
 
@@ -62,7 +63,7 @@ async function handleSave() {
   await providers.save({
     id,
     name: e.name,
-    kind: e.kind ?? 'OpenAI 兼容',
+    kind: e.kind ?? 'openai_compat',
     baseUrl: e.baseUrl,
     model: e.model,
     apiKey: e.apiKey ?? '',
@@ -147,7 +148,7 @@ function statusLabel(s: string): string {
           <div class="flex items-center gap-2">
             <span class="font-medium">{{ p.name }}</span>
             <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">{{ t('settings.providers.defaultBadge') }}</Badge>
-            <Badge variant="outline" class="text-[10px]">{{ p.kind }}</Badge>
+            <Badge variant="outline" class="text-[10px]">{{ localizeProviderKind(p.kind) }}</Badge>
           </div>
           <Tooltip>
             <TooltipTrigger as-child>
