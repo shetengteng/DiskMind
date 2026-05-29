@@ -202,7 +202,32 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
 );
 "#;
 
-const DATA_VERSION: i64 = 10;
+const DATA_VERSION: i64 = 11;
+
+/// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
+/// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里
+/// 的扫描结果(scan_result.category)与回收站(trash_item.category)还是
+/// "浏览器缓存" 这种字串 — 前端 `localizeCategory` 当时设计的"含汉字直接
+/// 原样返回"兜底,在英文 UI 下表现为"Category 列还是中文"。这里通过 v11
+/// 一次性迁移根治 DB 脏数据,前端 LEGACY_ZH_TO_ID 是双保险(应对老前端
+/// 升级到新前端 + 旧 DB 还没重启迁移的窗口期)。
+///
+/// 11 项映射对齐 `classifier::match_rule` 的 stable ID 列表。后续 classifier
+/// 新增 category 时,只在前端字典 `category.*` 加翻译条目即可,不需要碰
+/// 这张迁移表(它只服务于"v10 之前已经落库的脏数据")。
+const LEGACY_ZH_CATEGORY_TO_STABLE_ID: &[(&str, &str)] = &[
+    ("浏览器缓存", "browser_cache"),
+    ("通讯应用缓存", "messaging_cache"),
+    ("开发产物", "dev_artifacts"),
+    ("系统临时", "system_temp"),
+    ("日志", "logs"),
+    ("iOS 备份", "ios_backup"),
+    ("流媒体缓存", "media_cache"),
+    ("回收站残留", "trash_residue"),
+    ("过期下载", "expired_download"),
+    ("大型媒体", "large_media"),
+    ("待审查大文件", "review_large"),
+];
 
 pub struct Db {
     pub(crate) conn: Mutex<Connection>,
@@ -213,7 +238,9 @@ impl Db {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let conn = Connection::open(path)?;
+        // mut 是为了 v11 迁移的 `conn.transaction()`,其它路径仍是 &self
+        // 调用,Rust 借用检查不受影响。
+        let mut conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
 
@@ -299,6 +326,29 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_scan_result_path \
                  ON scan_result(run_id, path);",
         )?;
+
+        // v11 · Round 28 · category 中文字面量 → stable English ID。idempotent:
+        // WHERE category = '中文' 命中条数为 0 时是 no-op,因此重复升级安全。
+        // 用单事务批量执行让 22 条 UPDATE 一致性提交,中途 panic 不留半新
+        // 半旧的混杂状态。
+        if prev < 11 {
+            let tx = conn.transaction()?;
+            for (zh, id) in LEGACY_ZH_CATEGORY_TO_STABLE_ID {
+                tx.execute(
+                    "UPDATE scan_result SET category = ?1 WHERE category = ?2",
+                    params![id, zh],
+                )?;
+                tx.execute(
+                    "UPDATE trash_item SET category = ?1 WHERE category = ?2",
+                    params![id, zh],
+                )?;
+            }
+            tx.commit()?;
+            eprintln!(
+                "[diskmind] db migration v11: rewrote legacy zh categories to stable English IDs"
+            );
+        }
+
         if prev < DATA_VERSION {
             conn.execute(
                 "INSERT INTO meta(k, v) VALUES('data_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
@@ -352,5 +402,141 @@ pub(crate) fn str_to_risk(s: &str) -> FileRisk {
         "high" => FileRisk::High,
         "medium" => FileRisk::Medium,
         _ => FileRisk::Low,
+    }
+}
+
+#[cfg(test)]
+mod migration_v11_tests {
+    use super::*;
+    use rusqlite::Connection;
+    use tempfile::tempdir;
+
+    /// 模拟 v10 库:执行 SCHEMA 但跳过 v11 UPDATE,手动塞中文 category 行。
+    /// 这是测试 v11 迁移幂等 + 正确性的最干净姿势 — 不依赖 classifier
+    /// 输出真实数据,只看迁移 SQL 的改写效果。
+    fn build_v10_db_with_legacy_zh(path: &std::path::Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute(
+            "INSERT INTO scan_run(started_at, finished_at, duration_ms, cancelled, \
+             total_files, total_bytes, roots_json, fingerprint) \
+             VALUES(0, 0, 0, 0, 0, 0, '[]', '')",
+            [],
+        )
+        .unwrap();
+        let run_id: i64 = conn.last_insert_rowid();
+        // 一行 stable ID + 三行各种中文 category,验证迁移把脏的改正、干净的不动
+        for (path_str, category) in [
+            ("/a", "browser_cache"),
+            ("/b", "浏览器缓存"),
+            ("/c", "通讯应用缓存"),
+            ("/d", "iOS 备份"),
+        ] {
+            conn.execute(
+                "INSERT INTO scan_result(run_id, path, category, size, size_bytes, risk, ai_reason) \
+                 VALUES(?1, ?2, ?3, '0', 0, 'low', '')",
+                params![run_id, path_str, category],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO trash_item(original_path, sandbox_path, size_bytes, category, \
+             risk, ai_reason, moved_at, status) \
+             VALUES('/x', '/y', 0, '回收站残留', 'low', '', 0, 'in_trash')",
+            [],
+        )
+        .unwrap();
+        // 把 data_version 设为 10,逼迫下次 Db::open 跑 v11 分支
+        conn.execute(
+            "INSERT INTO meta(k, v) VALUES('data_version', '10') \
+             ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            [],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn v11_rewrites_zh_categories_to_stable_ids() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("test.db");
+        build_v10_db_with_legacy_zh(&path);
+
+        let _db = Db::open(path.clone()).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let cats: Vec<String> = conn
+            .prepare("SELECT category FROM scan_result ORDER BY path")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            cats,
+            vec![
+                "browser_cache".to_string(),    // /a:已是 ID,不动
+                "browser_cache".to_string(),    // /b:浏览器缓存 → ID
+                "messaging_cache".to_string(), // /c:通讯应用缓存 → ID
+                "ios_backup".to_string(),       // /d:iOS 备份 → ID
+            ]
+        );
+
+        let trash_cat: String = conn
+            .query_row("SELECT category FROM trash_item LIMIT 1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+        assert_eq!(trash_cat, "trash_residue");
+
+        let version: String = conn
+            .query_row(
+                "SELECT v FROM meta WHERE k = 'data_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(version, DATA_VERSION.to_string());
+    }
+
+    #[test]
+    fn v11_is_idempotent_on_clean_db() {
+        // 已升级到 v11 的库再次 open 不应产生副作用(prev >= DATA_VERSION
+        // 走短路,且 WHERE category = '中文' 命中 0 条 UPDATE 即便跑也是
+        // no-op)。模拟"已升级库重启"的姿势:第一次 Db::open 完成完整
+        // 升级,然后插入 stable ID 数据,然后再次 open 验证未被改动。
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("test.db");
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO scan_run(started_at, finished_at, duration_ms, cancelled, \
+                 total_files, total_bytes, roots_json, fingerprint) \
+                 VALUES(0, 0, 0, 0, 0, 0, '[]', '')",
+                [],
+            )
+            .unwrap();
+            let run_id: i64 = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO scan_result(run_id, path, category, size, size_bytes, risk, ai_reason, mtime) \
+                 VALUES(?1, '/x', 'browser_cache', '0', 0, 'low', '', 0)",
+                params![run_id],
+            )
+            .unwrap();
+        }
+
+        // 二次 open:prev=11=DATA_VERSION,迁移分支整体跳过
+        let _ = Db::open(path.clone()).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let cat: String = conn
+            .query_row("SELECT category FROM scan_result LIMIT 1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+        assert_eq!(cat, "browser_cache");
     }
 }

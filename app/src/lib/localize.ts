@@ -96,19 +96,48 @@ export function localizeFieldInPlace<T extends Record<string, unknown>>(
 }
 
 /**
+ * Round 28 · 老中文 category → stable English ID 反查映射。后端 v11 迁移
+ * 已经把库里的 `scan_result.category` / `trash_item.category` 全量改写成
+ * stable ID,但**升级窗口期**(用户启动后端先 hydrate 缓存再跑 v11、或
+ * 前端发布早于后端发布)前端可能仍然收到中文 category;这里做个兜底保证
+ * 英文 UI 永远拿到英文。同时只覆盖 Round 26 之前 classifier 输出的 11 个
+ * 中文 category,future 新增 category 不需要补这表(因为新 classifier 直接
+ * 产出 stable ID,根本不会进 zh fallback 分支)。
+ */
+const LEGACY_ZH_CATEGORY_TO_STABLE_ID: Readonly<Record<string, string>> = {
+  浏览器缓存: 'browser_cache',
+  通讯应用缓存: 'messaging_cache',
+  开发产物: 'dev_artifacts',
+  系统临时: 'system_temp',
+  日志: 'logs',
+  'iOS 备份': 'ios_backup',
+  流媒体缓存: 'media_cache',
+  回收站残留: 'trash_residue',
+  过期下载: 'expired_download',
+  大型媒体: 'large_media',
+  待审查大文件: 'review_large',
+}
+
+/**
  * classifier category 的 stable English ID(`browser_cache` / `dev_artifacts`
  * 等)在 UI 渲染时翻译。同时兼容历史 DB 中残留的中文 category 名。
  *
  * @example
  *   localizeCategory('browser_cache') // → '浏览器缓存' / 'Browser cache'
- *   localizeCategory('浏览器缓存') // → '浏览器缓存' (老数据兼容直接显示)
+ *   localizeCategory('浏览器缓存') // → '浏览器缓存' / 'Browser cache' (Round 28 双向翻译)
  */
 export function localizeCategory(id: string | null | undefined): string {
   if (!id) return ''
-  // 老数据(中文 category)走 fast path,前端逻辑短路。
-  if (/[\u4e00-\u9fff]/.test(id)) return id
-  // 新数据走 i18n 字典 — 仅对 stable English ID 路径翻译。
-  const key = `category.${id}`
+  // Round 28 · 含汉字的老数据先反查映射成 stable ID,再走字典;反查
+  // 失败的中文(理论上不应发生 — 11 个 ID 全部覆盖)兜底原样显示,
+  // 不让 UI 崩成空字符串。
+  let resolved = id
+  if (/[\u4e00-\u9fff]/.test(id)) {
+    const stable = LEGACY_ZH_CATEGORY_TO_STABLE_ID[id]
+    if (!stable) return id
+    resolved = stable
+  }
+  const key = `category.${resolved}`
   const translated = i18n.global.t(key)
-  return translated === key ? id : translated
+  return translated === key ? resolved : translated
 }

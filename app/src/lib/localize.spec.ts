@@ -78,10 +78,21 @@ describe('localizeCategory', () => {
     expect(localizeCategory('ios_backup')).toBe('iOS 备份')
   })
 
-  it('returns Chinese category as-is (legacy DB compat)', () => {
-    // 历史数据短路:含中文字符直接 return,不进 i18n 字典查询
+  it('legacy Chinese category is mapped to stable ID then translated', () => {
+    // Round 28 · v11 迁移前的脏数据走 LEGACY_ZH_CATEGORY_TO_STABLE_ID
+    // 反查到 stable ID 后再过字典,等价于直接传 ID 的结果。
     expect(localizeCategory('浏览器缓存')).toBe('浏览器缓存')
     expect(localizeCategory('开发产物')).toBe('开发产物')
+    // 切英文也能翻译 — 这就是 Round 28 修复的用户报告
+    i18n.global.locale.value = 'en-US'
+    expect(localizeCategory('通讯应用缓存')).toBe('Messaging app cache')
+    expect(localizeCategory('iOS 备份')).toBe('iOS backup')
+    i18n.global.locale.value = 'zh-CN'
+  })
+
+  it('unknown Chinese (not in legacy map) falls back to original', () => {
+    // 不在白名单的中文兜底原样,不让 UI 崩成 stable ID 字面量
+    expect(localizeCategory('未知分类xyz')).toBe('未知分类xyz')
   })
 
   it('returns unknown English ID as-is when key missing', () => {
