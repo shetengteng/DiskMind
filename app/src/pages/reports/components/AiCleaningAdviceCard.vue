@@ -142,17 +142,21 @@ const updatedLabel = computed(() => {
 /**
  * 点击某档建议 → 跳到扫描结果页,按 tier 标准自动选中候选文件。
  *
- * Round 22 二次重构:不再用 URL query 传意图(早期实现在 Tauri webview
- * hash 模式 + router.replace 链上偶发 race,用户报告"页面卡死无法点击")。
- * 改成 store 单向投递:ai.queueAdviceSelection({runId,tier}) + 纯
- * router.push('/scan')。scan/index.vue 在 mounted / scan.results 就绪时
- * 消费一次后清空,不再依赖 reactive route.query 来回触发。
+ * 用 query 携带跨页面意图(`fromAdvice` + `adviceRunId`),scan/index.vue
+ * 在 results 就绪时一次性消费并清掉 query。走 query 不走 store 的理由:
+ * 跨页面意图本身是"短暂的导航参数",和路由是同生命周期 — 用 store 多
+ * 一份散落状态,跨标签/刷新还要单独清理,不如把生命周期交给 router。
  */
 function jumpToScanWithTier(tierName: 'safe' | 'balanced' | 'aggressive') {
   const runId = latestRun.value?.runId
   if (!runId) return
-  ai.queueAdviceSelection(runId, tierName)
-  void router.push('/scan')
+  void router.push({
+    path: '/scan',
+    query: {
+      fromAdvice: tierName,
+      adviceRunId: String(runId),
+    },
+  })
 }
 </script>
 

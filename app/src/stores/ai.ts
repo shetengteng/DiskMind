@@ -198,23 +198,6 @@ export const useAiStore = defineStore('ai', () => {
    * 徽章,鼓励用户点"刷新"再调一次 LLM。 */
   const adviceFromCache = ref(false)
 
-  /**
-   * Round 22 跨页面意图:Reports 页 AiCleaningAdviceCard 点击某档 tier
-   * 时塞进来,scan 页 mounted / scan.results 就绪时消费一次后立即清空。
-   *
-   * 走 store 不走 URL query 的理由:Tauri webview hash 模式下 router.replace
-   * 与 navigation reactive 链有偶发 race(用户上线复现"页面卡死无法点击"),
-   * 改成单向 store 投递后整条链路退化为 Vue reactivity,行为可观测且不会
-   * 引入循环。consumed 后 store 写回 null 即可。
-   */
-  const pendingAdviceSelection = ref<{ runId: number; tier: 'safe' | 'balanced' | 'aggressive' } | null>(null)
-  function queueAdviceSelection(runId: number, tier: 'safe' | 'balanced' | 'aggressive') {
-    pendingAdviceSelection.value = { runId, tier }
-  }
-  function consumeAdviceSelection() {
-    pendingAdviceSelection.value = null
-  }
-
   let activeStreamId: string | null = null
   let unsubStart: UnlistenFn | null = null
   let unsubChunk: UnlistenFn | null = null
@@ -1135,9 +1118,6 @@ export const useAiStore = defineStore('ai', () => {
     adviceProviderName,
     adviceModel,
     adviceFromCache,
-    pendingAdviceSelection,
-    queueAdviceSelection,
-    consumeAdviceSelection,
     generateCleaningAdvice,
     loadCleaningAdvice,
     clearCleaningAdvice,

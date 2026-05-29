@@ -28,6 +28,7 @@ import ScanResultsToolbar from './components/ScanResultsToolbar.vue'
 import ScanResultsTable from './components/ScanResultsTable.vue'
 import ScanResultsTree from './components/ScanResultsTree.vue'
 import DiskMapView from '@/pages/disk-map/components/DiskMapView.vue'
+import { selectRowsByAdviceTier } from '@/lib/selectAdviceTier'
 
 const scan = useScanStore()
 const ai = useAiStore()
@@ -99,17 +100,77 @@ watch(resultView, view => {
 })
 
 type ListMode = 'tree' | 'table'
-const listMode = ref<ListMode>('tree')
+// 默认用 table:tree 视图每行嵌套 reka-ui Tooltip / Checkbox / 多 Button,
+// 1000+ 行同步 mount 会让主线程卡死 5-30s。table 已经虚拟化,常驻只渲染
+// 可见 ~20 行,无论数据量都秒开。tree 留给用户主动切换,适合小数据集 +
+// 浏览结构化目录;applyAdviceSelectionIfPending 跳转时也会强制切到 table。
+const listMode = ref<ListMode>('table')
 
 const data = ref<(ScanResultRow & { selected: boolean })[]>([])
+
+// 关键顺序注意:applyAdviceSelectionIfPending 会同步访问 riskFilter /
+// categoryFilter,所以这些 ref 必须在任何可能触发 apply 的 watch 之前完成
+// 声明。Round 22 二次修复时把它们从原来的 watch 之后移到这里,根治
+// TDZ ReferenceError(immediate watch 同步触发时尚未走到 const 声明)。
+const search = ref('')
+const initialRisk = (route.query.risk as string | undefined)
+const initialCategory = (route.query.category as string | undefined)
+const riskFilter = ref<'all' | FileRisk>(
+  initialRisk === 'low' || initialRisk === 'medium' || initialRisk === 'high' ? initialRisk : 'all',
+)
+const categoryFilter = ref<string>(initialCategory ?? 'all')
+const sortKey = ref<'size' | 'risk' | 'path'>('size')
+const sortDir = ref<'asc' | 'desc'>('desc')
+
+/**
+ * Round 22 · 「AI 清理建议 → 跳转到扫描页自动选中」消费端。
+ *
+ * 跨页面意图通过 URL query (`fromAdvice` + `adviceRunId`) 传递,这里读出
+ * 来按 tier 标准选中候选文件。选中逻辑由 `selectRowsByAdviceTier` 纯函数
+ * 承担,本函数只做"何时调 + 调完同步 UI 状态"的协调。
+ *
+ * 触发点收敛到两处 — 不再让 `watch(route.query)` 也触发,避免
+ * "router.replace 清 query → watch(route.query) → 又调 apply" 的循环:
+ *   a. onMounted:   reports → push('/scan') 时 results 已就绪场景
+ *   b. watch(scan.results): scan 还在跑、results 后到的场景
+ *
+ * 消费完成后用 router.replace 把 fromAdvice/adviceRunId 从 URL 抹掉,
+ * 防止刷新页面/前进后退再次触发选中。
+ */
+async function applyAdviceSelectionIfPending() {
+  const tier = route.query.fromAdvice
+  if (tier !== 'safe' && tier !== 'balanced' && tier !== 'aggressive') return
+  if (data.value.length === 0) return
+
+  const tierData = ai.adviceResult?.tiers.find(x => x.name === tier)
+  if (!tierData) {
+    // advice 数据丢失,清掉 query 防止后续误触
+    await router.replace({
+      query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined },
+    })
+    return
+  }
+
+  selectRowsByAdviceTier(data.value, tierData)
+
+  // 选中行被当前 filter 隐藏会让用户误以为没选中,主动复位
+  riskFilter.value = 'all'
+  categoryFilter.value = 'all'
+  resultView.value = 'list'
+  listMode.value = 'table'
+
+  await router.replace({
+    query: { ...route.query, fromAdvice: undefined, adviceRunId: undefined },
+  })
+}
 
 watch(
   () => scan.results,
   rows => {
     data.value = rows.map(r => ({ ...r, selected: false }))
-    // results 重置时,如果有 pending advice 投递,需要重新尝试选中(对应
-    // "用户来时 scan.results 还没就绪"的边界场景)
-    applyAdviceSelectionIfPending()
+    // results 重置时,若 URL 仍带 fromAdvice 意图,需要重跑一次选中(对应
+    // "scan 还在跑,results 后到"的场景)。fire-and-forget 即可。
+    void applyAdviceSelectionIfPending()
   },
   { immediate: true, deep: false },
 )
@@ -120,16 +181,6 @@ watch(
     if (phase === 'idle') data.value = []
   },
 )
-
-const search = ref('')
-const initialRisk = (route.query.risk as string | undefined)
-const initialCategory = (route.query.category as string | undefined)
-const riskFilter = ref<'all' | FileRisk>(
-  initialRisk === 'low' || initialRisk === 'medium' || initialRisk === 'high' ? initialRisk : 'all',
-)
-const categoryFilter = ref<string>(initialCategory ?? 'all')
-const sortKey = ref<'size' | 'risk' | 'path'>('size')
-const sortDir = ref<'asc' | 'desc'>('desc')
 
 watch(
   () => route.query,
@@ -145,62 +196,8 @@ watch(
   },
 )
 
-/**
- * Round 22 · 「AI 清理建议 → 跳转到扫描页自动选中」消费端。
- *
- * 第一版用 URL query 传意图,Tauri webview hash 模式 + router.replace 触发
- * navigation reactive race,用户复现"页面卡死无法点击"。第二版改成 Pinia
- * store 单向投递(`ai.pendingAdviceSelection`),消费一次后立刻清空,完全
- * 不再依赖 route.query 来回触发。
- *
- * 选中逻辑:`RISK_ORDER[r.risk] <= RISK_ORDER[tier.risk_level]` AND
- * `r.category ∈ tier.categories`(后者 categories 为空时退化为仅按 risk
- * 过滤,避免 LLM 偶尔输出空 categories 时全部不选)。
- *
- * mounted hook + watch(scan.results) 双轨触发,覆盖三个时序:
- *   a. Reports → push('/scan') 时 scan.results 已就绪 → onMounted 命中
- *   b. 用户来时 scan.results 还没就绪 → watch(scan.results) 命中
- *   c. ai.adviceResult 还没加载 → 早退,等 reports 触发的 advice 重载后
- *      下一次 scan.results 抖动再试(罕见,日常 advice 已缓存在 store)
- *
- * 安全保证:消费前判断 data.value 长度,避免在空数据上"假装选中";消费成功
- * 后立即 `ai.consumeAdviceSelection()` 防止重复触发。
- */
-function applyAdviceSelectionIfPending() {
-  const pending = ai.pendingAdviceSelection
-  if (!pending) return
-  if (data.value.length === 0) return
-
-  const tierData = ai.adviceResult?.tiers.find(x => x.name === pending.tier)
-  if (!tierData) {
-    // advice 数据丢失,清掉意图防止后续 watch 误触
-    ai.consumeAdviceSelection()
-    return
-  }
-
-  const RISK_ORDER: Record<FileRisk, number> = { low: 0, medium: 1, high: 2 }
-  const maxRisk = RISK_ORDER[tierData.risk_level]
-  const allowedCategories = new Set(tierData.categories)
-  const useCategoryFilter = allowedCategories.size > 0
-
-  for (const r of data.value) r.selected = false
-  for (const r of data.value) {
-    if (RISK_ORDER[r.risk] > maxRisk) continue
-    if (useCategoryFilter && !allowedCategories.has(r.category)) continue
-    r.selected = true
-  }
-
-  // 选中行被当前 filter 隐藏会让用户误以为没选中,主动复位
-  riskFilter.value = 'all'
-  categoryFilter.value = 'all'
-  resultView.value = 'list'
-  listMode.value = 'table'
-
-  ai.consumeAdviceSelection()
-}
-
 onMounted(() => {
-  applyAdviceSelectionIfPending()
+  void applyAdviceSelectionIfPending()
 })
 
 const allCategories = computed(() => [...new Set(scan.results.map(r => r.category))])

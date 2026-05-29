@@ -57,7 +57,7 @@ const selectedIds = computed(() => {
         :key="child.fullPath || child.name"
         :node="child"
         :depth="0"
-        :default-open="tree.children.length <= 3"
+        :default-open="false"
         :selected-ids="selectedIds"
         @ask-ai="(row) => emit('askAi', row)"
         @ask-explain="(row) => emit('askExplain', row)"

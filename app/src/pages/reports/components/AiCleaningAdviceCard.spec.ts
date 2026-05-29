@@ -204,7 +204,7 @@ describe('AiCleaningAdviceCard', () => {
     wrapper.unmount()
   })
 
-  it('clicking a tier card queues store intent + pushes plain /scan (Round 22 jump feature, second-pass refactor)', async () => {
+  it('clicking a tier card pushes /scan with fromAdvice + adviceRunId query (Round 22 jump feature)', async () => {
     // 让 advice 缓存命中,渲染出三档 tier 按钮
     mocks.aiCleaningAdviceGet.mockResolvedValueOnce({
       runId: 42,
@@ -250,18 +250,17 @@ describe('AiCleaningAdviceCard', () => {
     const tierBtns = wrapper.findAll('button').filter(b => /Safe|Balanced|Aggressive/.test(b.text()))
     expect(tierBtns).toHaveLength(3)
 
-    const { useAiStore } = await import('@/stores/ai')
-    const ai = useAiStore()
-
     const balancedBtn = tierBtns.find(b => b.text().includes('Balanced'))!
     await balancedBtn.trigger('click')
     await flushPromises()
 
-    // 第二版契约:click → store.queueAdviceSelection(runId, tier) + 纯路径 push
-    // 不再带 query,因为 Tauri hash 模式 query 来回触发会引发 navigation race。
-    expect(ai.pendingAdviceSelection).toEqual({ runId: 42, tier: 'balanced' })
+    // 契约:click → router.push 携带 fromAdvice + adviceRunId query。
+    // scan/index.vue 在 results 就绪时消费 query 自动选中候选行,然后 router.replace 抹掉。
     expect(pushSpy).toHaveBeenCalledOnce()
-    expect(pushSpy.mock.calls[0]![0]).toBe('/scan')
+    expect(pushSpy.mock.calls[0]![0]).toEqual({
+      path: '/scan',
+      query: { fromAdvice: 'balanced', adviceRunId: '42' },
+    })
     wrapper.unmount()
   })
 })
