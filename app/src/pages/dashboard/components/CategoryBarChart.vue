@@ -66,11 +66,13 @@ const xAccessor = (_d: CategoryDatum, i: number) => i
 const yAccessor = (d: CategoryDatum) => d.gb
 // Round 32 · 切换到 categorical palette — 与 reports 页 CategoryDistribution
 // 共用 `--cat-{1..10}` palette + `categoryColorIndex` 稳定 hash,同一个
-// category 在仪表盘 / 报告页拿到相同颜色,跨页面视觉一致。每个柱子一个
-// hue,主题统一(同 lightness/chroma)且能直观区分类别 — 替代 Round 31
-// rank gradient(rank gradient 在数据更长尾 / 数量相近时区分度不够)。
+// category 在仪表盘 / 报告页拿到相同颜色,跨页面视觉一致。
+//
+// 仪表盘大色块用 80% 透明度(`color-mix(in oklch, ... 80%, transparent)`)
+// 让大柱子不至于压过周围 UI;reports 页是细 progress bar,保持实色以维持
+// 区分度。tooltip 里的 dot 也走实色,作为色卡 reference。
 const colorAccessor = (d: CategoryDatum) =>
-  `var(--cat-${categoryColorIndex(d.name)})`
+  `color-mix(in oklch, var(--cat-${categoryColorIndex(d.name)}) 80%, transparent)`
 const xTickFormat = (i: number) => data.value[i]?.displayName ?? ''
 
 function formatGB(v: number) {
