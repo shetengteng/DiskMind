@@ -285,7 +285,8 @@ export const useAiStore = defineStore('ai', () => {
             msg.content = parsed.visibleContent
             msg.action = { parsed: parsed.action, status: 'pending' }
           } else if (parsed.parseError) {
-            msg.content = `${parsed.visibleContent}\n\n_⚠️ ${parsed.parseError}_`
+            // Round 31 · parseError 是 i18n marker,UI 渲染前需 localize() 翻译
+            msg.content = `${parsed.visibleContent}\n\n_⚠️ ${localize(parsed.parseError)}_`
           }
           // 持久化 assistant 最终内容(action 协议已剥离)。在 reset
           // 期间 sessionId 可能被清,持久化前再核对一下;无 sid 时

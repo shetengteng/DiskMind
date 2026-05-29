@@ -404,9 +404,6 @@ export default {
         anthropic: 'Anthropic',
         ollama: 'Ollama',
       },
-      template: {
-        ollama_local: 'Ollama 本地',
-      },
     },
     providerEdit: {
       addButton: '添加 Provider',
@@ -811,6 +808,14 @@ export default {
       path_not_found: '路径不存在: {path}',
     },
   },
+
+  aiActions: {
+    parseError: {
+      jsonInvalid: '动作块 JSON 解析失败: {err}',
+      invalidStructure: '动作块结构不符合协议(缺少 type / title / items)',
+    },
+  },
+
 
   // 用户消息气泡里展示的 AI prompt 拼接(用户切到 EN 时也不该看到中文气泡)
   aiPrompt: {

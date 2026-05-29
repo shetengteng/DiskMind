@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
 );
 "#;
 
-const DATA_VERSION: i64 = 13;
+const DATA_VERSION: i64 = 14;
 
 /// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
 /// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里
@@ -422,6 +422,25 @@ impl Db {
                 "[diskmind] db migration v13: rewrote {} provider.kind row{} to stable English IDs",
                 migrated,
                 if migrated == 1 { "" } else { "s" }
+            );
+        }
+
+        // v14 · Round 31 · provider.name 历史中文模板名 → 纯英文。Round 30
+        // 模板默认 name 已统一为英文(与 "Anthropic Claude" / "OpenAI" 等
+        // 品牌名风格对齐),本迁移把老 DB 里残留的 "Ollama 本地" 一次性
+        // 改写为 "Ollama Local"。**仅匹配 exact 字面量**,用户自定义的名
+        // 字(哪怕也含中文)不会被改 — 只有"模板默认值未改过的那种"才命中。
+        if prev < 14 {
+            let tx = conn.transaction()?;
+            let n = tx.execute(
+                "UPDATE provider SET name = 'Ollama Local' WHERE name = 'Ollama 本地'",
+                [],
+            )?;
+            tx.commit()?;
+            eprintln!(
+                "[diskmind] db migration v14: rewrote {} provider.name row{} (Ollama 本地 → Ollama Local)",
+                n,
+                if n == 1 { "" } else { "s" }
             );
         }
 
@@ -715,5 +734,70 @@ mod migration_v11_tests {
             })
             .unwrap();
         assert_eq!(kind, "openai_compat");
+    }
+
+    /// v14 migration · provider.name "Ollama 本地" → "Ollama Local"。
+    /// 仅命中 exact 字面量,用户自定义的中文 name(模糊匹配)不被改。
+    #[test]
+    fn v14_rewrites_ollama_local_zh_to_en() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("test.db");
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            for (id, name) in &[
+                ("p1", "Ollama 本地"),         // exact 模板默认值,会被改
+                ("p2", "我的 Ollama 本地"),    // 用户改过,不被改
+                ("p3", "Ollama Local"),        // 已英文,不被改
+                ("p4", "OpenAI"),              // 其它品牌名,不被改
+            ] {
+                conn.execute(
+                    "INSERT INTO provider(id, name, kind, base_url, model, api_key, \
+                     enabled, is_default, status, latency_ms, updated_at) \
+                     VALUES(?1, ?2, 'openai_compat', 'u', 'm', '', 1, 0, 'untested', NULL, 0)",
+                    params![id, name],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO meta(k, v) VALUES('data_version', '13') \
+                 ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                [],
+            )
+            .unwrap();
+        }
+
+        let _ = Db::open(path.clone()).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let names: Vec<(String, String)> = conn
+            .prepare("SELECT id, name FROM provider ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("p1".to_string(), "Ollama Local".to_string()),       // 改写
+                ("p2".to_string(), "我的 Ollama 本地".to_string()),  // 不改
+                ("p3".to_string(), "Ollama Local".to_string()),       // 不动
+                ("p4".to_string(), "OpenAI".to_string()),              // 不动
+            ]
+        );
+
+        let version: String = conn
+            .query_row(
+                "SELECT v FROM meta WHERE k = 'data_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(version, DATA_VERSION.to_string());
     }
 }

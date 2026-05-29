@@ -69,6 +69,16 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+  /* Round 31 · Bar Chart "rank gradient" 调色板 — 单色相 (sky 232°)
+   * 5 档 lightness 梯度,深色=大数据/前排,浅色=小数据/后排。
+   * 视觉上"主题统一"且按数据 rank 自带语义,与 categorical chart-1..5 互补,
+   * 不冲突。Reference: Tailwind CSS sky-{600,500,400,300,200},
+   * Linear / Vercel / Stripe 同款单色相 ranked 风格。 */
+  --bar-rank-1: oklch(0.62 0.16 232);
+  --bar-rank-2: oklch(0.68 0.16 226);
+  --bar-rank-3: oklch(0.75 0.13 222);
+  --bar-rank-4: oklch(0.81 0.10 220);
+  --bar-rank-5: oklch(0.86 0.07 224);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
@@ -108,6 +118,14 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.72 0.22 303.9);
   --chart-5: oklch(0.72 0.21 16.439);
+  /* Round 31 · 深色模式下 lightness 整体上拉(0.62 → 0.78),
+   * 同时把饱和度逐档收一点点 (0.18 → 0.10) 让浅色档不刺眼;
+   * 色相保持 226° 稳定一致。 */
+  --bar-rank-1: oklch(0.78 0.18 226);
+  --bar-rank-2: oklch(0.74 0.16 226);
+  --bar-rank-3: oklch(0.70 0.14 226);
+  --bar-rank-4: oklch(0.66 0.12 226);
+  --bar-rank-5: oklch(0.62 0.10 226);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);

@@ -64,10 +64,15 @@ const chartConfig = computed<ChartConfig>(() => ({
 
 const xAccessor = (_d: CategoryDatum, i: number) => i
 const yAccessor = (d: CategoryDatum) => d.gb
-// 用 shadcn 的 primary token 做单色柱状图。shadcn 自带的 chart-1 是偏
-// 红的暖色,用户反馈“太红了”;改用 --primary,与应用品牌中性色一
-// 致,与周围 UI 始终不冲突。
-const colorAccessor = () => 'var(--primary)'
+// Round 31 · 用 "rank gradient" 单色相梯度替代单一 primary 色 — 深色 = 大
+// 数据,浅色 = 小数据,视觉上既"主题统一"又自带语义。color token 在
+// `assets/index.css` 中以 `--bar-rank-{1..5}` 定义,light/dark 双套自动
+// 切换。前 5 名各自分档,第 6+ 名 fallback 到最浅(--bar-rank-5),避免
+// 调色板溢出 — 长尾通常很少,且小数据浅色化也符合"次要"心智。
+const colorAccessor = (_d: CategoryDatum, i: number) => {
+  const rank = Math.min(i, 4) + 1
+  return `var(--bar-rank-${rank})`
+}
 const xTickFormat = (i: number) => data.value[i]?.displayName ?? ''
 
 function formatGB(v: number) {
@@ -77,12 +82,17 @@ function formatGB(v: number) {
 function tooltipTemplate(d: CategoryDatum) {
   if (!d) return ''
   const gb = formatGB(d.gb)
+  // 通过 datum 在 sorted data[] 中的索引 → rank token,让 tooltip 的色块
+  // 与该 bar 的实际颜色对齐。findIndex 走 stable ID 等值匹配,而不是
+  // 引用相等 — unovis hover handler 在过渡帧可能传入 datum 的 stale 拷贝。
+  const idx = data.value.findIndex(x => x.name === d.name)
+  const rank = idx < 0 ? 1 : Math.min(idx, 4) + 1
   return `
     <div class="border-border/50 bg-background grid min-w-[8rem] gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
       <div class="font-medium text-foreground">${escapeHtml(d.displayName)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
-          <span class="size-2 rounded-[2px]" style="background: var(--color-gb)"></span>
+          <span class="size-2 rounded-[2px]" style="background: var(--bar-rank-${rank})"></span>
           ${escapeHtml(gb)}
         </span>
         <span class="font-mono tabular-nums text-foreground">${d.count}</span>

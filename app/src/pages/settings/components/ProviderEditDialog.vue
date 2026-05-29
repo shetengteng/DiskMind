@@ -62,23 +62,21 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const providers = useProvidersStore()
 
-// Round 30 · template 列表用 stable ID 当 kind,显示 name 走 i18n key。
-// `nameKey` 不为 null 时走 t() 翻译(给"Ollama 本地"这种带本地化标识的);
-// null 表示直接用 `name` 字面量(品牌名 DeepSeek / OpenAI / etc. 不翻)。
+// Round 31 · 全部模板默认 name 走纯英文(品牌名 + 英文定语),与
+// "Anthropic Claude" / "OpenAI" / "DeepSeek" 等保持一致。Round 30 短暂引
+// 入的 i18n nameKey 机制移除 — 此前只有 "Ollama 本地" 一处用到,简化方
+// 案:模板默认值统一英文,DB v14 migration 一次性改写历史中文残留;真要
+// 自定义中文名,用户可以保存后自己改。
 const providerTemplates = [
-  { name: 'DeepSeek', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', icon: Sparkles },
-  { name: 'OpenAI', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', icon: Bot },
-  { name: 'Moonshot Kimi', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', icon: Sparkles },
-  { name: 'SiliconFlow', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-32B-Instruct', icon: Cloud },
-  { name: 'Together AI', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B', icon: Cloud },
-  { name: 'Groq', nameKey: null, kind: 'openai_compat' as const, baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', icon: Zap },
-  { name: 'Anthropic Claude', nameKey: null, kind: 'anthropic' as const, baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-latest', icon: Bot },
-  { name: 'Ollama Local', nameKey: 'settings.providers.template.ollama_local', kind: 'ollama' as const, baseUrl: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', icon: Server },
+  { name: 'DeepSeek', kind: 'openai_compat' as const, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', icon: Sparkles },
+  { name: 'OpenAI', kind: 'openai_compat' as const, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', icon: Bot },
+  { name: 'Moonshot Kimi', kind: 'openai_compat' as const, baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', icon: Sparkles },
+  { name: 'SiliconFlow', kind: 'openai_compat' as const, baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-32B-Instruct', icon: Cloud },
+  { name: 'Together AI', kind: 'openai_compat' as const, baseUrl: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B', icon: Cloud },
+  { name: 'Groq', kind: 'openai_compat' as const, baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', icon: Zap },
+  { name: 'Anthropic Claude', kind: 'anthropic' as const, baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-latest', icon: Bot },
+  { name: 'Ollama Local', kind: 'ollama' as const, baseUrl: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', icon: Server },
 ]
-
-function templateLabel(tpl: typeof providerTemplates[number]): string {
-  return tpl.nameKey ? t(tpl.nameKey) : tpl.name
-}
 
 const isEdit = computed(() => Boolean(editing.value?.id))
 const canSave = computed(
@@ -105,11 +103,9 @@ const testing = computed(() => {
  * 字段仅作为发现性提示保留。
  */
 function pickTemplate(tpl: typeof providerTemplates[number]) {
-  // 用模板填充时 name 也用本地化 label(让用户拿到一个"看着对劲"的名字)
-  const label = templateLabel(tpl)
   editing.value = {
     ...editing.value,
-    name: editing.value?.name?.trim() ? editing.value.name : label,
+    name: editing.value?.name?.trim() ? editing.value.name : tpl.name,
     kind: tpl.kind,
     baseUrl: tpl.baseUrl,
     model: editing.value?.model?.trim() ? editing.value.model : '',
@@ -296,7 +292,7 @@ async function testNow() {
             @click="pickTemplate(tpl)"
           >
             <component :is="tpl.icon" class="size-3.5 shrink-0 text-primary" />
-            <span class="truncate">{{ templateLabel(tpl) }}</span>
+            <span class="truncate">{{ tpl.name }}</span>
           </button>
         </div>
       </div>

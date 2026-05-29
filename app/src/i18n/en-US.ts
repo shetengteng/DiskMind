@@ -406,11 +406,6 @@ export default {
         anthropic: 'Anthropic',
         ollama: 'Ollama',
       },
-      // template 名带本地化标识的(如 "Ollama 本地" → "Ollama Local"),
-      // 走单独 key,品牌名(DeepSeek / OpenAI / etc.)不翻译直接放代码里。
-      template: {
-        ollama_local: 'Ollama Local',
-      },
     },
     providerEdit: {
       addButton: 'Add Provider',
@@ -814,6 +809,16 @@ export default {
       path_not_found: 'Path not found: {path}',
     },
   },
+
+  // Round 31 · LLM 回复中的 <diskmind-action> 协议块解析错误 — 由 aiActions.ts
+  // 通过 i18n marker 抛出,UI 调用 localize() 翻译展示。
+  aiActions: {
+    parseError: {
+      jsonInvalid: 'Action block JSON parse failed: {err}',
+      invalidStructure: 'Action block does not match the protocol (missing type / title / items)',
+    },
+  },
+
 
   aiPrompt: {
     analyzeFile: 'Please analyze in detail: `{path}` ({size}). Is this file safe to delete?',

@@ -76,7 +76,8 @@ export function parseAiMessage(raw: string): ParsedAiMessage {
     return {
       visibleContent,
       action: null,
-      parseError: `动作块 JSON 解析失败: ${String(e)}`,
+      // Round 31 · 用 i18n marker 替代硬编码中文,消费方走 localize() 翻译
+      parseError: `$i18n:aiActions.parseError.jsonInvalid|err=${encodeURIComponent(String(e))}`,
     }
   }
 
@@ -85,7 +86,7 @@ export function parseAiMessage(raw: string): ParsedAiMessage {
     return {
       visibleContent,
       action: null,
-      parseError: '动作块结构不符合协议(缺少 type / title / items)',
+      parseError: '$i18n:aiActions.parseError.invalidStructure',
     }
   }
   return { visibleContent, action, parseError: null }
