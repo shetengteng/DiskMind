@@ -146,7 +146,7 @@ pub fn run() {
                 let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
                 let tray_handle = app.handle().clone();
-                let _tray = TrayIconBuilder::with_id("diskmind-main")
+                let mut tray_builder = TrayIconBuilder::with_id("diskmind-main")
                     .icon(app.default_window_icon().cloned().ok_or_else(|| {
                         Box::<dyn std::error::Error>::from(
                             "default_window_icon missing — tray icon cannot be built",
@@ -154,7 +154,20 @@ pub fn run() {
                     })?)
                     .tooltip(crate::i18n::tray::tooltip(&initial_locale))
                     .menu(&tray_menu)
-                    .show_menu_on_left_click(false)
+                    .show_menu_on_left_click(false);
+
+                // Round 32 · macOS menubar 期望 template image —— 只读 alpha
+                // 通道,系统按 light/dark menubar 自动反色。直接使用应用彩
+                // 色 logo 在 dark menubar 下会显得"完全消失"或一团糊(用户
+                // 反馈"托盘没有看到")。Windows/Linux 不支持此 API,只在
+                // macOS 启用。如果未来想保留彩色品牌色,再换成专用 32x32
+                // 单色 PNG + 仅 macOS 走 template path 即可。
+                #[cfg(target_os = "macos")]
+                {
+                    tray_builder = tray_builder.icon_as_template(true);
+                }
+
+                let _tray = tray_builder
                     .on_menu_event(move |app, event| match event.id.as_ref() {
                         "tray:show" => {
                             if let Some(win) = app.get_webview_window("main") {

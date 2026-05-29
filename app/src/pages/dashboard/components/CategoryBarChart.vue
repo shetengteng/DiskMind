@@ -68,11 +68,13 @@ const yAccessor = (d: CategoryDatum) => d.gb
 // 共用 `--cat-{1..10}` palette + `categoryColorIndex` 稳定 hash,同一个
 // category 在仪表盘 / 报告页拿到相同颜色,跨页面视觉一致。
 //
-// 仪表盘大色块用 80% 透明度(`color-mix(in oklch, ... 80%, transparent)`)
-// 让大柱子不至于压过周围 UI;reports 页是细 progress bar,保持实色以维持
-// 区分度。tooltip 里的 dot 也走实色,作为色卡 reference。
+// 仪表盘大色块 fill 给 65% 透明度 — 视觉柔和,不至于压过周围 UI;同时
+// 通过 unovis 暴露的 `--vis-grouped-bar-stroke-{color,width}` CSS 变量
+// 在 ChartContainer scope 里加一道 fg/35% 暗色 stroke(见 <style>),让
+// 半透明柱子有清晰边框,Round 32 用户反馈"看不出来,边框颜色深一点"
+// 的诉求由此满足。reports 页是细 progress bar,继续保持实色。
 const colorAccessor = (d: CategoryDatum) =>
-  `color-mix(in oklch, var(--cat-${categoryColorIndex(d.name)}) 80%, transparent)`
+  `color-mix(in oklch, var(--cat-${categoryColorIndex(d.name)}) 65%, transparent)`
 const xTickFormat = (i: number) => data.value[i]?.displayName ?? ''
 
 function formatGB(v: number) {
@@ -141,7 +143,7 @@ const events = {
   <ChartContainer
     v-if="!isEmpty"
     :config="chartConfig"
-    class="aspect-auto h-[260px] w-full"
+    class="aspect-auto h-[260px] w-full chart-bar-with-stroke"
   >
     <VisXYContainer :data="data" :margin="{ top: 8, right: 8, bottom: 8, left: 8 }">
       <VisGroupedBar
@@ -179,3 +181,16 @@ const events = {
     <p class="text-sm">{{ t('dashboard.chartEmpty') }}</p>
   </div>
 </template>
+
+<style scoped>
+/* Round 32 · unovis grouped-bar 通过 `--vis-grouped-bar-stroke-{color,
+   width}` CSS 变量暴露描边能力。fill 65% 透明的柱子在白底上偏淡,
+   补一道 fg/35% 透明的暗色 stroke 让轮廓可见。CSS variable 走原生继
+   承,Vue scoped 不影响传递,任何子层 SVG <rect> 都会读到。 */
+.chart-bar-with-stroke {
+  --vis-grouped-bar-stroke-color: color-mix(in oklch, var(--foreground) 35%, transparent);
+  --vis-grouped-bar-stroke-width: 1px;
+  --vis-grouped-bar-hover-stroke-color: var(--foreground);
+  --vis-grouped-bar-hover-stroke-width: 1.5px;
+}
+</style>
