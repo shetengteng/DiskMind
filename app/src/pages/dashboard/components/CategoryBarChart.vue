@@ -10,7 +10,7 @@ import {
 } from '@unovis/vue'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { useScanStore } from '@/stores/scan'
-import { localizeCategory } from '@/lib/localize'
+import { localizeCategory, categoryColorIndex } from '@/lib/localize'
 
 const { t } = useI18n()
 const scan = useScanStore()
@@ -64,41 +64,40 @@ const chartConfig = computed<ChartConfig>(() => ({
 
 const xAccessor = (_d: CategoryDatum, i: number) => i
 const yAccessor = (d: CategoryDatum) => d.gb
-// Round 31 · 用 "rank gradient" 单色相梯度替代单一 primary 色 — 深色 = 大
-// 数据,浅色 = 小数据,视觉上既"主题统一"又自带语义。color token 在
-// `assets/index.css` 中以 `--bar-rank-{1..5}` 定义,light/dark 双套自动
-// 切换。前 5 名各自分档,第 6+ 名 fallback 到最浅(--bar-rank-5),避免
-// 调色板溢出 — 长尾通常很少,且小数据浅色化也符合"次要"心智。
-const colorAccessor = (_d: CategoryDatum, i: number) => {
-  const rank = Math.min(i, 4) + 1
-  return `var(--bar-rank-${rank})`
-}
+// Round 32 · 切换到 categorical palette — 与 reports 页 CategoryDistribution
+// 共用 `--cat-{1..10}` palette + `categoryColorIndex` 稳定 hash,同一个
+// category 在仪表盘 / 报告页拿到相同颜色,跨页面视觉一致。每个柱子一个
+// hue,主题统一(同 lightness/chroma)且能直观区分类别 — 替代 Round 31
+// rank gradient(rank gradient 在数据更长尾 / 数量相近时区分度不够)。
+const colorAccessor = (d: CategoryDatum) =>
+  `var(--cat-${categoryColorIndex(d.name)})`
 const xTickFormat = (i: number) => data.value[i]?.displayName ?? ''
 
 function formatGB(v: number) {
   return `${v.toFixed(v >= 10 ? 1 : 2)} GB`
 }
 
-function tooltipTemplate(d: CategoryDatum) {
-  if (!d) return ''
-  // Round 32 · 与 RiskDonutChart 同样的 NaN/undefined 防御 — unovis 过
-  // 渡帧 / partial datum 下数值字段可能短暂 undefined,直接 toFixed()
-  // 会拿到 "NaN"。通过 stable ID 反查 store 真实 datum 后再用类型守卫
-  // 兜底成 0。同时反查 sorted index → rank token,让 tooltip 色块与 bar
-  // 颜色严格对齐。
-  const idx = data.value.findIndex(x => x.name === d.name)
-  const datum = idx >= 0 ? data.value[idx]! : d
-  const gbNum = typeof datum.gb === 'number' ? datum.gb : 0
-  const count = typeof datum.count === 'number' ? datum.count : 0
-  const displayName = datum.displayName ?? d.displayName ?? ''
-  const rank = idx < 0 ? 1 : Math.min(idx, 4) + 1
+function tooltipTemplate(d: unknown) {
+  if (!d || typeof d !== 'object') return ''
+  // Round 32 · 与 RiskDonutChart 同样的 datum 解包 — unovis 在过渡帧可
+  // 能传 wrapped datum (`{ data: T, ... }`),先 unwrap 一层再走 stable
+  // ID 反查到 store 真实 datum;数值字段全部 typeof guard 兜底为 0。
+  const wrapped = d as { data?: unknown; name?: string }
+  const inner = (wrapped.data && typeof wrapped.data === 'object' ? wrapped.data : d) as Partial<CategoryDatum>
+  const real: Partial<CategoryDatum> = inner.name
+    ? data.value.find(x => x.name === inner.name) ?? inner
+    : inner
+  const gbNum = typeof real.gb === 'number' ? real.gb : 0
+  const count = typeof real.count === 'number' ? real.count : 0
+  const displayName = real.displayName ?? ''
+  const colorIdx = real.name ? categoryColorIndex(real.name) : 1
   const gb = formatGB(gbNum)
   return `
     <div class="border-border/50 bg-background grid min-w-[8rem] gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
       <div class="font-medium text-foreground">${escapeHtml(displayName)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
-          <span class="size-2 rounded-[2px]" style="background: var(--bar-rank-${rank})"></span>
+          <span class="size-2 rounded-[2px]" style="background: var(--cat-${colorIdx})"></span>
           ${escapeHtml(gb)}
         </span>
         <span class="font-mono tabular-nums text-foreground">${count}</span>
@@ -122,11 +121,16 @@ function escapeHtml(s: string | null | undefined) {
 
 const triggers = {
   [VisGroupedBarSelectors.bar]: tooltipTemplate,
-} as Record<string, (d: CategoryDatum) => string>
+} as Record<string, (d: unknown) => string>
 
 const events = {
   [VisGroupedBarSelectors.bar]: {
-    click: (d: CategoryDatum) => emit('select', d.name),
+    // 与 tooltip 同模式 — wrapped datum 时 .name 在 .data.name 下
+    click: (d: unknown) => {
+      const wrapped = d as { data?: CategoryDatum; name?: string }
+      const inner = wrapped?.data ?? (wrapped as CategoryDatum)
+      if (inner?.name) emit('select', inner.name)
+    },
   },
 }
 </script>

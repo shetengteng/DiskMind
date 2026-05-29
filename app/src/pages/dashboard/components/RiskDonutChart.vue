@@ -81,18 +81,31 @@ function escapeHtml(s: string | null | undefined) {
   ))
 }
 
-function tooltipTemplate(d: RiskDatum) {
-  if (!d) return ''
-  // Round 32 · NaN 修复:unovis 过渡帧 / partial datum 下,`d.bytes` /
-  // `d.count` 可能短暂为 undefined,导致 `d.bytes / total` 退化为 NaN
-  // 然后 `(NaN).toFixed(1)` 给出 "NaN" 字符串(用户报告"中 鼠标移动上去
-  // 显示 NaN")。通过 `d.key` 反查 store 真实 datum,数值字段全部用
-  // typeof guard 兜底为 0。
-  const datum = data.value.find(x => x.key === d.key) ?? d
-  const bytes = typeof datum.bytes === 'number' ? datum.bytes : 0
-  const count = typeof datum.count === 'number' ? datum.count : 0
-  const name = datum.name ?? d.name ?? ''
-  const total = data.value.reduce((acc, x) => acc + (typeof x.bytes === 'number' ? x.bytes : 0), 0)
+function tooltipTemplate(d: unknown) {
+  if (!d || typeof d !== 'object') return ''
+  // Round 32 · 关键修复:unovis VisDonut 给 segment tooltip 传入的不是
+  // 原始 RiskDatum,而是 d3.PieArcDatum<T>,形如:
+  //   { data: RiskDatum, value: number, index, startAngle, endAngle, ... }
+  // 上一版直接读 `d.bytes` / `d.key` 全是 undefined,先得到 NaN,加了
+  // 类型守卫后又退成 0。正确解包:`(d as any).data ?? d`,优先用 .data,
+  // 兜底走 d 本身(防御 unovis API 变化)。
+  const arc = d as { data?: unknown; value?: number }
+  const inner = (arc.data && typeof arc.data === 'object' ? arc.data : d) as Partial<RiskDatum>
+  // 再通过 stable key 去 store 反查一次,确保拿到完整字段;命中失败
+  // (key 拼写变化 / 过渡帧 / 老数据)就用 inner 本身兜底。
+  const real: Partial<RiskDatum> = inner.key
+    ? data.value.find(x => x.key === inner.key) ?? inner
+    : inner
+  const bytes = typeof real.bytes === 'number'
+    ? real.bytes
+    : (typeof arc.value === 'number' ? arc.value : 0)
+  const count = typeof real.count === 'number' ? real.count : 0
+  const name = real.name ?? ''
+  const key = real.key ?? 'low'
+  const total = data.value.reduce(
+    (acc, x) => acc + (typeof x.bytes === 'number' ? x.bytes : 0),
+    0,
+  )
   const pct = total > 0 ? ((bytes / total) * 100).toFixed(1) : '0.0'
   const gb = (bytes / 1024 / 1024 / 1024).toFixed(2)
   return `
@@ -100,7 +113,7 @@ function tooltipTemplate(d: RiskDatum) {
       <div class="font-medium text-foreground">${escapeHtml(name)}</div>
       <div class="flex items-center justify-between gap-3 text-muted-foreground">
         <span class="flex items-center gap-1.5">
-          <span class="size-2 rounded-[2px]" style="background: var(--color-${d.key})"></span>
+          <span class="size-2 rounded-[2px]" style="background: var(--color-${key})"></span>
           ${escapeHtml(gb)} GB
         </span>
         <span class="font-mono tabular-nums text-foreground">${count} · ${pct}%</span>
@@ -111,11 +124,16 @@ function tooltipTemplate(d: RiskDatum) {
 
 const triggers = {
   [VisDonutSelectors.segment]: tooltipTemplate,
-} as Record<string, (d: RiskDatum) => string>
+} as Record<string, (d: unknown) => string>
 
 const events = {
   [VisDonutSelectors.segment]: {
-    click: (d: RiskDatum) => emit('select', d.key),
+    // click handler 也接 d3.PieArcDatum<RiskDatum>,真实 datum 在 .data
+    click: (d: unknown) => {
+      const arc = d as { data?: RiskDatum }
+      const inner = arc?.data
+      if (inner?.key) emit('select', inner.key)
+    },
   },
 }
 </script>
