@@ -290,6 +290,26 @@ export async function metaSetHideInTray(value: boolean): Promise<void> {
 }
 
 /**
+ * Round 27 · UI 语言。后端持久化在 SQLite `meta.locale`,主要给系统托盘
+ * 这种「不经过前端」的 UI 通道用 — `meta_set_locale` 命令同时会重建
+ * tray menu 以反映新语言。Web/dev 环境(非 Tauri)安静返回 / no-op,
+ * 让 setLocale 调用方不必关心宿主环境。
+ */
+export async function metaGetLocale(): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<string>('meta_get_locale')
+  } catch {
+    return null
+  }
+}
+
+export async function metaSetLocale(value: string): Promise<void> {
+  if (!isTauri()) return
+  await invoke('meta_set_locale', { value })
+}
+
+/**
  * 在系统文件管理器中显示路径(macOS Finder / Windows Explorer /
  * Linux xdg-open)。失败时抛错,由调用方 toast。
  */

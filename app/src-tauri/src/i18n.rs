@@ -93,6 +93,36 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
+/// 托盘菜单专用的微型字典。后端独占 UI(系统托盘)无法走前端 vue-i18n
+/// 链路 — Rust 必须自己持有几个字符串。函数签名上 `locale` 是 free-form
+/// String 但实际只接受 `"zh-CN"` / `"en-US"`,unknown 落 zh-CN。
+///
+/// 字典刻意保持极小(只覆盖托盘真正用到的 3 个 key)。要扩容到完整 i18n
+/// 字典请走结构化方案,不要堆这里 — 这个模块就是为"后端独占的少数几个
+/// UI 字符串"服务的极简 backstop。
+pub mod tray {
+    pub fn show(locale: &str) -> &'static str {
+        match locale {
+            "en-US" => "Show DiskMind",
+            _ => "显示主窗口",
+        }
+    }
+
+    pub fn quit(locale: &str) -> &'static str {
+        match locale {
+            "en-US" => "Quit DiskMind",
+            _ => "退出 DiskMind",
+        }
+    }
+
+    pub fn tooltip(locale: &str) -> &'static str {
+        match locale {
+            "en-US" => "DiskMind",
+            _ => "DiskMind",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +171,21 @@ mod tests {
     fn marker_empty_params_falls_back_to_keyless() {
         // 空 params 切片不能产出尾部 `|`,否则前端解析会拿到空字符串 key
         assert_eq!(i18n_p("scan.no_target", &[]), "$i18n:scan.no_target");
+    }
+
+    #[test]
+    fn tray_dict_returns_correct_locale_string() {
+        assert_eq!(tray::show("zh-CN"), "显示主窗口");
+        assert_eq!(tray::show("en-US"), "Show DiskMind");
+        assert_eq!(tray::quit("zh-CN"), "退出 DiskMind");
+        assert_eq!(tray::quit("en-US"), "Quit DiskMind");
+    }
+
+    #[test]
+    fn tray_dict_unknown_locale_falls_back_to_zh() {
+        // 不在白名单的 locale(空串 / 第三种语言 / 脏值)统一回退中文
+        assert_eq!(tray::show(""), "显示主窗口");
+        assert_eq!(tray::show("ja-JP"), "显示主窗口");
+        assert_eq!(tray::quit("invalid"), "退出 DiskMind");
     }
 }

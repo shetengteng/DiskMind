@@ -112,19 +112,26 @@ pub fn run() {
             // S12 · 系统托盘 + 关闭窗口的 hide/quit 拦截。仅在桌面端启用
             // (iOS/Android 无概念)。托盘 icon **始终存在**,与开关解耦 —
             // 这样即使用户没开启 hide_in_tray,从 tray 也能随时调出 / 退出。
+            //
+            // Round 27 · i18n:setup 阶段从 DB 读 locale,初始构建带正确文
+            // 本的托盘菜单。前端 vue-i18n 启动时 detectInitial(localStorage
+            // / navigator.language) 与后端 DB locale 可能首次启动有偏差(
+            // localStorage 决策更细),但用户一旦在设置页改了语言就会经
+            // `meta_set_locale` 同步到 DB,长期保持一致。
             #[cfg(desktop)]
             {
+                let initial_locale = db.locale("zh-CN");
                 let show_item = MenuItem::with_id(
                     app,
                     "tray:show",
-                    "显示主窗口",
+                    crate::i18n::tray::show(&initial_locale),
                     true,
                     None::<&str>,
                 )?;
                 let quit_item = MenuItem::with_id(
                     app,
                     "tray:quit",
-                    "退出 DiskMind",
+                    crate::i18n::tray::quit(&initial_locale),
                     true,
                     None::<&str>,
                 )?;
@@ -137,7 +144,7 @@ pub fn run() {
                             "default_window_icon missing — tray icon cannot be built",
                         )
                     })?)
-                    .tooltip("DiskMind")
+                    .tooltip(crate::i18n::tray::tooltip(&initial_locale))
                     .menu(&tray_menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(move |app, event| match event.id.as_ref() {
@@ -264,6 +271,8 @@ pub fn run() {
             commands::meta::meta_set_max_scan_history,
             commands::meta::meta_get_hide_in_tray,
             commands::meta::meta_set_hide_in_tray,
+            commands::meta::meta_get_locale,
+            commands::meta::meta_set_locale,
             // --- provider ---
             commands::provider::provider_list,
             commands::provider::provider_save,

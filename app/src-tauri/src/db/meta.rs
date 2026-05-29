@@ -101,4 +101,39 @@ impl Db {
         )?;
         Ok(())
     }
+
+    /// 当前 UI 语言(`zh-CN` / `en-US`)的持久化值。Round 27 · 托盘菜单
+    /// 需要在应用启动早期(setup 阶段,前端尚未 ready)就拿到 locale 构
+    /// 建带正确文本的 tray icon — 通过 DB 而非 localStorage 是因为 Rust
+    /// 后端读不到浏览器 storage,而 SQLite 已是配置数据的事实标准。
+    /// 不存在时回退到 `default_value`(避免硬编码业务默认),前端首次 IPC
+    /// `meta_set_locale` 时同步写入。
+    pub fn locale(&self, default_value: &str) -> String {
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.query_row(
+            "SELECT v FROM meta WHERE k = 'locale'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        // 未知 locale 视为缺失,避免脏值绕过 default_value 兜底
+        .filter(|s| s == "zh-CN" || s == "en-US")
+        .unwrap_or_else(|| default_value.to_string())
+    }
+
+    pub fn set_locale(&self, value: &str) -> rusqlite::Result<()> {
+        // 白名单校验:防止前端误传或攻击注入未知 locale 让托盘文本崩到
+        // fallback("zh-CN")。
+        let clean = if value == "zh-CN" || value == "en-US" {
+            value
+        } else {
+            "zh-CN"
+        };
+        let conn = self.conn.lock().expect("db poisoned");
+        conn.execute(
+            "INSERT INTO meta(k, v) VALUES('locale', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![clean],
+        )?;
+        Ok(())
+    }
 }
