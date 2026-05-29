@@ -146,7 +146,7 @@ pub fn run() {
                 let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
                 let tray_handle = app.handle().clone();
-                let mut tray_builder = TrayIconBuilder::with_id("diskmind-main")
+                let tray_builder = TrayIconBuilder::with_id("diskmind-main")
                     .icon(app.default_window_icon().cloned().ok_or_else(|| {
                         Box::<dyn std::error::Error>::from(
                             "default_window_icon missing — tray icon cannot be built",
@@ -156,18 +156,22 @@ pub fn run() {
                     .menu(&tray_menu)
                     .show_menu_on_left_click(false);
 
-                // Round 32 · macOS menubar 期望 template image —— 只读 alpha
-                // 通道,系统按 light/dark menubar 自动反色。直接使用应用彩
-                // 色 logo 在 dark menubar 下会显得"完全消失"或一团糊(用户
-                // 反馈"托盘没有看到")。Windows/Linux 不支持此 API,只在
-                // macOS 启用。如果未来想保留彩色品牌色,再换成专用 32x32
-                // 单色 PNG + 仅 macOS 走 template path 即可。
-                #[cfg(target_os = "macos")]
-                {
-                    tray_builder = tray_builder.icon_as_template(true);
-                }
+                // Round 32 (三修)· **不**用 icon_as_template:
+                //
+                // template image 模式只读 alpha 通道,需要 PNG 是黑色 alpha
+                // mask(macOS 自动按主题反色)。我们的 default_window_icon 是
+                // 完整彩色 logo,RGBA 通道丰富 — 强制 template 后,macOS 把
+                // "暗色像素"判为前景,但因为 alpha 几乎全不透明,反色后整
+                // 块都被 menubar bg 色填,几乎看不见(用户反馈"还是找不到")。
+                //
+                // 直接走"非 template"路径,让 macOS 渲染原色 logo。视觉效
+                // 果:menubar 上是一个彩色 logo,虽然不如严格 monochrome
+                // template 那么 native,但绝对可见。后续若做品牌系统统一,
+                // 再换成专用 22x22 黑底 alpha 单色 PNG + 重新启用 template。
+                //
+                // 留 cfg 块为空注释,提醒未来切换路径在哪。
 
-                let _tray = tray_builder
+                let tray = tray_builder
                     .on_menu_event(move |app, event| match event.id.as_ref() {
                         "tray:show" => {
                             if let Some(win) = app.get_webview_window("main") {
@@ -202,6 +206,18 @@ pub fn run() {
                         }
                     })
                     .build(&tray_handle)?;
+
+                // Round 32 (二修)· 显式 log tray 创建结果。注意此时 tauri_
+                // plugin_log 还没注册(它在 setup 闭包末尾才 register),所
+                // 以走 eprintln! 直通 stderr 才能进 dev server 终端。
+                // tray 没显示通常不是 build 失败 (失败会 ?? 抛错),而是 macOS
+                // menubar 已满 / icon 错误 / template 渲染异常 — 这条 log
+                // 至少证明 build 已成功。
+                eprintln!(
+                    "[tray] icon built id=diskmind-main template=false hide_in_tray={}",
+                    hide_in_tray.load(Ordering::SeqCst),
+                );
+                let _ = tray;
 
                 // 拦截主窗口的 close 请求:开关 on → prevent_close + hide,
                 // 开关 off → 走默认行为(macOS hide / Windows quit)。
