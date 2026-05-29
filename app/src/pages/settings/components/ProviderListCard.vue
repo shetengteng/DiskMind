@@ -20,7 +20,7 @@ import {
 import { useProvidersStore } from '@/stores/providers'
 import type { Provider } from '@/api/tauri'
 import { notify } from '@/lib/notify'
-import { localizeProviderKind } from '@/lib/localize'
+import { localizeProviderKind, localizeProviderName } from '@/lib/localize'
 import ProviderEditDialog, { type EditingProvider } from './ProviderEditDialog.vue'
 
 const { t } = useI18n()
@@ -146,7 +146,7 @@ function statusLabel(s: string): string {
         <Switch :model-value="p.enabled" @update:model-value="(v) => toggleEnabled(p, v === true)" />
         <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex items-center gap-2">
-            <span class="font-medium">{{ p.name }}</span>
+            <span class="font-medium">{{ localizeProviderName(p.name) }}</span>
             <Badge v-if="p.isDefault" variant="secondary" class="text-[10px]">{{ t('settings.providers.defaultBadge') }}</Badge>
             <Badge variant="outline" class="text-[10px]">{{ localizeProviderKind(p.kind) }}</Badge>
           </div>

@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { useProvidersStore } from '@/stores/providers'
 import type { Provider } from '@/api/tauri'
+import { localizeProviderName } from '@/lib/localize'
 
 const { t } = useI18n()
 const providers = useProvidersStore()
@@ -80,7 +81,7 @@ onMounted(async () => {
             >
               <component :is="iconFor(p.kind)" class="size-3" />
               <Star v-if="p.isDefault" class="size-3 fill-current" />
-              <span class="max-w-[160px] truncate">{{ p.name }}</span>
+              <span class="max-w-[160px] truncate">{{ localizeProviderName(p.name) }}</span>
               <span
                 v-if="statusLabel(p)"
                 class="ml-1 rounded bg-background/30 px-1 text-[10px]"

@@ -5,6 +5,7 @@ import {
   localizeCategory,
   localizeFieldInPlace,
   localizeProviderKind,
+  localizeProviderName,
 } from './localize'
 
 beforeAll(() => {
@@ -147,6 +148,31 @@ describe('localizeProviderKind', () => {
     expect(localizeProviderKind('openai_compat')).toBe('OpenAI Compatible')
     expect(localizeProviderKind('ollama')).toBe('Ollama')
     i18n.global.locale.value = 'zh-CN'
+  })
+})
+
+describe('localizeProviderName', () => {
+  it('maps known legacy template default name to English', () => {
+    // 仅严格相等才映射,与 v14 DB migration 互为多层防御
+    expect(localizeProviderName('Ollama 本地')).toBe('Ollama Local')
+  })
+
+  it('user-customized names containing the legacy substring are NOT changed', () => {
+    // 用户改过的名字哪怕含相同子串也不动,避免误改用户域
+    expect(localizeProviderName('我的 Ollama 本地')).toBe('我的 Ollama 本地')
+    expect(localizeProviderName('Ollama 本地 (test)')).toBe('Ollama 本地 (test)')
+  })
+
+  it('returns plain English names as-is', () => {
+    expect(localizeProviderName('OpenAI')).toBe('OpenAI')
+    expect(localizeProviderName('My DeepSeek')).toBe('My DeepSeek')
+    expect(localizeProviderName('Local')).toBe('Local')
+  })
+
+  it('returns empty string for null/undefined/empty', () => {
+    expect(localizeProviderName(null)).toBe('')
+    expect(localizeProviderName(undefined)).toBe('')
+    expect(localizeProviderName('')).toBe('')
   })
 })
 

@@ -119,6 +119,35 @@ const LEGACY_ZH_CATEGORY_TO_STABLE_ID: Readonly<Record<string, string>> = {
 }
 
 /**
+ * Round 31 · provider.name(用户编辑域)历史模板默认值反查映射。
+ *
+ * 设计原则:**仅严格相等才映射**。与 `LEGACY_ZH_KIND_TO_STABLE_ID` 的
+ * "中文兜底"不同 — provider.name 是用户编辑字段,不能模糊匹配,否则
+ * 用户写的"我的 Ollama 本地"会被错改。表里的 entry 必须严格等于
+ * Round 30 之前模板生成的中文 default name。
+ *
+ * 与 DB v14 migration 互为多层防御:用户重启前 v14 没机会跑,UI 渲染
+ * 层也能正确显示英文,**升级窗口期不出现中文残留**。
+ */
+const LEGACY_TEMPLATE_NAME_MAP: Readonly<Record<string, string>> = {
+  'Ollama 本地': 'Ollama Local',
+}
+
+/**
+ * provider.name 的本地化兜底。仅命中已知模板老默认值时映射,其它字符串
+ * (用户自定义 / 已是英文 / 完全无关)原样返回。
+ *
+ * @example
+ *   localizeProviderName('Ollama 本地')      // → 'Ollama Local'
+ *   localizeProviderName('我的 Ollama 本地')  // → '我的 Ollama 本地'(原样)
+ *   localizeProviderName('My DeepSeek')       // → 'My DeepSeek'(原样)
+ */
+export function localizeProviderName(name: string | null | undefined): string {
+  if (!name) return ''
+  return LEGACY_TEMPLATE_NAME_MAP[name] ?? name
+}
+
+/**
  * Round 30 · provider kind 老中文标签 → stable English ID 反查映射。
  * 与 category 同样的"v13 迁移 + 前端兜底"双保险设计:DB v13 把 `provider.kind`
  * 列里所有 "OpenAI 兼容" 改写为 "openai_compat",前端这里则在升级窗口期
