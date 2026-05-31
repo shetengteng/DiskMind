@@ -96,8 +96,15 @@ jobs:
       # 不符合 ^\d+\.\d+\.\d+,sync-version.js 会直接退出,整个 workflow
       # 提前中断 — 所以这一步在手动触发时必须 skip。手动产物沿用 manifest
       # 里现有版本号 + commit sha 区分(见 Upload artifacts 步骤命名)。
+      #
+      # `shell: bash` 是强制的 —— Windows runner 默认 shell 是 PowerShell,
+      # `VERSION="..."` 这种 POSIX 赋值写法在 PowerShell 里会被当成
+      # `VERSION=v0.3.0` 命令名解析,直接报 "term is not recognized" 中断。
+      # GitHub-hosted runner 在 Windows 上也自带 Git Bash,显式声明 bash
+      # 可以让 mac / windows 走同一条命令分支。
       - name: Sync version across all manifest files (tag trigger only)
         if: github.event_name == 'push'
+        shell: bash
         working-directory: app
         run: |
           VERSION="${{ github.ref_name }}"
