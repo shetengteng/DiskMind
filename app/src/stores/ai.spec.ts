@@ -14,14 +14,20 @@ import { createPinia, setActivePinia } from 'pinia'
 
 // vi.mock 在 ESM 下会被 hoist 到顶部,所以需要 vi.hoisted 把共享 mock
 // 实例提前定义,否则 factory 跑的时候这些变量还未初始化。
+//
+// 显式给 vi.fn 一个 generic 参数,把返回类型钉成 IPC wrapper 的真实
+// 签名 — Round 33 build 修复时发现默认推导会把 aiCleaningAdviceGet 钉
+// 死为 `() => Promise<null>`,导致后续 mockResolvedValueOnce(object) 报
+// 类型不兼容。
+type MockedApi = typeof import('@/api/tauri')
 const mocks = vi.hoisted(() => ({
-  aiCleaningAdvice: vi.fn(async () => ({
+  aiCleaningAdvice: vi.fn<MockedApi['aiCleaningAdvice']>(async () => ({
     advice: { tiers: [] },
     providerName: 'mock',
     model: 'mock',
     generatedAt: Date.now(),
   })),
-  aiCleaningAdviceGet: vi.fn(async () => null),
+  aiCleaningAdviceGet: vi.fn<MockedApi['aiCleaningAdviceGet']>(async () => null),
 }))
 
 vi.mock('@/api/tauri', async () => {

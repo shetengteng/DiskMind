@@ -6,6 +6,10 @@ use std::sync::Arc;
 use std::time::{Instant, UNIX_EPOCH};
 use walkdir::WalkDir;
 
+// Round 33 · S14 重复文件检测两阶段 BLAKE3 算法,常量 + 测试都在子模块里。
+// 与主扫描完全解耦 —— 调用方喂 ScanResultRow 列表,本模块只负责 hash。
+pub mod dedup;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
     pub path: String,

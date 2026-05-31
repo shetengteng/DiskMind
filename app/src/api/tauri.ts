@@ -320,6 +320,114 @@ export async function revealInExplorer(path: string): Promise<void> {
 }
 
 /**
+ * Round 29 · classifier 用户自定义规则。后端在 setup 阶段读取
+ * `app_data/rules.toml`,本组 IPC 让用户在不重启 app 的情况下:
+ * - 拿到文件绝对路径(用 reveal/copy 找到并编辑)
+ * - 改完后调 reload 让新规则即时生效,返回当前加载到的规则数量
+ *
+ * 设计原则:用户规则**追加**于 builtin,builtin 永不被覆盖或禁用。详见
+ * `app/src-tauri/src/classifier/user_rules.rs` 模块文档。Web 预览模式下
+ * 返回空字符串 / 0,UI 应回退到"桌面端可用"占位。
+ */
+export async function classifierUserRulesPath(): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    return await invoke<string>('classifier_user_rules_path')
+  } catch {
+    return null
+  }
+}
+
+export async function classifierReloadUserRules(): Promise<number> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<number>('classifier_reload_user_rules')
+}
+
+// ----- 重复文件检测(S14 · Round 33) -----
+//
+// 后端走两阶段 BLAKE3:size 分组 → 头部 64 KB → 全文 hash。前端 store 拿
+// 当前 scan.results 直接喂候选,不依赖 DB run 状态,这样用户可以多次
+// rerun(改了过滤条件 / 阈值)而不必重扫整盘。
+//
+// 事件流:
+//   - `dedup:progress`  阶段切换 / batch 完成时触发,UI 据此更新进度条
+//   - `dedup:complete`  最终结果,带 groups + total_wasted_bytes + ms
+//   - `dedup:cancelled` 用户取消(不是 error,独立分支)
+//   - `dedup:error`     致命错误(目前 IO 失败已退化为静默丢弃,该路径
+//                       预留给未来 fatal 状况)
+
+export interface DedupCandidate {
+  id: number
+  path: string
+  sizeBytes: number
+}
+
+export interface DuplicateFile {
+  id: number
+  path: string
+  sizeBytes: number
+}
+
+export interface DuplicateGroup {
+  /** 组内文件的字节大小(所有文件都相同) */
+  sizeBytes: number
+  /** BLAKE3 前 16 个 hex 字符,UI 用作稳定 key 与诊断展示 */
+  hashPrefix: string
+  files: DuplicateFile[]
+  /** (count - 1) × sizeBytes — 删除冗余副本能腾出的字节数 */
+  wastedBytes: number
+}
+
+export interface DedupProgressPayload {
+  /** `size` → 候选清洗;`head` → 头部 64KB hash;`full` → 全文 hash */
+  stage: 'size' | 'head' | 'full'
+  processed: number
+  total: number
+}
+
+export interface DedupCompletePayload {
+  groups: DuplicateGroup[]
+  totalWastedBytes: number
+  durationMs: number
+}
+
+export interface DedupErrorPayload {
+  message: string
+}
+
+export interface DedupArgs {
+  candidates: DedupCandidate[]
+  /** 单文件最小入选大小,默认 1 MB(后端常量) */
+  minSizeBytes?: number
+}
+
+export async function scanDetectDuplicates(args: DedupArgs): Promise<void> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  await invoke('scan_detect_duplicates', { args })
+}
+
+export async function cancelDetectDuplicates(): Promise<void> {
+  if (!isTauri()) return
+  await invoke('cancel_detect_duplicates')
+}
+
+export function onDedupProgress(cb: (p: DedupProgressPayload) => void): Promise<UnlistenFn> {
+  return listen<DedupProgressPayload>('dedup:progress', evt => cb(evt.payload))
+}
+
+export function onDedupComplete(cb: (p: DedupCompletePayload) => void): Promise<UnlistenFn> {
+  return listen<DedupCompletePayload>('dedup:complete', evt => cb(evt.payload))
+}
+
+export function onDedupCancelled(cb: () => void): Promise<UnlistenFn> {
+  return listen<unknown>('dedup:cancelled', () => cb())
+}
+
+export function onDedupError(cb: (p: DedupErrorPayload) => void): Promise<UnlistenFn> {
+  return listen<DedupErrorPayload>('dedup:error', evt => cb(evt.payload))
+}
+
+/**
  * Round 30 · provider kind 切换到 stable English ID。后端 `ProviderKind::parse`
  * 接受 `openai_compat` / `anthropic` / `ollama`(也兼容历史中文 `OpenAI 兼容`),
  * UI 显示走 `localizeProviderKind()` 翻译。

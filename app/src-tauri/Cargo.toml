@@ -53,6 +53,10 @@ base64 = "0.22"
 # Round 29 · classifier 用户自定义规则外置。toml 用 serde 反序列化用户在
 # `app_data/rules.toml` 里写的额外匹配规则,无 native deps。
 toml = "0.8"
+# Round 33 · S14 重复文件检测。BLAKE3 比 sha2-256 / md5 快 10x+(~6 GB/s
+# AVX2),纯 Rust 无 native deps;两阶段 hash(head 64KB + full)的核心
+# 依赖。stay on 1.5.x 系列 — 1.6 起改了某些 API 不兼容 0.x。
+blake3 = "1.5"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"

@@ -125,6 +125,7 @@ export default {
     noResultsHint: 'Click "Start Scan" in the top-right, or open settings to adjust roots',
     tabList: 'Result List',
     tabMap: 'Directory Map',
+    tabDuplicates: 'Duplicates',
     treeView: 'Tree',
     tableView: 'Table',
     searchPlaceholder: 'Search path…',
@@ -177,6 +178,40 @@ export default {
       no_target: 'No usable scan targets',
       already_running: 'A scan is already in progress',
     },
+    duplicates: {
+      // S14 · Round 33 · Duplicate file detection (BLAKE3 two-stage)
+      title: 'Find duplicate files',
+      desc: 'Compute BLAKE3 hashes (first 64KB, then full content) over the current scan results (≥ 1MB only) to group byte-identical copies and surface reclaimable redundancy.',
+      runButton: 'Start scan',
+      runDisabledHint: 'Run a scan first',
+      cancelButton: 'Cancel',
+      stageSize: 'Grouping {n} candidates by size…',
+      stageHead: 'Hashing file heads {p}/{t}',
+      stageFull: 'Hashing full contents {p}/{t}',
+      doneSummary: 'Found {groups} duplicate group(s) · {wasted} reclaimable · {ms} ms',
+      doneEmpty: 'No duplicates found in the current scan.',
+      cancelled: 'Duplicate scan cancelled.',
+      group: 'Group {idx}',
+      groupSize: '{size} each',
+      groupCount: '{n} copies',
+      groupWasted: '{wasted} reclaimable',
+      hashPrefix: 'hash {hex}…',
+      moveSelectedToSandbox: 'Move selected {n} to sandbox',
+      revealInExplorer: 'Reveal in file manager',
+      emptyTitle: 'No duplicate scan yet',
+      emptyDesc: 'Click “Start scan” to compute hashes over the current scan results. Time scales with file size — usually seconds to a few minutes.',
+      errorTitle: 'Duplicate scan failed',
+      errorPrefix: 'Error:',
+      restartButton: 'Run again',
+    },
+  },
+
+  dedup: {
+    // store-layer toast / error strings (no backend marker, front-end stitches them directly)
+    errorTitle: 'Duplicate scan failed',
+    browserMode: 'This feature requires the desktop app',
+    noCandidates: 'No eligible candidate files',
+    startFailedTitle: 'Failed to start',
   },
 
   reports: {
@@ -349,6 +384,17 @@ export default {
       exportFailed: 'Failed to export audit log',
       exportEmpty: 'No AI calls to export yet',
       exportDesktopOnly: 'Audit log export is desktop-only',
+      userRulesTitle: 'Custom Classifier Rules',
+      userRulesDesc: 'Write rules in TOML; they take precedence over the 19 builtin bundle-id rules and 12 path rules. Click "Reload" after editing — no restart required.',
+      userRulesPathLabel: 'Rule file location',
+      userRulesPathUnavailable: 'Desktop build only',
+      userRulesReveal: 'Reveal in Finder',
+      userRulesReload: 'Reload',
+      userRulesReloading: 'Reloading…',
+      userRulesLoaded: 'Loaded {n} user rule(s)',
+      userRulesEmptyHint: 'rules.toml is missing or empty — only builtin rules are active. See module docs for the TOML schema.',
+      userRulesRevealFailed: 'Failed to reveal rule file location',
+      userRulesReloadFailed: 'Failed to reload rules',
     },
     scanTargets: {
       title: 'Scan Targets',
@@ -759,6 +805,12 @@ export default {
     progress: {
       cancelled: 'Cancelled in {seconds}s',
       completed: 'Scan completed in {seconds}s',
+    },
+    dedup: {
+      error: {
+        already_running: 'A duplicate-file scan is already running',
+        cancelled: 'Duplicate scan cancelled',
+      },
     },
   },
 

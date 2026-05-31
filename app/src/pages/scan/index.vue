@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3, Sparkles } from 'lucide-vue-next'
+import { Play, Square, RotateCcw, Settings as SettingsIcon, ScanSearch, List, Map as MapIcon, FolderTree, Rows3, Sparkles, Copy } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
@@ -28,6 +28,7 @@ import ScanProgressCard from './components/ScanProgressCard.vue'
 import ScanResultsToolbar from './components/ScanResultsToolbar.vue'
 import ScanResultsTable from './components/ScanResultsTable.vue'
 import ScanResultsTree from './components/ScanResultsTree.vue'
+import DuplicateGroupsView from './components/DuplicateGroupsView.vue'
 import DiskMapView from '@/pages/disk-map/components/DiskMapView.vue'
 import { selectRowsByAdviceTier } from '@/lib/selectAdviceTier'
 
@@ -81,9 +82,13 @@ function cancelBatchClassify() {
 
 const sandboxBanner = ref<{ kind: 'ok' | 'warn'; text: string } | null>(null)
 
-type ResultView = 'list' | 'map'
+type ResultView = 'list' | 'map' | 'duplicates'
 const resultView = ref<ResultView>(
-  (route.query.view as ResultView) === 'map' ? 'map' : 'list',
+  (route.query.view as ResultView) === 'map'
+    ? 'map'
+    : (route.query.view as ResultView) === 'duplicates'
+      ? 'duplicates'
+      : 'list',
 )
 
 // resultView ↔ URL ?view= 双向同步:
@@ -192,7 +197,8 @@ watch(
     if (typeof q.category === 'string') {
       categoryFilter.value = q.category
     }
-    const view = q.view === 'map' ? 'map' : 'list'
+    const view =
+      q.view === 'map' ? 'map' : q.view === 'duplicates' ? 'duplicates' : 'list'
     if (resultView.value !== view) resultView.value = view
   },
 )
@@ -541,6 +547,9 @@ const subtitle = computed(() => {
         <TabsTrigger value="map" class="gap-1.5">
           <MapIcon class="size-3.5" /> {{ t('scan.tabMap') }}
         </TabsTrigger>
+        <TabsTrigger value="duplicates" class="gap-1.5">
+          <Copy class="size-3.5" /> {{ t('scan.tabDuplicates') }}
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="list" class="flex flex-col gap-4">
@@ -594,6 +603,10 @@ const subtitle = computed(() => {
 
       <TabsContent value="map">
         <DiskMapView />
+      </TabsContent>
+
+      <TabsContent value="duplicates">
+        <DuplicateGroupsView />
       </TabsContent>
     </Tabs>
 

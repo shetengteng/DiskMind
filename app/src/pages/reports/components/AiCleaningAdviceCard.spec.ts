@@ -17,9 +17,15 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createRouter, createMemoryHistory } from 'vue-router'
 
-// 共享 spy,允许在 mock factory 内部和测试断言中同时使用
+// 共享 spy,允许在 mock factory 内部和测试断言中同时使用。
+//
+// 显式标注 aiCleaningAdviceGet 的返回类型为 `CachedCleaningAdvice | null` —
+// vitest 推导默认 `null` 时,后续 `mockResolvedValueOnce({...})` 会被
+// 推为类型不兼容(Round 22 那次只测了 null 路径,Round 33 build 修复时
+// 加上了 object 路径,需要显式 union 才能编译过)。
+type MockedApi = typeof import('@/api/tauri')
 const mocks = vi.hoisted(() => ({
-  listScanRuns: vi.fn(async () => [
+  listScanRuns: vi.fn<MockedApi['listScanRuns']>(async () => [
     {
       runId: 42,
       startedAt: 0,
@@ -35,17 +41,15 @@ const mocks = vi.hoisted(() => ({
       roots: ['/Users/x'],
     },
   ]),
-  aiCleaningAdvice: vi.fn(async () => ({
+  aiCleaningAdvice: vi.fn<MockedApi['aiCleaningAdvice']>(async () => ({
     advice: {
-      summary: 'mock',
       tiers: [],
-      notes: '',
     },
     providerName: 'mock-provider',
     model: 'mock-model',
     generatedAt: Date.now(),
   })),
-  aiCleaningAdviceGet: vi.fn(async () => null),
+  aiCleaningAdviceGet: vi.fn<MockedApi['aiCleaningAdviceGet']>(async () => null),
 }))
 
 vi.mock('@/api/tauri', async () => {
@@ -187,8 +191,11 @@ describe('AiCleaningAdviceCard', () => {
 
     expect(mocks.aiCleaningAdvice).toHaveBeenCalledOnce()
     // 第二个参数必须是 runs[0].runId === 42,不是 undefined。这条断言是
-    // Round 21 .id vs .runId 字段名 bug 的回归锁。
-    expect(mocks.aiCleaningAdvice.mock.calls[0]![1]).toBe(42)
+    // Round 21 .id vs .runId 字段名 bug 的回归锁。aiCleaningAdvice 签名
+    // 为 `(summary, runId?) => Promise<...>`,call args 也是 `[string, number?]`,
+    // 用 union tuple 断言取 [1] 避免 TS 越界报错。
+    const callArgs = mocks.aiCleaningAdvice.mock.calls[0] as [string, number?]
+    expect(callArgs[1]).toBe(42)
     wrapper.unmount()
   })
 

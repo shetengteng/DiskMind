@@ -189,6 +189,7 @@ const commands = computed<PaletteCommand[]>(() => [
     handler: async () => {
       try {
         const root = await ipcTrashSandboxRoot()
+        if (!root) throw new Error('$i18n:common.desktopRequired')
         await ipcRevealInExplorer(root)
       } catch (e) {
         notify.error('System', String(e))
@@ -205,6 +206,7 @@ const commands = computed<PaletteCommand[]>(() => [
     handler: async () => {
       try {
         const dir = await ipcCrashLogDir()
+        if (!dir) throw new Error('$i18n:common.desktopRequired')
         await ipcRevealInExplorer(dir)
       } catch (e) {
         notify.error('System', String(e))

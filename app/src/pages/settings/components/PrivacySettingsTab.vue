@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound } from 'lucide-vue-next'
+import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound, FileCog, RefreshCw } from 'lucide-vue-next'
 import {
   Card,
   CardContent,
@@ -30,6 +30,8 @@ import {
   revealInExplorer,
   aiListCallLogs,
   writeTextFile,
+  classifierUserRulesPath,
+  classifierReloadUserRules,
   isTauri,
 } from '@/api/tauri'
 import { notify } from '@/lib/notify'
@@ -52,11 +54,55 @@ const scanSettings = useScanSettingsStore()
 const sandboxPath = ref<string | null>(null)
 const retentionDays = ref<string>('30')
 
+// ----- 用户自定义 classifier 规则 (Round 29 后端已就绪) -----
+// rulesPath 为 null 表示 Web 预览模式或后端读取失败,UI 走"仅桌面端可用"
+// 占位。loadedCount 为 null 表示尚未加载过(还未点 Reload),与"加载到 0
+// 条"区分开:前者是初态、后者是显式"文件存在但里面没规则"。
+const rulesPath = ref<string | null>(null)
+const loadedCount = ref<number | null>(null)
+const reloading = ref(false)
+
 onMounted(async () => {
   sandboxPath.value = await trashSandboxRoot()
   const days = await trashGetRetentionDays()
   retentionDays.value = String(days)
+  rulesPath.value = await classifierUserRulesPath()
 })
+
+async function onRevealRules() {
+  if (!rulesPath.value) return
+  try {
+    // 文件可能不存在(用户从未创建过),reveal 父目录是更稳妥的策略 —
+    // 让用户看到 app_data_dir 后自己 touch rules.toml。reveal_in_explorer
+    // 后端对"目标不存在"会自然失败,我们 fallback 到父目录。
+    try {
+      await revealInExplorer(rulesPath.value)
+    } catch {
+      const parent = rulesPath.value.replace(/[\\/][^\\/]+$/, '')
+      if (parent && parent !== rulesPath.value) {
+        await revealInExplorer(parent)
+      } else {
+        throw new Error('parent unavailable')
+      }
+    }
+  } catch (e) {
+    notify.error(t('settings.privacy.userRulesRevealFailed'), String(e))
+  }
+}
+
+async function onReloadRules() {
+  if (reloading.value) return
+  reloading.value = true
+  try {
+    const n = await classifierReloadUserRules()
+    loadedCount.value = n
+    notify.success(t('settings.privacy.userRulesLoaded', { n }))
+  } catch (e) {
+    notify.error(t('settings.privacy.userRulesReloadFailed'), String(e))
+  } finally {
+    reloading.value = false
+  }
+}
 
 async function onRetentionChange(v: string) {
   const n = Number(v)
@@ -276,6 +322,53 @@ async function onExportAuditLog() {
           <Wallet class="mr-1.5 size-3.5" />
           {{ exporting ? t('settings.privacy.exportingAuditLog') : t('settings.privacy.exportAuditLog') }}
         </Button>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader class="pb-2">
+        <CardTitle class="flex items-center gap-2 text-base">
+          <FileCog class="size-4" />
+          {{ t('settings.privacy.userRulesTitle') }}
+        </CardTitle>
+        <CardDescription class="text-xs">
+          {{ t('settings.privacy.userRulesDesc') }}
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-3">
+        <div class="space-y-2">
+          <Label class="text-sm">{{ t('settings.privacy.userRulesPathLabel') }}</Label>
+          <div class="flex flex-wrap items-center gap-2">
+            <code
+              class="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs"
+              :title="rulesPath ?? ''"
+            >{{ rulesPath ?? t('settings.privacy.userRulesPathUnavailable') }}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8"
+              :disabled="!rulesPath"
+              @click="onRevealRules"
+            >
+              <FolderOpen class="mr-1.5 size-3.5" />
+              {{ t('settings.privacy.userRulesReveal') }}
+            </Button>
+            <Button
+              size="sm"
+              class="h-8"
+              :disabled="!rulesPath || reloading"
+              @click="onReloadRules"
+            >
+              <RefreshCw class="mr-1.5 size-3.5" :class="{ 'animate-spin': reloading }" />
+              {{ reloading ? t('settings.privacy.userRulesReloading') : t('settings.privacy.userRulesReload') }}
+            </Button>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            {{ loadedCount === null
+              ? t('settings.privacy.userRulesEmptyHint')
+              : t('settings.privacy.userRulesLoaded', { n: loadedCount }) }}
+          </p>
+        </div>
       </CardContent>
     </Card>
   </div>

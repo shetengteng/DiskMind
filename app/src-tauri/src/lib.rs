@@ -115,6 +115,8 @@ pub fn run() {
                 ai_classify_running: Arc::new(AtomicBool::new(false)),
                 ai_classify_cancel: Arc::new(AtomicBool::new(false)),
                 hide_in_tray: hide_in_tray.clone(),
+                dedup_running: Arc::new(AtomicBool::new(false)),
+                dedup_cancel: Arc::new(AtomicBool::new(false)),
             });
 
             // S12 · 系统托盘 + 关闭窗口的 hide/quit 拦截。仅在桌面端启用
@@ -284,6 +286,9 @@ pub fn run() {
             // --- scan ---
             commands::scan::start_scan,
             commands::scan::cancel_scan,
+            // --- dedup (S14 · Round 33) ---
+            commands::dedup::scan_detect_duplicates,
+            commands::dedup::cancel_detect_duplicates,
             // --- history ---
             commands::history::load_last_scan,
             commands::history::list_scan_runs,

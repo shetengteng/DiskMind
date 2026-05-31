@@ -175,7 +175,7 @@ const gridCols = 'grid-cols-[40px_minmax(0,1fr)_100px_72px_80px] md:grid-cols-[4
       >
         <div
           v-for="vrow in virtualItems"
-          :key="vrow.key"
+          :key="String(vrow.key)"
           :data-index="vrow.index"
           :style="{
             position: 'absolute',

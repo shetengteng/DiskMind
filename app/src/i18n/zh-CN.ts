@@ -125,6 +125,7 @@ export default {
     noResultsHint: '点击右上角"开始扫描",或先去设置中调整扫描目标和选项',
     tabList: '结果列表',
     tabMap: '目录地图',
+    tabDuplicates: '重复文件',
     treeView: '树',
     tableView: '表',
     searchPlaceholder: '搜索路径…',
@@ -177,6 +178,40 @@ export default {
       no_target: '没有可用的扫描目标',
       already_running: '已有扫描在运行',
     },
+    duplicates: {
+      // S14 · Round 33 · 重复文件检测(BLAKE3 两阶段)
+      title: '查找重复文件',
+      desc: '对当前扫描结果中 ≥ 1MB 的文件计算 BLAKE3 哈希（先头部 64KB,再全文）,把字节级完全相同的副本聚合成组,展示可释放的冗余字节数。',
+      runButton: '开始查找',
+      runDisabledHint: '请先完成一次扫描',
+      cancelButton: '取消',
+      stageSize: '正在对 {n} 个候选按大小分组…',
+      stageHead: '正在计算头部哈希 {p}/{t}',
+      stageFull: '正在计算全文哈希 {p}/{t}',
+      doneSummary: '找到 {groups} 组重复 · 可回收 {wasted} · 用时 {ms} ms',
+      doneEmpty: '没有发现重复文件,扫描结果干净。',
+      cancelled: '已取消查找。',
+      group: '组 {idx}',
+      groupSize: '每个 {size}',
+      groupCount: '{n} 个副本',
+      groupWasted: '可释放 {wasted}',
+      hashPrefix: '哈希 {hex}…',
+      moveSelectedToSandbox: '把已选 {n} 项放入沙箱',
+      revealInExplorer: '在文件管理器中显示',
+      emptyTitle: '尚未开始查找重复文件',
+      emptyDesc: '点击「开始查找」对当前扫描结果运行哈希比对。计算量与文件大小相关,首次几秒到几分钟不等。',
+      errorTitle: '查找重复文件失败',
+      errorPrefix: '错误:',
+      restartButton: '重新运行',
+    },
+  },
+
+  dedup: {
+    // store 层 toast / 错误文案,用前端 i18n 直接拼装(后端无 marker)
+    errorTitle: '查找重复文件失败',
+    browserMode: '此功能仅在桌面端可用',
+    noCandidates: '没有可用的候选文件',
+    startFailedTitle: '启动失败',
   },
 
   reports: {
@@ -349,6 +384,17 @@ export default {
       exportFailed: '导出审计日志失败',
       exportEmpty: '暂无 AI 调用记录可导出',
       exportDesktopOnly: '导出审计日志仅在桌面端可用',
+      userRulesTitle: '用户自定义规则',
+      userRulesDesc: '用 TOML 写规则,优先级高于内置 19 条 bundle id / 12 条路径规则。改完点「重新加载」即时生效,无需重启。',
+      userRulesPathLabel: '规则文件位置',
+      userRulesPathUnavailable: '仅桌面端可用',
+      userRulesReveal: '在 Finder 中打开',
+      userRulesReload: '重新加载',
+      userRulesReloading: '正在加载…',
+      userRulesLoaded: '已加载 {n} 条用户规则',
+      userRulesEmptyHint: '当前 rules.toml 不存在或为空,只走 builtin 规则。模板见模块注释。',
+      userRulesRevealFailed: '打开规则文件位置失败',
+      userRulesReloadFailed: '重新加载规则失败',
     },
     scanTargets: {
       title: '扫描目标',
@@ -758,6 +804,12 @@ export default {
     progress: {
       cancelled: '已取消,用时 {seconds}s',
       completed: '扫描完成,用时 {seconds}s',
+    },
+    dedup: {
+      error: {
+        already_running: '已有重复文件检测任务在运行',
+        cancelled: '查找已取消',
+      },
     },
   },
 

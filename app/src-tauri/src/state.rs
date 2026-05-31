@@ -50,6 +50,12 @@ pub struct ScanState {
     /// 源,这个 AtomicBool 由 setup 阶段 hydrate,IPC `meta_set_hide_in_tray`
     /// 写时双向更新(DB + 缓存)。
     pub hide_in_tray: Arc<AtomicBool>,
+    /// Round 33 · S14 · 重复文件检测的运行 / 取消标志。与 scan 分离 —
+    /// dedup 可以在扫描完成后多次手动触发,scan 状态对它无意义。任何第二
+    /// 次 invoke 会被快速拒绝;`dedup_cancel` 由 stage 内部周期性检查,
+    /// 用户点取消后下一个 cancel 检查点立即退出并 emit `dedup:cancelled`。
+    pub dedup_running: Arc<AtomicBool>,
+    pub dedup_cancel: Arc<AtomicBool>,
 }
 
 /// 任何会改变 `trash_item` 表(进/出沙箱、永久删除、清空、后台 30 天
