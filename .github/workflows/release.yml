@@ -90,6 +90,13 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile
 
+      - name: Sync version across all manifest files
+        working-directory: app
+        run: |
+          # 从 tag 提取版本号（v0.2.0 → 0.2.0）
+          VERSION="${{ github.ref_name }}"
+          pnpm sync-version "$VERSION"
+
       - name: Run frontend tests (smoke gate)
         working-directory: app
         run: pnpm test
