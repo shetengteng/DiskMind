@@ -1,0 +1,155 @@
+# DiskMind Release 流水线
+#
+# 触发方式:
+#   1. push tag(推荐):git tag -a v0.2.0 -m "Release v0.2.0" && git push origin v0.2.0
+#   2. 手动:GitHub → Actions → "Release" → "Run workflow" → 输入版本号
+#
+# 产物:
+#   - macOS Apple Silicon (.dmg + .app.tar.gz)
+#   - macOS Intel (.dmg + .app.tar.gz)
+#   - Windows x64 (.msi + .exe)
+#   - Linux x64 (.AppImage + .deb)
+#   全部上传到 GitHub Release 草稿,用户手动审查后点 Publish 才对外可见
+#
+# 已知限制(首版未做):
+#   - macOS 未做 Apple Developer ID 签名 + Notarization → 用户首次打开需右键"打开"绕过 Gatekeeper
+#   - Windows 未做 EV Code Signing → SmartScreen 会警告"未知发布者",需点"更多信息 → 仍要运行"
+#   - 未集成 tauri-plugin-updater(Round 11 永久决策:in-app 自动更新撤销),用户需自行从 Release 页下载
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号(不含 v 前缀,如 0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            label: macos-aarch64
+            rust_targets: 'aarch64-apple-darwin'
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            label: macos-x86_64
+            rust_targets: 'x86_64-apple-darwin'
+          - platform: windows-latest
+            args: ''
+            label: windows-x64
+            rust_targets: ''
+          - platform: ubuntu-22.04
+            args: ''
+            label: linux-x64
+            rust_targets: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './app/src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend tests (smoke gate)
+        working-directory: app
+        run: pnpm test --run
+
+      - name: Run frontend typecheck
+        working-directory: app
+        run: pnpm exec vue-tsc --noEmit
+
+      - name: Run backend tests (smoke gate)
+        working-directory: app/src-tauri
+        run: cargo test --lib
+
+      - name: Build & release via tauri-action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+          releaseName: "DiskMind ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}"
+          releaseBody: |
+            ## DiskMind 桌面磁盘分析与清理工具
+
+            > 跨平台构建产物 — macOS / Windows / Linux
+
+            ### 平台支持
+
+            - macOS Apple Silicon (`*-aarch64.dmg`)
+            - macOS Intel (`*-x86_64.dmg`)
+            - Windows x64 (`*-x64-setup.exe` / `*-x64_en-US.msi`)
+            - Linux x64 (`*.AppImage` / `*.deb`)
+
+            ### 首次安装注意
+
+            **macOS**:本版本**未做 Apple Developer ID 签名 + Notarization**(Round 11 永久决策,详见开发待办 §2.4),首次打开会被 Gatekeeper 拦截。请右键点击 `.app` → "打开",在弹出的警告框中再点"打开"。或者在 Terminal 执行:
+            ```
+            xattr -d com.apple.quarantine /Applications/DiskMind.app
+            ```
+
+            **Windows**:本版本**未做 EV Code Signing**(同上决策),SmartScreen 会显示"未知发布者"警告。点 "更多信息 → 仍要运行" 即可。
+
+            **Linux**:`.AppImage` 需要 `chmod +x` 后双击运行;`.deb` 用 `sudo dpkg -i DiskMind*.deb` 安装。
+
+            ### 不支持自动更新
+
+            DiskMind v1 系列**不集成自动更新**(Round 11 决策)。新版本发布时,请重新访问本页面下载覆盖安装。
+
+            ### 完整变更日志
+
+            参见 [开发待办文档 §0 当前状态](https://github.com/${{ github.repository }}/blob/main/design/2026-05-25-05-DiskMind%E5%BC%80%E5%8F%91%E5%BE%85%E5%8A%9E-98%25.md)
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
