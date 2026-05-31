@@ -1,19 +1,24 @@
 # DiskMind Release 流水线
 #
-# 触发方式:
-#   1. push tag(推荐):git tag -a v0.2.0 -m "Release v0.2.0" && git push origin v0.2.0
-#   2. 手动:GitHub → Actions → "Release" → "Run workflow" → 输入版本号
+# 触发方式(二选一,按用途选):
+#   1. push tag → 正式发版,自动创建 GitHub Release 草稿(永久产物)
+#      git tag -a v0.2.0 -m "Release v0.2.0" && git push origin v0.2.0
+#   2. workflow_dispatch → 日常调试/内部分发,只产 Artifact(30 天保留,不创建 Release)
+#      GitHub → Actions → "Release" → "Run workflow"
 #
-# 产物:
+# 产物去向:
+#   - tag 触发  → GitHub Releases 页(草稿,需手动 Publish) + Artifact
+#   - 手动触发 → 只有 Artifact(进入对应 run 的 Summary 页下载)
+#
+# 平台矩阵:
 #   - macOS Apple Silicon (.dmg + .app.tar.gz)
-#   - macOS Intel (.dmg + .app.tar.gz)
-#   - Windows x64 (.msi + .exe)
-#   全部上传到 GitHub Release 草稿,用户手动审查后点 Publish 才对外可见
+#   - macOS Intel         (.dmg + .app.tar.gz)
+#   - Windows x64         (.msi + .exe)
 #
 # 已知限制(首版未做):
-#   - macOS 未做 Apple Developer ID 签名 + Notarization → 用户首次打开需右键"打开"绕过 Gatekeeper
-#   - Windows 未做 EV Code Signing → SmartScreen 会警告"未知发布者",需点"更多信息 → 仍要运行"
-#   - 未集成 tauri-plugin-updater(Round 11 永久决策:in-app 自动更新撤销),用户需自行从 Release 页下载
+#   - macOS 未做 Apple Developer ID 签名 + Notarization → 首次打开需右键"打开"绕过 Gatekeeper
+#   - Windows 未做 EV Code Signing → SmartScreen 会警告"未知发布者"
+#   - 未集成 tauri-plugin-updater(Round 11 永久决策),用户需自行从 Release 页下载
 
 name: Release
 
@@ -22,11 +27,7 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: '版本号(不含 v 前缀,如 0.2.0)'
-        required: true
-        type: string
+    # 手动触发不需要输入版本号:产物按 commit sha 区分,只走 Artifact 不创建 Release
 
 permissions:
   contents: write
@@ -84,13 +85,14 @@ jobs:
         with:
           workspaces: './app/src-tauri -> target'
 
+      # frozen-lockfile 强制按 pnpm-lock.yaml 安装,防止 CI 端解析出与本地不一致的版本(漂移)
       - name: Install frontend dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
 
       - name: Run frontend tests (smoke gate)
         working-directory: app
-        run: pnpm test --run
+        run: pnpm test
 
       - name: Run frontend typecheck
         working-directory: app
@@ -100,14 +102,16 @@ jobs:
         working-directory: app/src-tauri
         run: cargo test --lib
 
-      - name: Build & release via tauri-action
+      # tag 触发分支:tauri-action 自带 Release 草稿创建逻辑
+      - name: Build & publish to GitHub Release (tag trigger)
+        if: github.event_name == 'push'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: app
-          tagName: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
-          releaseName: "DiskMind ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}"
+          tagName: ${{ github.ref_name }}
+          releaseName: "DiskMind ${{ github.ref_name }}"
           releaseBody: |
             ## DiskMind 桌面磁盘分析与清理工具
 
@@ -138,3 +142,27 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # 手动触发分支:只构建不创建 Release(不传 tagName/releaseName)
+      - name: Build only (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          args: ${{ matrix.args }}
+
+      # 手动触发时把产物上传成 Artifact,在 run 的 Summary 页可下载,30 天后自动清理
+      - name: Upload artifacts (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diskmind-${{ matrix.label }}-${{ github.sha }}
+          path: |
+            app/src-tauri/target/*/release/bundle/dmg/*.dmg
+            app/src-tauri/target/*/release/bundle/macos/*.app.tar.gz
+            app/src-tauri/target/*/release/bundle/msi/*.msi
+            app/src-tauri/target/*/release/bundle/nsis/*.exe
+          if-no-files-found: warn
+          retention-days: 30
