@@ -125,10 +125,11 @@ jobs:
 
             ### 首次安装注意
 
-            **macOS**:本版本**未做 Apple Developer ID 签名 + Notarization**(Round 11 永久决策,详见开发待办 §2.4),首次打开会被 Gatekeeper 拦截。请右键点击 `.app` → "打开",在弹出的警告框中再点"打开"。或者在 Terminal 执行:
+            **macOS**:本版本**未做 Apple Developer ID 签名 + Notarization**(Round 11 永久决策,详见开发待办 §2.4),首次打开会被 Gatekeeper 拦截。在 Terminal 执行一次即可:
             ```
-            xattr -d com.apple.quarantine /Applications/DiskMind.app
+            xattr -dr com.apple.quarantine /Applications/DiskMind.app
             ```
+            或右键点击 `.app` → "打开" → 在弹出的警告框中再点"打开"。
 
             **Windows**:本版本**未做 EV Code Signing**(同上决策),SmartScreen 会显示"未知发布者"警告。点 "更多信息 → 仍要运行" 即可。
 
