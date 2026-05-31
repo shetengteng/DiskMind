@@ -9,7 +9,16 @@ export interface ScanTarget {
 }
 
 export interface ScanOptions {
-  computeHash: boolean
+  /**
+   * Round 34A:扫描完成后自动跑一次重复文件检测(BLAKE3 两阶段)。
+   * 开启后,scan store 在 `scan:complete` 回调里会读 scan.results 派生
+   * 候选,直接调 dedup store 的 detect() — 用户不必再切 Duplicates Tab
+   * 手动点 Start。完整算法 + UI 见 §S14。
+   *
+   * 历史:Round 12 把这个开关与 `computeHash` 一起做成"规划中"装饰;
+   * Round 33 后端 BLAKE3 上线;Round 34A 删 computeHash(无独立消费方
+   * 且与本开关重叠),把这个开关接通成真。
+   */
   detectDuplicates: boolean
   aiAnalysis: boolean
   followSymlinks: boolean
@@ -43,21 +52,35 @@ const KIND_HINT_KEY: Record<SuggestedTargetKind, string> = {
 }
 
 const DEFAULT_OPTIONS: ScanOptions = {
-  computeHash: false,
   detectDuplicates: false,
   aiAnalysis: false,
   followSymlinks: false,
   excludeSensitive: false,
 }
 
+/**
+ * Round 34A:`computeHash` 字段已废弃(无消费方 + 与 `detectDuplicates`
+ * 语义重叠)。老版本 localStorage 里仍可能写有 `computeHash: true/false`,
+ * 解析时显式 strip,避免泄漏到 ScanOptions 接口类型外。
+ */
+type LegacyScanOptions = ScanOptions & { computeHash?: boolean }
+
+function normalizeOptions(raw: Partial<LegacyScanOptions> | undefined): ScanOptions {
+  if (!raw) return { ...DEFAULT_OPTIONS }
+  const { computeHash: _drop, ...rest } = raw
+  return { ...DEFAULT_OPTIONS, ...rest }
+}
+
 function loadFromStorage(): PersistedShape {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedShape>
+      const parsed = JSON.parse(raw) as Partial<PersistedShape> & {
+        options?: Partial<LegacyScanOptions>
+      }
       return {
         targets: parsed.targets ?? [],
-        options: { ...DEFAULT_OPTIONS, ...(parsed.options ?? {}) },
+        options: normalizeOptions(parsed.options),
         bootstrapped: parsed.bootstrapped === true,
         scanOnStartup: parsed.scanOnStartup === true,
       }
@@ -65,7 +88,7 @@ function loadFromStorage(): PersistedShape {
   } catch {
     /* ignore */
   }
-  return { targets: [], options: DEFAULT_OPTIONS, bootstrapped: false, scanOnStartup: false }
+  return { targets: [], options: { ...DEFAULT_OPTIONS }, bootstrapped: false, scanOnStartup: false }
 }
 
 export const useScanSettingsStore = defineStore('scanSettings', () => {

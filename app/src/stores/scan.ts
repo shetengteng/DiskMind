@@ -116,6 +116,33 @@ export const useScanStore = defineStore('scan', () => {
       } catch (e) {
         console.warn('[scan] auto ai-classify failed', e)
       }
+      // Round 34A:扫描后自动跑一次 BLAKE3 重复文件检测。语义与
+      // aiAnalysis 对齐(取消 / deduped 跳过),候选直接从本次新写入的
+      // results 派生(id + path + sizeBytes),不读 DB。dedup store 自
+      // 带 running 守卫 + 错误 toast,不会把扫描成功的状态拖垮。
+      try {
+        const settings = useScanSettingsStore()
+        if (
+          settings.options.detectDuplicates &&
+          !p.cancelled &&
+          !p.deduped &&
+          p.results.length > 0
+        ) {
+          const { useDedupStore } = await import('@/stores/dedup')
+          const dedup = useDedupStore()
+          await dedup.ensureSubscribed()
+          if (!dedup.running) {
+            const candidates = p.results.map(r => ({
+              id: r.id,
+              path: r.path,
+              sizeBytes: r.sizeBytes,
+            }))
+            void dedup.detect(candidates)
+          }
+        }
+      } catch (e) {
+        console.warn('[scan] auto dedup failed', e)
+      }
     })
     unlistenError = await onScanError(p => {
       console.error('[scan] scan:error received', p.message)

@@ -343,6 +343,64 @@ export async function classifierReloadUserRules(): Promise<number> {
   return await invoke<number>('classifier_reload_user_rules')
 }
 
+// ----- 用户规则可视化编辑器(Round 34B) -----
+//
+// `Matcher` 与后端 `classifier::user_rules::Matcher` 严格 1:1,后端走的是
+// `#[serde(tag = "kind", rename_all = "snake_case")]`,所以前端的 discriminated
+// union 用 `kind` 字段判别(snake_case)。
+//
+// **重要**:enum variant **内部字段**的 `size_bytes` 保留 snake_case,
+// 因为 (a) serde 的 `rename_all = "snake_case"` 只对 variant 名生效,不
+// 影响内部字段;(b) 改成 camelCase 会让写盘的 TOML 变成 `sizeBytes = ...`,
+// 破坏向后兼容(老的 rules.toml 全部用 snake_case)。所以前端在这里牺牲
+// 命名一致性换取 TOML 持久格式的稳定。
+
+export type UserRuleMatcher =
+  | { kind: 'path_contains'; value: string }
+  | { kind: 'path_contains_any'; values: string[] }
+  | { kind: 'path_ends_with'; value: string }
+  | { kind: 'ext_in_and_size_gt'; exts: string[]; size_bytes: number }
+  | { kind: 'size_gte'; size_bytes: number }
+
+export type UserRuleRisk = 'low' | 'medium' | 'high'
+
+/**
+ * `reason_key` / `size_bytes` 等字段保留 snake_case 与后端 / TOML 严格对齐,
+ * 因为后端结构没有 `rename_all = "camelCase"` 注解(TOML 持久格式约束)。
+ * 详见 `UserRuleMatcher` 类型上方的说明。
+ */
+export interface UserRule {
+  id: string
+  category: string
+  risk: UserRuleRisk
+  reason_key: string
+  matcher: UserRuleMatcher
+}
+
+export interface UserRuleSet {
+  rule: UserRule[]
+}
+
+/**
+ * 读取当前 `rules.toml`(磁盘文件,不是全局 snapshot)的结构化内容,
+ * 喂给 UI 编辑器作为初始值。文件不存在 → 返回 `{ rule: [] }`,不报错。
+ *
+ * **不会**改全局 classifier 状态,纯只读。
+ */
+export async function classifierListUserRules(): Promise<UserRuleSet> {
+  if (!isTauri()) return { rule: [] }
+  return await invoke<UserRuleSet>('classifier_list_user_rules')
+}
+
+/**
+ * UI 编辑器保存按钮:把完整规则集写回 `rules.toml` 并触发 reload。
+ * 写盘失败抛错,**不**改全局状态(用户的编辑保留)。成功返回写入条数。
+ */
+export async function classifierSaveUserRules(rules: UserRuleSet): Promise<number> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<number>('classifier_save_user_rules', { rules })
+}
+
 // ----- 重复文件检测(S14 · Round 33) -----
 //
 // 后端走两阶段 BLAKE3:size 分组 → 头部 64 KB → 全文 hash。前端 store 拿

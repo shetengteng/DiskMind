@@ -318,6 +318,8 @@ pub fn run() {
             // --- classifier (user rules) ---
             commands::classifier::classifier_reload_user_rules,
             commands::classifier::classifier_user_rules_path,
+            commands::classifier::classifier_list_user_rules,
+            commands::classifier::classifier_save_user_rules,
             // --- provider ---
             commands::provider::provider_list,
             commands::provider::provider_save,

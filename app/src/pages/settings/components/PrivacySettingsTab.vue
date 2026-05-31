@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound, FileCog, RefreshCw } from 'lucide-vue-next'
+import { ShieldCheck, Wallet, EyeOff, FolderOpen, Copy, KeyRound, FileCog, RefreshCw, Pencil } from 'lucide-vue-next'
+import UserRulesEditorDialog from './UserRulesEditorDialog.vue'
 import {
   Card,
   CardContent,
@@ -61,6 +62,7 @@ const retentionDays = ref<string>('30')
 const rulesPath = ref<string | null>(null)
 const loadedCount = ref<number | null>(null)
 const reloading = ref(false)
+const editorOpen = ref(false)
 
 onMounted(async () => {
   sandboxPath.value = await trashSandboxRoot()
@@ -102,6 +104,17 @@ async function onReloadRules() {
   } finally {
     reloading.value = false
   }
+}
+
+function openEditor() {
+  editorOpen.value = true
+}
+
+// 编辑器保存成功后,把卡片底部 "已加载 N 条" 计数同步刷新,免得用户
+// 还得手动再点 Reload。编辑器组件 save 内部已经调过 install(全局已是
+// 最新),这里只更新 UI 计数。
+function onEditorSaved(count: number) {
+  loadedCount.value = count
 }
 
 async function onRetentionChange(v: string) {
@@ -336,6 +349,11 @@ async function onExportAuditLog() {
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-3">
+        <Button class="w-full" :disabled="!rulesPath" @click="openEditor">
+          <Pencil class="mr-1.5 size-3.5" />
+          {{ t('settings.privacy.userRulesEditButton') }}
+        </Button>
+
         <div class="space-y-2">
           <Label class="text-sm">{{ t('settings.privacy.userRulesPathLabel') }}</Label>
           <div class="flex flex-wrap items-center gap-2">
@@ -354,6 +372,7 @@ async function onExportAuditLog() {
               {{ t('settings.privacy.userRulesReveal') }}
             </Button>
             <Button
+              variant="outline"
               size="sm"
               class="h-8"
               :disabled="!rulesPath || reloading"
@@ -371,5 +390,7 @@ async function onExportAuditLog() {
         </div>
       </CardContent>
     </Card>
+
+    <UserRulesEditorDialog v-model:open="editorOpen" @saved="onEditorSaved" />
   </div>
 </template>
