@@ -469,11 +469,19 @@ export default {
     },
     general: {
       app: 'App',
-      appDesc: 'Startup behavior and auto-update',
+      appDesc: 'Startup behavior and version',
       appearance: 'Appearance',
       appearanceDesc: 'Theme and language',
-      autoUpdate: 'Auto-check updates',
-      autoUpdateDesc: 'Check for new versions weekly',
+      checkUpdate: 'Check for updates',
+      checkUpdateDesc: 'Current version v{version} · Check GitHub for a newer release',
+      checkUpdateButton: 'Check now',
+      checkUpdateChecking: 'Checking…',
+      checkUpdateUpToDate: 'You are on the latest version v{version}',
+      checkUpdateAvailable: 'New version v{version} available',
+      checkUpdateAvailableDesc: 'Current v{current}. Click "Download" to open the release page.',
+      checkUpdateDownload: 'Download',
+      checkUpdateFailed: 'Failed to check for updates',
+      checkUpdateOpenFailed: 'Failed to open the download page',
       startWithSystem: 'Launch on startup',
       startWithSystemDesc: 'Run DiskMind when system starts',
       startWithSystemOn: 'Autostart enabled',
@@ -849,6 +857,16 @@ export default {
   platform: {
     error: {
       path_not_found: 'Path not found: {path}',
+    },
+  },
+
+  update: {
+    error: {
+      http_init: 'Failed to initialize HTTP client: {msg}',
+      network: 'Network request failed: {msg}',
+      bad_status: 'GitHub API returned an unexpected status: {status}',
+      parse: 'Failed to parse release data: {msg}',
+      bad_url: 'Invalid URL: {url}',
     },
   },
 

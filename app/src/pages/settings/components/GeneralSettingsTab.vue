@@ -34,12 +34,15 @@ import {
   metaSetHideInTray,
   crashLogDir,
   revealInExplorer,
+  checkForUpdates,
+  openExternalUrl,
 } from '@/api/tauri'
+import { getVersion } from '@tauri-apps/api/app'
 import { useScanSettingsStore } from '@/stores/scanSettings'
 import { storeToRefs } from 'pinia'
 import { notify } from '@/lib/notify'
 import { Button } from '@/components/ui/button'
-import { FolderOpen } from 'lucide-vue-next'
+import { FolderOpen, RefreshCw, Download } from 'lucide-vue-next'
 
 const { mode: themeMode } = useTheme()
 const { t, locale } = useI18n()
@@ -51,18 +54,18 @@ const language = computed<Locale>({
   set: (v) => setLocale(v),
 })
 
-interface ToggleItem {
-  key: keyof typeof generalSettings.value
-  labelKey: string
-  descKey: string
-  disabled?: boolean
-}
-
 const generalSettings = ref({
-  autoUpdate: true,
   startWithSystem: false,
   hideInTrayWhenMinimized: false,
 })
+
+// 「检查更新」状态。currentVersion 在 onMounted 阶段从 Tauri runtime 读取
+// (@tauri-apps/api/app · getVersion),与打包后的 app version 完全一致;
+// Web 预览模式下退化到固定字符串,按钮 disabled 即可。latestVersion 与
+// updateUrl 在用户点了检查按钮后才填充,用于"前往下载"按钮的目标。
+const currentVersion = ref('—')
+const checkingUpdate = ref(false)
+const latestUpdate = ref<{ version: string; url: string } | null>(null)
 
 // 从 OS 真实状态 hydrate "开机自启",而不是依赖前端 ref 默认值 —
 // 用户上次开过的话,这次进来就该看到开关已亮。
@@ -91,6 +94,13 @@ onMounted(async () => {
     maxScanHistoryReady.value = true
     hideInTrayReady.value = true
     return
+  }
+  // 当前版本只在 Tauri 环境读;失败时保持默认 `'—'`,UI 仍可点检查按钮
+  // (按钮会再次走 IPC 拉版本,失败再 toast)。
+  try {
+    currentVersion.value = await getVersion()
+  } catch {
+    /* 保持 '—' 占位 */
   }
   try {
     generalSettings.value.startWithSystem = await isAutostartEnabled()
@@ -187,10 +197,45 @@ async function onToggleHideInTray(v: boolean) {
   }
 }
 
-const appToggles: ToggleItem[] = [
-  // autoUpdate 仍是装饰开关 — 自动更新已决定不做(2.4 节)
-  { key: 'autoUpdate', labelKey: 'settings.general.autoUpdate', descKey: 'settings.general.autoUpdateDesc', disabled: true },
-]
+/**
+ * 手动检查 GitHub Release 是否有新版本。Round 11 决定不集成 plugin-updater,
+ * 这里走最薄实现:命中新版本时缓存 url 给"前往下载"按钮,无新版本时只 toast。
+ * 失败统一 toast,不抛到 window-level handler。
+ */
+async function onCheckForUpdates() {
+  if (!isTauri() || checkingUpdate.value) return
+  checkingUpdate.value = true
+  try {
+    const r = await checkForUpdates()
+    currentVersion.value = r.currentVersion
+    if (r.updateAvailable) {
+      latestUpdate.value = { version: r.latestVersion, url: r.releaseUrl }
+      notify.info(
+        t('settings.general.checkUpdateAvailable', { version: r.latestVersion }),
+        t('settings.general.checkUpdateAvailableDesc', { current: r.currentVersion }),
+      )
+    } else {
+      latestUpdate.value = null
+      notify.success(
+        t('settings.general.checkUpdateUpToDate', { version: r.currentVersion }),
+      )
+    }
+  } catch (e) {
+    notify.error(t('settings.general.checkUpdateFailed'), String(e))
+  } finally {
+    checkingUpdate.value = false
+  }
+}
+
+async function onOpenDownloadPage() {
+  const url = latestUpdate.value?.url
+  if (!url) return
+  try {
+    await openExternalUrl(url)
+  } catch (e) {
+    notify.error(t('settings.general.checkUpdateOpenFailed'), String(e))
+  }
+}
 
 /**
  * S6 + S7 · 打开崩溃日志目录。后端把 Rust panic 与前端异常都写到
@@ -245,16 +290,35 @@ async function openCrashLogDir() {
           />
         </div>
         <Separator />
-        <template v-for="item in appToggles" :key="item.key">
-          <div class="flex items-center justify-between gap-3">
-            <div class="space-y-0.5">
-              <Label class="text-sm">{{ t(item.labelKey) }}</Label>
-              <p class="text-xs text-muted-foreground">{{ t(item.descKey) }}</p>
-            </div>
-            <Switch v-model="generalSettings[item.key]" :disabled="item.disabled" />
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1 space-y-0.5">
+            <Label class="text-sm">{{ t('settings.general.checkUpdate') }}</Label>
+            <p class="text-xs text-muted-foreground">
+              {{ t('settings.general.checkUpdateDesc', { version: currentVersion }) }}
+            </p>
           </div>
-          <Separator />
-        </template>
+          <div class="flex shrink-0 items-center gap-2">
+            <Button
+              v-if="latestUpdate"
+              variant="default"
+              size="sm"
+              @click="onOpenDownloadPage"
+            >
+              <Download class="mr-1.5 size-3.5" />
+              {{ t('settings.general.checkUpdateDownload') }}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="!isTauri() || checkingUpdate"
+              @click="onCheckForUpdates"
+            >
+              <RefreshCw class="mr-1.5 size-3.5" :class="{ 'animate-spin': checkingUpdate }" />
+              {{ checkingUpdate ? t('settings.general.checkUpdateChecking') : t('settings.general.checkUpdateButton') }}
+            </Button>
+          </div>
+        </div>
+        <Separator />
         <div class="flex items-center justify-between gap-3">
           <div class="space-y-0.5">
             <Label class="text-sm">{{ t('settings.general.scanOnStartup') }}</Label>

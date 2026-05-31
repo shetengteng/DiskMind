@@ -467,11 +467,19 @@ export default {
     },
     general: {
       app: '应用',
-      appDesc: '启动行为和自动更新',
+      appDesc: '启动行为和版本',
       appearance: '外观',
       appearanceDesc: '主题和语言',
-      autoUpdate: '自动检查更新',
-      autoUpdateDesc: '每周检查一次新版本',
+      checkUpdate: '检查更新',
+      checkUpdateDesc: '当前版本 v{version} · 点击检查 GitHub 上是否有新版本',
+      checkUpdateButton: '检查更新',
+      checkUpdateChecking: '检查中…',
+      checkUpdateUpToDate: '已是最新版本 v{version}',
+      checkUpdateAvailable: '发现新版本 v{version}',
+      checkUpdateAvailableDesc: '当前版本 v{current},点击「前往下载」打开 Release 页',
+      checkUpdateDownload: '前往下载',
+      checkUpdateFailed: '检查更新失败',
+      checkUpdateOpenFailed: '打开下载页失败',
       startWithSystem: '开机自启动',
       startWithSystemDesc: '系统启动时自动运行 DiskMind',
       startWithSystemOn: '已开启开机自启',
@@ -848,6 +856,16 @@ export default {
   platform: {
     error: {
       path_not_found: '路径不存在: {path}',
+    },
+  },
+
+  update: {
+    error: {
+      http_init: 'HTTP 客户端初始化失败: {msg}',
+      network: '网络请求失败: {msg}',
+      bad_status: 'GitHub 接口返回异常状态: {status}',
+      parse: '解析 Release 数据失败: {msg}',
+      bad_url: '非法的 URL: {url}',
     },
   },
 

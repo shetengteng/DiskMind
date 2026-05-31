@@ -16,3 +16,4 @@ pub mod meta;
 pub mod provider;
 pub mod scan;
 pub mod trash;
+pub mod update_check;

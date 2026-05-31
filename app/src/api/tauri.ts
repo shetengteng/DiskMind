@@ -1013,3 +1013,35 @@ export async function crashLogMarkPanicsSeen(): Promise<void> {
     // ignore — 不影响启动流程
   }
 }
+
+// ----- 手动检查更新(GitHub Releases) -----
+//
+// Round 11 决定不集成 tauri-plugin-updater。这里走最薄的实现:用户在
+// Settings → 应用 点"检查更新"时,前端调 `check_for_updates` 拉
+// `/releases/latest`,后端做版本比较直接返回 `updateAvailable` 与
+// 下载页 URL。有新版本时再用 `openExternalUrl` 拉起浏览器。
+
+export interface UpdateCheckResult {
+  currentVersion: string
+  latestVersion: string
+  updateAvailable: boolean
+  releaseUrl: string
+  releaseNotes: string
+  publishedAt: string
+}
+
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<UpdateCheckResult>('check_for_updates')
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!isTauri()) {
+    // Web 预览模式直接走浏览器原生跳转,体验与 Tauri 一致。
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
+  await invoke('open_external_url', { url })
+}

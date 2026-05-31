@@ -357,6 +357,9 @@ pub fn run() {
             commands::crash_log::crash_log_dir,
             commands::crash_log::crash_log_unseen_panics,
             commands::crash_log::crash_log_mark_panics_seen,
+            // --- update check (manual, GitHub Releases) ---
+            commands::update_check::check_for_updates,
+            commands::update_check::open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
