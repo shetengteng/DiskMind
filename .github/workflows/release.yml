@@ -90,10 +90,16 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile
 
-      - name: Sync version across all manifest files
+      # 仅 tag 触发时同步版本号 — manifest 文件被改写后,Cargo build /
+      # tauri-action 都会按新版本号生成产物文件名(如 DiskMind_0.2.0_x64.dmg)。
+      # workflow_dispatch 手动触发时 github.ref_name 是分支名(如 main),
+      # 不符合 ^\d+\.\d+\.\d+,sync-version.js 会直接退出,整个 workflow
+      # 提前中断 — 所以这一步在手动触发时必须 skip。手动产物沿用 manifest
+      # 里现有版本号 + commit sha 区分(见 Upload artifacts 步骤命名)。
+      - name: Sync version across all manifest files (tag trigger only)
+        if: github.event_name == 'push'
         working-directory: app
         run: |
-          # 从 tag 提取版本号（v0.2.0 → 0.2.0）
           VERSION="${{ github.ref_name }}"
           pnpm sync-version "$VERSION"
 
