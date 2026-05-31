@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- DiskMind app icon: dark squircle background + white Lucide HardDrive glyph, mirroring sidebar logo -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#27272F"/>
+      <stop offset="100%" stop-color="#1F1F23"/>
+    </linearGradient>
+  </defs>
+  <!-- Squircle (Apple-style superellipse approximated via rounded rect) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- HardDrive glyph from Lucide (originally 24x24, scaled & translated to fit ~520px centered) -->
+  <g transform="translate(252, 252) scale(21.666)" stroke="#FFFFFF" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="22" y1="12" x2="2" y2="12"/>
+    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+    <line x1="6" y1="16" x2="6.01" y2="16"/>
+    <line x1="10" y1="16" x2="10.01" y2="16"/>
+  </g>
+
+  <!-- Subtle highlight ring (depth) -->
+  <rect x="2" y="2" width="1020" height="1020" rx="222" ry="222" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="2"/>
+</svg>
