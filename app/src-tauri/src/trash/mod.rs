@@ -52,11 +52,28 @@ fn sandbox_filename(id: i64, original: &Path) -> String {
     format!("{}__{}", id, leaf)
 }
 
+fn force_remove(p: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            #[cfg(windows)]
+            {
+                let mut perms = std::fs::metadata(p)?.permissions();
+                perms.set_readonly(false);
+                std::fs::set_permissions(p, perms)?;
+                std::fs::remove_file(p)
+            }
+            #[cfg(not(windows))]
+            Err(e)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     if let Err(_) = std::fs::rename(src, dst) {
-        // 跨卷 / 权限失败时回退为 copy + remove
         std::fs::copy(src, dst)?;
-        std::fs::remove_file(src)?;
+        force_remove(src)?;
     }
     Ok(())
 }
@@ -239,7 +256,7 @@ pub fn delete_items(db: &Arc<Db>, ids: Vec<i64>) -> TrashMoveResult {
 
         let sandbox = PathBuf::from(&item.sandbox_path);
         if sandbox.exists() {
-            if let Err(e) = std::fs::remove_file(&sandbox) {
+            if let Err(e) = force_remove(&sandbox) {
                 failures.push(TrashFailure {
                     path: item.original_path.clone(),
                     message: crate::i18n::i18n_p(
