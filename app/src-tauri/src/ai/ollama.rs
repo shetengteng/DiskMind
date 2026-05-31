@@ -9,6 +9,7 @@ use super::provider::{
     AiError, ChatDelta, ChatRequest, ChatResponse, LlmProvider, ProviderKind, Role, Usage,
 };
 
+#[allow(dead_code)]
 pub struct OllamaProvider {
     name: String,
     base_url: String,

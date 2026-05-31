@@ -35,11 +35,6 @@ pub struct Usage {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChatChoice {
-    pub content: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct ChatResponse {
     pub content: String,
     pub usage: Usage,
@@ -68,8 +63,6 @@ pub enum AiError {
     AllFailed(String),
     #[error("response not valid JSON for json_mode call: {0}")]
     JsonValidation(String),
-    #[error("cancelled")]
-    Cancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +93,7 @@ impl ProviderKind {
 /// 各后端共同实现的接口。方法签名采用 `&self`,以便引擎之间共享 HTTP
 /// client;取消逻辑由 orchestrator 层处理。
 #[async_trait]
+#[allow(dead_code)]
 pub trait LlmProvider: Send + Sync {
     fn name(&self) -> &str;
     fn kind(&self) -> ProviderKind;

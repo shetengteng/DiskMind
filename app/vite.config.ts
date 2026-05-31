@@ -41,12 +41,17 @@ export default defineConfig({
 
   build: {
     outDir: path.resolve(__dirname, 'dist'),
-    // Tauri 2 on macOS = modern WebKit (≥ Big Sur), on Windows = Edge WebView2 (Chromium-based);
-    // both support destructuring, optional chaining, etc. Bumping above safari13 / chrome105
-    // avoids esbuild "Transforming destructuring … not supported" failures on Vite 8.
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome120' : 'safari16',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    rolldownOptions: {
+      output: {
+        onLog(level, log, handler) {
+          if (log.code === 'INEFFECTIVE_DYNAMIC_IMPORT') return
+          handler(level, log)
+        },
+      },
+    },
   },
 
   // Vitest 配置:Round 22 测试三件套 Vue 组件单测层。jsdom 提供 DOM API

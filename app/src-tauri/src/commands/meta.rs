@@ -8,7 +8,7 @@ use tauri::State;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
-    AppHandle, Manager,
+    AppHandle,
 };
 
 use crate::db;

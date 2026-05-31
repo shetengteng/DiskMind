@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::{Db, TrashItem, TrashStats};
+use crate::db::{Db, TrashItem};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -288,10 +288,6 @@ pub fn empty_all(db: &Arc<Db>) -> TrashMoveResult {
     };
     let ids: Vec<i64> = list.into_iter().map(|i| i.id).collect();
     delete_items(db, ids)
-}
-
-pub fn stats(db: &Arc<Db>) -> rusqlite::Result<TrashStats> {
-    db.trash_stats()
 }
 
 /// 删除沙箱中早于 `retention_days` 的项目。返回成功清理的条目数。

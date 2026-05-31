@@ -18,7 +18,7 @@ import sys
 import time
 
 POLL_INTERVAL = 2
-HEARTBEAT_INTERVAL = 100
+HEARTBEAT_INTERVAL = 25
 DEFAULT_TIMEOUT = 60 * 60 * 2  # 2 hours
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

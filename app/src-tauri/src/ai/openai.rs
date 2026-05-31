@@ -10,6 +10,7 @@ use super::provider::{
     Usage,
 };
 
+#[allow(dead_code)]
 pub struct OpenAiCompatProvider {
     name: String,
     base_url: String,
