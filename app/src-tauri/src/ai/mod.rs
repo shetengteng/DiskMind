@@ -18,6 +18,7 @@ pub mod openai;
 pub mod orchestrator;
 pub mod prompts;
 pub mod provider;
+pub mod tagging;
 
 pub use orchestrator::{AiOrchestrator, ExplainFileInput, ExplainFileOutput};
 pub use provider::{ChatDelta, ChatMessage, Role};

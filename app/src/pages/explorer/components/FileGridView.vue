@@ -53,11 +53,9 @@ function iconColorClass(entry: ExplorerEntry) {
 }
 
 function handleClick(entry: ExplorerEntry) {
-  if (entry.isDir) {
-    store.navigateTo(entry.path)
-  } else {
-    store.toggleSelect(entry.path)
-    store.inspect(entry.path)
+  store.inspect(entry.path)
+  if (!entry.isDir) {
+    store.toggleSelection(entry.path)
   }
 }
 

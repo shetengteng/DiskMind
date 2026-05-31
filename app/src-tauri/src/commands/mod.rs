@@ -6,6 +6,7 @@
 
 pub mod ai_chat;
 pub mod ai_classify;
+pub mod ai_explorer;
 pub mod ai_file_ops;
 pub mod ai_single;
 pub mod chat_history;

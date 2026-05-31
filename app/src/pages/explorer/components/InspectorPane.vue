@@ -118,9 +118,9 @@ function categoryLabel(key: string) {
             </div>
           </div>
         </template>
-      </template>
 
-      <AiSummaryCard />
+        <AiSummaryCard />
+      </template>
 
       <template v-else>
         <div class="flex justify-between">

@@ -368,6 +368,10 @@ pub fn run() {
             // --- explorer (v3.0 Tree-First) ---
             commands::explorer::explorer_read_dir,
             commands::explorer::explorer_dir_stats,
+            // --- explorer AI (v3.0 Phase 2) ---
+            commands::ai_explorer::ai_summarize_dir,
+            commands::ai_explorer::ai_tag_batch,
+            commands::ai_explorer::ai_dir_suggestions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

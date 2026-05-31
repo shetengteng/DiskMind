@@ -19,7 +19,9 @@ use rusqlite::{params, Connection};
 use crate::classifier::FileRisk;
 
 mod ai_cleaning_advice;
+mod ai_dir_summary;
 mod ai_log;
+mod ai_tag;
 mod chat;
 mod classify;
 mod diag;
@@ -33,7 +35,9 @@ mod trash;
 // 类型(SaveScanResult / CategoryBreakdown / compute_fingerprint 等)通过
 // Db 方法的返回值间接公开,无需在这里再 pub use。
 pub use ai_cleaning_advice::CachedCleaningAdvice;
+pub use ai_dir_summary::AiDirSummaryCacheRow;
 pub use ai_log::{AiCallLog, AiTodayStats};
+pub use ai_tag::AiTagCacheRow;
 pub use chat::{ChatMessageAppend, ChatMessageRow, ChatSessionSummary};
 pub use classify::{ClassifyApplyItem, PendingClassifyItem};
 pub use diag::DbStats;
@@ -216,9 +220,32 @@ CREATE TABLE IF NOT EXISTS file_ops_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_ops_log_created ON file_ops_log(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_tag_cache (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_hash   TEXT    NOT NULL UNIQUE,
+    path        TEXT    NOT NULL,
+    label       TEXT    NOT NULL,
+    category    TEXT    NOT NULL,
+    source      TEXT    NOT NULL,
+    confidence  REAL    NOT NULL DEFAULT 1.0,
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_tag_cache_hash ON ai_tag_cache(path_hash);
+
+CREATE TABLE IF NOT EXISTS ai_dir_summary_cache (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    dir_path    TEXT    NOT NULL UNIQUE,
+    summary     TEXT    NOT NULL,
+    suggestions TEXT,
+    dir_mtime   INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL
+);
 "#;
 
-const DATA_VERSION: i64 = 15;
+const DATA_VERSION: i64 = 16;
 
 /// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
 /// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里
