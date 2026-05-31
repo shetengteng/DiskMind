@@ -205,6 +205,9 @@ export default {
         temp: '临时',
         other: '其他',
       },
+      aiSummary: 'AI 摘要',
+      aiAnalyzing: '正在分析…',
+      aiNoData: '暂无 AI 分析数据',
     },
     selection: {
       selected: '已选 {count} 项',

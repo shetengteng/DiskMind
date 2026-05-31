@@ -143,6 +143,9 @@ export default {
       lastModified: 'Last Modified',
       typeDistribution: 'Type Distribution',
       largestChildren: 'Largest Items',
+      aiSummary: 'AI Summary',
+      aiAnalyzing: 'Analyzing…',
+      aiNoData: 'No AI analysis available',
       categories: {
         video: 'Video',
         audio: 'Audio',

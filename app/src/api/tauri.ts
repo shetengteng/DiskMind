@@ -1261,3 +1261,31 @@ export async function aiDirSuggestions(path: string): Promise<AiDirSuggestionsRe
   if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
   return await invoke<AiDirSuggestionsResult>('ai_dir_suggestions', { path })
 }
+
+export interface AiDirSummary {
+  summary: string
+  topCategories: string[]
+  suggestion: string
+  fileCount: number
+  totalSize: number
+}
+
+export async function aiSummarizeDir(path: string): Promise<AiDirSummary> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<AiDirSummary>('ai_summarize_dir', { path })
+}
+
+export interface AiTagResult {
+  path: string
+  tag: string
+  confidence: number
+}
+
+export interface AiTagBatchResult {
+  results: AiTagResult[]
+}
+
+export async function aiTagBatch(paths: string[]): Promise<AiTagBatchResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<AiTagBatchResult>('ai_tag_batch', { paths })
+}

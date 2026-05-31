@@ -16,6 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
 import type { ExplorerEntry } from '@/api/tauri'
+import AiTagBadge from './AiTagBadge.vue'
 
 const { t } = useI18n()
 const store = useExplorerStore()
@@ -144,6 +145,7 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
               >
                 {{ entry.childrenCount }}
               </span>
+              <AiTagBadge v-if="!entry.isDir" :path="entry.path" />
             </div>
           </td>
           <td class="px-2 py-1.5 text-right tabular-nums text-muted-foreground">

@@ -3,10 +3,14 @@ import { computed, ref, shallowRef } from 'vue'
 import {
   explorerReadDir,
   explorerDirStats,
+  aiSummarizeDir,
+  aiTagBatch,
   type ExplorerEntry,
   type ExplorerReadDirResult,
   type ExplorerSortField,
   type DirStatsResult,
+  type AiDirSummary,
+  type AiTagResult,
 } from '@/api/tauri'
 
 export type ExplorerViewMode = 'list' | 'grid' | 'heatmap'
@@ -29,6 +33,10 @@ export const useExplorerStore = defineStore('explorer', () => {
 
   const dirStats = shallowRef<DirStatsResult | null>(null)
   const dirStatsLoading = ref(false)
+
+  const aiSummary = shallowRef<AiDirSummary | null>(null)
+  const aiSummaryLoading = ref(false)
+  const aiTags = ref<Map<string, AiTagResult>>(new Map())
 
   const selectedCount = computed(() => selectedPaths.value.size)
   const selectedEntries = computed(() =>
@@ -144,6 +152,36 @@ export const useExplorerStore = defineStore('explorer', () => {
     }
   }
 
+  async function loadAiSummary(path: string) {
+    aiSummaryLoading.value = true
+    aiSummary.value = null
+    try {
+      aiSummary.value = await aiSummarizeDir(path)
+    } catch {
+      aiSummary.value = null
+    } finally {
+      aiSummaryLoading.value = false
+    }
+  }
+
+  async function loadAiTags(paths: string[]) {
+    if (paths.length === 0) return
+    try {
+      const result = await aiTagBatch(paths)
+      const updated = new Map(aiTags.value)
+      for (const r of result.results) {
+        updated.set(r.path, r)
+      }
+      aiTags.value = updated
+    } catch {
+      // AI tags are best-effort
+    }
+  }
+
+  function getAiTag(path: string): AiTagResult | undefined {
+    return aiTags.value.get(path)
+  }
+
   async function init() {
     const home = '~'
     await navigateTo(home)
@@ -168,6 +206,9 @@ export const useExplorerStore = defineStore('explorer', () => {
     inspectedEntry,
     dirStats,
     dirStatsLoading,
+    aiSummary,
+    aiSummaryLoading,
+    aiTags,
     navigateTo,
     loadMore,
     refresh,
@@ -177,6 +218,9 @@ export const useExplorerStore = defineStore('explorer', () => {
     selectAll,
     clearSelection,
     inspect,
+    loadAiSummary,
+    loadAiTags,
+    getAiTag,
     init,
   }
 })

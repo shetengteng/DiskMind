@@ -2,6 +2,11 @@
 import { ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-vue-next'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { explorerReadDir, type ExplorerEntry } from '@/api/tauri'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
@@ -84,31 +89,45 @@ function isActive(node: TreeNodeData) {
     </div>
 
     <template v-for="node in roots" :key="node.path">
-      <div
-        class="group flex items-center gap-0.5 rounded-md px-1.5 py-1 cursor-pointer transition-colors"
-        :class="isActive(node) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
-        @click="selectNode(node)"
-      >
-        <button
-          class="flex size-4 shrink-0 items-center justify-center"
-          @click.stop="toggleExpand(node)"
-        >
-          <ChevronDown v-if="node.expanded" class="size-3 text-muted-foreground" />
-          <ChevronRight v-else class="size-3 text-muted-foreground" />
-        </button>
+      <Tooltip :delay-duration="400">
+        <TooltipTrigger as-child>
+          <div
+            class="group flex items-center gap-0.5 rounded-md px-1.5 py-1 cursor-pointer transition-colors"
+            :class="isActive(node) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
+            @click="selectNode(node)"
+          >
+            <button
+              class="flex size-4 shrink-0 items-center justify-center"
+              @click.stop="toggleExpand(node)"
+            >
+              <ChevronDown v-if="node.expanded" class="size-3 text-muted-foreground" />
+              <ChevronRight v-else class="size-3 text-muted-foreground" />
+            </button>
 
-        <FolderOpen v-if="node.expanded" class="mr-1 size-4 shrink-0 text-primary" />
-        <Folder v-else class="mr-1 size-4 shrink-0 text-muted-foreground" />
+            <FolderOpen v-if="node.expanded" class="mr-1 size-4 shrink-0 text-primary" />
+            <Folder v-else class="mr-1 size-4 shrink-0 text-muted-foreground" />
 
-        <span class="flex-1 truncate">{{ node.name }}</span>
+            <span class="flex-1 truncate">{{ node.name }}</span>
 
-        <span
-          v-if="node.sizeBytes > 0"
-          class="shrink-0 text-[10px] text-muted-foreground tabular-nums"
-        >
-          {{ formatBytes(node.sizeBytes) }}
-        </span>
-      </div>
+            <span
+              v-if="node.sizeBytes > 0"
+              class="shrink-0 text-[10px] text-muted-foreground tabular-nums"
+            >
+              {{ formatBytes(node.sizeBytes) }}
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" :side-offset="8" class="max-w-72">
+          <div class="text-xs space-y-0.5">
+            <div class="font-medium truncate">{{ node.name }}</div>
+            <div class="text-muted-foreground font-mono truncate">{{ node.path }}</div>
+            <div v-if="node.sizeBytes > 0" class="text-muted-foreground">
+              {{ formatBytes(node.sizeBytes) }}
+              <span v-if="node.childrenCount != null"> · {{ node.childrenCount }} {{ t('explorer.items') }}</span>
+            </div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
 
       <div v-if="node.expanded && node.children.length" class="ml-3 border-l pl-1">
         <tree-subtree :nodes="node.children" :depth="1" />
