@@ -44,14 +44,6 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome120' : 'safari16',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    rolldownOptions: {
-      output: {
-        onLog(level, log, handler) {
-          if (log.code === 'INEFFECTIVE_DYNAMIC_IMPORT') return
-          handler(level, log)
-        },
-      },
-    },
   },
 
   // Vitest 配置:Round 22 测试三件套 Vue 组件单测层。jsdom 提供 DOM API
