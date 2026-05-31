@@ -319,87 +319,16 @@ export async function revealInExplorer(path: string): Promise<void> {
   await invoke('reveal_in_explorer', { path })
 }
 
-/**
- * Round 29 · classifier 用户自定义规则。后端在 setup 阶段读取
- * `app_data/rules.toml`,本组 IPC 让用户在不重启 app 的情况下:
- * - 拿到文件绝对路径(用 reveal/copy 找到并编辑)
- * - 改完后调 reload 让新规则即时生效,返回当前加载到的规则数量
- *
- * 设计原则:用户规则**追加**于 builtin,builtin 永不被覆盖或禁用。详见
- * `app/src-tauri/src/classifier/user_rules.rs` 模块文档。Web 预览模式下
- * 返回空字符串 / 0,UI 应回退到"桌面端可用"占位。
- */
-export async function classifierUserRulesPath(): Promise<string | null> {
-  if (!isTauri()) return null
-  try {
-    return await invoke<string>('classifier_user_rules_path')
-  } catch {
-    return null
-  }
-}
-
-export async function classifierReloadUserRules(): Promise<number> {
-  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
-  return await invoke<number>('classifier_reload_user_rules')
-}
-
-// ----- 用户规则可视化编辑器(Round 34B) -----
+// Round 34C · classifier 用户自定义规则的 4 个 IPC wrapper 已撤销
 //
-// `Matcher` 与后端 `classifier::user_rules::Matcher` 严格 1:1,后端走的是
-// `#[serde(tag = "kind", rename_all = "snake_case")]`,所以前端的 discriminated
-// union 用 `kind` 字段判别(snake_case)。
+// R29 引入了 `classifier_user_rules_path` + `classifier_reload_user_rules`
+// 配合 R32 的 reveal/reload UI 入口;R34B 又加了 `classifier_list_user_rules`
+// + `classifier_save_user_rules` 给可视化编辑器。R34C 应用户反馈把整套
+// UI 入口撤销 — 对应的 IPC wrapper 一并删除以保持单一职责。
 //
-// **重要**:enum variant **内部字段**的 `size_bytes` 保留 snake_case,
-// 因为 (a) serde 的 `rename_all = "snake_case"` 只对 variant 名生效,不
-// 影响内部字段;(b) 改成 camelCase 会让写盘的 TOML 变成 `sizeBytes = ...`,
-// 破坏向后兼容(老的 rules.toml 全部用 snake_case)。所以前端在这里牺牲
-// 命名一致性换取 TOML 持久格式的稳定。
-
-export type UserRuleMatcher =
-  | { kind: 'path_contains'; value: string }
-  | { kind: 'path_contains_any'; values: string[] }
-  | { kind: 'path_ends_with'; value: string }
-  | { kind: 'ext_in_and_size_gt'; exts: string[]; size_bytes: number }
-  | { kind: 'size_gte'; size_bytes: number }
-
-export type UserRuleRisk = 'low' | 'medium' | 'high'
-
-/**
- * `reason_key` / `size_bytes` 等字段保留 snake_case 与后端 / TOML 严格对齐,
- * 因为后端结构没有 `rename_all = "camelCase"` 注解(TOML 持久格式约束)。
- * 详见 `UserRuleMatcher` 类型上方的说明。
- */
-export interface UserRule {
-  id: string
-  category: string
-  risk: UserRuleRisk
-  reason_key: string
-  matcher: UserRuleMatcher
-}
-
-export interface UserRuleSet {
-  rule: UserRule[]
-}
-
-/**
- * 读取当前 `rules.toml`(磁盘文件,不是全局 snapshot)的结构化内容,
- * 喂给 UI 编辑器作为初始值。文件不存在 → 返回 `{ rule: [] }`,不报错。
- *
- * **不会**改全局 classifier 状态,纯只读。
- */
-export async function classifierListUserRules(): Promise<UserRuleSet> {
-  if (!isTauri()) return { rule: [] }
-  return await invoke<UserRuleSet>('classifier_list_user_rules')
-}
-
-/**
- * UI 编辑器保存按钮:把完整规则集写回 `rules.toml` 并触发 reload。
- * 写盘失败抛错,**不**改全局状态(用户的编辑保留)。成功返回写入条数。
- */
-export async function classifierSaveUserRules(rules: UserRuleSet): Promise<number> {
-  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
-  return await invoke<number>('classifier_save_user_rules', { rules })
-}
+// **后端模块 `classifier::user_rules` 保留**:启动 setup 阶段仍会 load
+// app_data/rules.toml 一次,classify 时按追加规则匹配。高级用户仍能手编
+// 文件,**改后重启 app 生效**(无 UI 反馈)。
 
 // ----- 重复文件检测(S14 · Round 33) -----
 //

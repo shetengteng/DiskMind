@@ -41,7 +41,7 @@
 //! 载时不校验 reason_key 真实性 — 让 i18n 字典缺失透明暴露给开发者。
 
 use crate::scanner::FileEntry;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -49,11 +49,10 @@ use std::sync::{Arc, OnceLock, RwLock};
 /// 户复刻 builtin 的语义,也能加未覆盖的新模式。`PathContainsAny` 而非
 /// 多写几条 `PathContains` 是为了 TOML 友好(一行一组)。
 ///
-/// Round 34B:加 `Serialize` 派生,让 UI 可视化编辑器把改动写回 rules.toml。
-/// `tag = "kind"` 在序列化时把 enum 名(snake_case)作为 inline table 的
-/// `kind` 字段,与现有 Deserialize 形态严格对称,保证 read/write 往返
-/// idempotent。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Round 34C · `Serialize` 派生与 `save_to` 已撤回 — UI 可视化编辑器(R34B)
+/// 应用户反馈被去除,后端不再提供"读回 → 写盘"能力,只保留启动时一次性
+/// `load_from`。如果未来重新引入编辑功能,重新加 `Serialize` 即可。
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Matcher {
     /// 路径(转小写后)包含给定子串。
@@ -71,7 +70,7 @@ pub enum Matcher {
     SizeGte { size_bytes: u64 },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     Low,
@@ -79,10 +78,10 @@ pub enum RiskLevel {
     High,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Rule {
     /// 唯一 ID,主要给日志 / debug 用,classify hot path 不读。
-    /// Round 34B 把 `dead_code` allow 拿掉 — 现在 UI 编辑器要展示和写回 id。
+    #[allow(dead_code)]
     pub id: String,
     /// 命中时写入 `scan_result.category`,期待用 stable English snake_case
     /// (与 builtin 保持一致),前端 `localizeCategory` 会翻译。
@@ -95,7 +94,7 @@ pub struct Rule {
     pub matcher: Matcher,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct UserRuleSet {
     #[serde(default)]
     pub rule: Vec<Rule>,
@@ -198,34 +197,14 @@ pub fn load_from(path: &Path) -> UserRuleSet {
     }
 }
 
-/// 把全局规则集替换为新值。reload 命令用;启动时 setup 阶段也用一次。
+/// 把全局规则集替换为新值。启动时 setup 阶段用一次。
+///
+/// Round 34C · 之前同时被 `classifier_reload_user_rules` IPC 使用,该 IPC
+/// 随 R34C UI 撤销一并删除;现在只在 setup 时调用一次。
 pub fn install(new_set: UserRuleSet) {
     let lock = cell();
     let mut guard = lock.write().expect("user rules lock poisoned");
     *guard = Arc::new(new_set);
-}
-
-/// Round 34B · 把规则集写回 TOML 文件,UI 可视化编辑器用。
-///
-/// - 父目录不存在自动 `create_dir_all`(首次写入场景:`app_data_dir`
-///   存在但 `rules.toml` 从未生成)。
-/// - 写入采用 atomic rename 模式:先写到 `<path>.tmp`,fsync 后 rename
-///   到目标。中途崩溃不会留半截损坏文件,这条规则集在 classify hot
-///   path 上,完整性优先级高。
-/// - 任何 IO 失败都返回 `String` 错误,前端 toast 给用户。
-pub fn save_to(path: &Path, set: &UserRuleSet) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create parent dir failed: {e}"))?;
-    }
-    let text = toml::to_string_pretty(set)
-        .map_err(|e| format!("serialize rules failed: {e}"))?;
-    let tmp_path = path.with_extension("toml.tmp");
-    std::fs::write(&tmp_path, text.as_bytes())
-        .map_err(|e| format!("write tmp failed: {e}"))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| format!("atomic rename failed: {e}"))?;
-    Ok(())
 }
 
 /// classify 遍历用 — 取一个当前 RuleSet 的 Arc 快照,不阻塞 reload。
@@ -369,94 +348,5 @@ mod tests {
         assert_eq!(snap.rule[0].category, "logs");
         // 清理:把全局重置回空,避免污染其它测试
         install(UserRuleSet::default());
-    }
-
-    /// Round 34B · serialize 单元测试:每种 matcher 写回后必须再读出来
-    /// 一模一样。这是 UI 编辑器写盘的核心契约,违反就会导致用户的规则
-    /// 被悄悄丢失。
-    #[test]
-    fn save_then_load_roundtrip_preserves_all_matcher_kinds() {
-        let original_toml = r#"
-            [[rule]]
-            id = "r1"
-            category = "browser_cache"
-            risk = "low"
-            reason_key = "classifier.reason.browser_cache_chrome"
-            matcher = { kind = "path_contains", value = "/library/caches/" }
-
-            [[rule]]
-            id = "r2"
-            category = "dev_artifacts"
-            risk = "medium"
-            reason_key = "classifier.reason.dev_artifacts_node_modules"
-            matcher = { kind = "path_contains_any", values = ["/node_modules/", "/.venv/"] }
-
-            [[rule]]
-            id = "r3"
-            category = "system_metadata"
-            risk = "low"
-            reason_key = "classifier.reason.system_metadata"
-            matcher = { kind = "path_ends_with", value = ".ds_store" }
-
-            [[rule]]
-            id = "r4"
-            category = "large_media"
-            risk = "high"
-            reason_key = "classifier.reason.large_media"
-            matcher = { kind = "ext_in_and_size_gt", exts = ["mp4", "mov"], size_bytes = 1073741824 }
-
-            [[rule]]
-            id = "r5"
-            category = "unknown_large"
-            risk = "medium"
-            reason_key = "classifier.reason.unknown_large"
-            matcher = { kind = "size_gte", size_bytes = 524288000 }
-        "#;
-        let original: UserRuleSet = toml::from_str(original_toml).unwrap();
-        assert_eq!(original.rule.len(), 5);
-
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        save_to(tmp.path(), &original).expect("save should succeed");
-
-        let reloaded = load_from(tmp.path());
-        assert_eq!(reloaded.rule.len(), 5);
-        // 逐一校验 matcher 变体保留;Debug 表达式串里 enum kind 名是 PascalCase
-        // 跟 serialize tag 不同,但只要 Debug 输出唯一就可以验证。
-        assert_eq!(reloaded.rule[0].id, "r1");
-        assert_eq!(reloaded.rule[1].id, "r2");
-        assert_eq!(reloaded.rule[2].id, "r3");
-        assert_eq!(reloaded.rule[3].id, "r4");
-        assert_eq!(reloaded.rule[4].id, "r5");
-        assert!(matches!(reloaded.rule[0].matcher, Matcher::PathContains { .. }));
-        assert!(matches!(reloaded.rule[1].matcher, Matcher::PathContainsAny { .. }));
-        assert!(matches!(reloaded.rule[2].matcher, Matcher::PathEndsWith { .. }));
-        assert!(matches!(reloaded.rule[3].matcher, Matcher::ExtInAndSizeGt { .. }));
-        assert!(matches!(reloaded.rule[4].matcher, Matcher::SizeGte { .. }));
-        if let Matcher::ExtInAndSizeGt { exts, size_bytes } = &reloaded.rule[3].matcher {
-            assert_eq!(exts, &vec!["mp4".to_string(), "mov".to_string()]);
-            assert_eq!(*size_bytes, 1073741824u64);
-        }
-    }
-
-    /// Round 34B · 空 set 写出后再读还是 0 条规则,避免 UI "清空" 操作
-    /// 写出无法解析的 TOML。
-    #[test]
-    fn save_empty_set_then_load_returns_empty() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        save_to(tmp.path(), &UserRuleSet::default()).unwrap();
-        let reloaded = load_from(tmp.path());
-        assert_eq!(reloaded.rule.len(), 0);
-    }
-
-    /// Round 34B · save_to 在父目录不存在时自动创建,首次写盘场景的核心
-    /// 安全保障(app_data_dir 可能存在但目标路径父目录缺失,例如用户
-    /// 删过 com.diskmind.app 子目录后又重启了 app)。
-    #[test]
-    fn save_to_creates_parent_dir_when_missing() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let nested = tmp_dir.path().join("missing_subdir").join("rules.toml");
-        let set = UserRuleSet::default();
-        save_to(&nested, &set).expect("create parent dir should be automatic");
-        assert!(nested.exists());
     }
 }

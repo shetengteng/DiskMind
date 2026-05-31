@@ -8,7 +8,6 @@ pub mod ai_chat;
 pub mod ai_classify;
 pub mod ai_single;
 pub mod chat_history;
-pub mod classifier;
 pub mod crash_log;
 pub mod dedup;
 pub mod diag;

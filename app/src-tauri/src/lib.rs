@@ -316,10 +316,9 @@ pub fn run() {
             commands::meta::meta_get_locale,
             commands::meta::meta_set_locale,
             // --- classifier (user rules) ---
-            commands::classifier::classifier_reload_user_rules,
-            commands::classifier::classifier_user_rules_path,
-            commands::classifier::classifier_list_user_rules,
-            commands::classifier::classifier_save_user_rules,
+            // Round 34C · UI 入口撤销,4 个 IPC(path / reload / list / save)一并
+            // 移除。后端 `classifier::user_rules` 模块自身保留,启动 setup 阶段
+            // 仍会读 rules.toml 一次,classify hot path 仍按追加规则匹配。
             // --- provider ---
             commands::provider::provider_list,
             commands::provider::provider_save,
