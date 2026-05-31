@@ -225,3 +225,13 @@
 .animate-indeterminate {
   animation: indeterminate 1.4s ease-in-out infinite;
 }
+
+html.explorer-active main {
+  overflow: hidden !important;
+}
+
+html.explorer-active main > div {
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}

@@ -15,7 +15,7 @@ import {
 import { fileOpsExecute, type FileOpsRequest, type FileOpsResult } from '@/api/tauri'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
-import { toast } from '@/components/ui/sonner'
+import { toast } from 'vue-sonner'
 import { useUndoBanner } from '@/composables/useUndoBanner'
 
 export type ActionMode = 'move' | 'rename' | 'delete'
