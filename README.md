@@ -35,26 +35,24 @@
 
 ## 截图
 
-> 以下截图占位将在 Alpha 公测前替换为正式产品截图。
-
 <table>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshots/dashboard.png" alt="Dashboard：扫描总览、风险分布、Top 大文件、近一次扫描摘要" />
+      <img src="./docs/assets/img/screenshots/dashboard-zh.png" alt="Dashboard：扫描总览、风险分布、Top 大文件、近一次扫描摘要" />
       <p align="center"><sub><b>Dashboard</b>：扫描总览、风险分布、Top 大文件、近一次扫描摘要</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshots/disk-map.png" alt="磁盘地图：基于 ECharts Treemap 的可视化目录占用" />
+      <img src="./docs/assets/img/screenshots/disk-map-zh.png" alt="磁盘地图：基于 ECharts Treemap 的可视化目录占用" />
       <p align="center"><sub><b>磁盘地图</b>：基于 ECharts Treemap 的可视化目录占用</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshots/ai-chat.png" alt="AI 对话抽屉：对任意文件追问，自然语言解释风险与建议" />
+      <img src="./docs/assets/img/screenshots/ai-drawer-zh.png" alt="AI 对话抽屉：对任意文件追问，自然语言解释风险与建议" />
       <p align="center"><sub><b>AI 对话抽屉</b>：对任意文件追问，自然语言解释风险与建议</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshots/trash.png" alt="沙箱回收站：30 天可回滚，每次清理都可撤销" />
+      <img src="./docs/assets/img/screenshots/trash-sandbox-zh.png" alt="沙箱回收站：30 天可回滚，每次清理都可撤销" />
       <p align="center"><sub><b>沙箱回收站</b>：30 天可回滚，每次清理都可撤销</sub></p>
     </td>
   </tr>

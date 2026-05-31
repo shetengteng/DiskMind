@@ -409,8 +409,9 @@ export const useAiStore = defineStore('ai', () => {
     const topN = Math.min(30, scan.results.length)
     lines.push('')
     lines.push(t('aiContext.topCandidatesHeader', { n: topN }))
-    lines.push(t('aiContext.topCandidatesTableHeader'))
-    lines.push(t('aiContext.topCandidatesDivider'))
+    const isZh = i18n.global.locale.value === 'zh-CN'
+    lines.push(isZh ? '| # | 路径 | 大小 | 分类 | 风险 |' : '| # | Path | Size | Category | Risk |')
+    lines.push(isZh ? '|---|------|------|------|------|' : '|---|------|------|----------|------|')
     for (let i = 0; i < topN; i++) {
       const r = scan.results[i]!
       lines.push(`| ${i + 1} | \`${m(r.path)}\` | ${r.size} | ${r.category} | ${r.risk} |`)

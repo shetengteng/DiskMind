@@ -380,6 +380,18 @@
         }
       }
 
+      // Localized images: <img data-i18n-src-zh="..." data-i18n-src-en="..." />
+      var imgKey = lang === 'zh-CN' ? 'data-i18n-src-zh' : 'data-i18n-src-en';
+      var imgFallback = lang === 'zh-CN' ? 'data-i18n-src-en' : 'data-i18n-src-zh';
+      var imgNodes = document.querySelectorAll('[data-i18n-src-zh],[data-i18n-src-en]');
+      for (var ii = 0; ii < imgNodes.length; ii++) {
+        var imgEl = imgNodes[ii];
+        var src = imgEl.getAttribute(imgKey) || imgEl.getAttribute(imgFallback);
+        if (src && imgEl.getAttribute('src') !== src) {
+          imgEl.setAttribute('src', src);
+        }
+      }
+
       // Update lang switch label (show "EN" when on zh, "中" when on en)
       var langBtn = document.querySelector('[data-lang-switch]');
       if (langBtn) {

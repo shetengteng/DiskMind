@@ -31,26 +31,24 @@ Every suggestion comes with a plain-language explanation.
 
 ## Screenshots
 
-> Placeholders below will be replaced with real product shots before the public Alpha.
-
 <table>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshots/dashboard.png" alt="Dashboard: scan overview, risk distribution, top large files, last scan summary" />
+      <img src="./docs/assets/img/screenshots/dashboard-en.png" alt="Dashboard: scan overview, risk distribution, top large files, last scan summary" />
       <p align="center"><sub><b>Dashboard</b>: scan overview, risk distribution, top large files, last scan summary</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshots/disk-map.png" alt="Disk Map: ECharts treemap visualization of directory usage" />
+      <img src="./docs/assets/img/screenshots/disk-map-en.png" alt="Disk Map: ECharts treemap visualization of directory usage" />
       <p align="center"><sub><b>Disk Map</b>: ECharts treemap visualization of directory usage</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="./docs/screenshots/ai-chat.png" alt="AI Drawer: ask follow-ups about any file in plain language" />
+      <img src="./docs/assets/img/screenshots/ai-drawer-en.png" alt="AI Drawer: ask follow-ups about any file in plain language" />
       <p align="center"><sub><b>AI Drawer</b>: ask follow-ups about any file in plain language</sub></p>
     </td>
     <td width="50%">
-      <img src="./docs/screenshots/trash.png" alt="Sandbox Trash: 30-day undo, every cleanup is reversible" />
+      <img src="./docs/assets/img/screenshots/trash-sandbox-en.png" alt="Sandbox Trash: 30-day undo, every cleanup is reversible" />
       <p align="center"><sub><b>Sandbox Trash</b>: 30-day undo, every cleanup is reversible</sub></p>
     </td>
   </tr>
