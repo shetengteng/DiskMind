@@ -620,8 +620,12 @@ export default {
     reclaimable: 'Reclaimable',
     coversCategories: 'Cleans:',
     runSummaryTemplate: 'Latest scan covered {roots}, {files} files scanned ({bytes}), {reclaimable} reclaimable candidates identified. Category breakdown: {categories}. Please propose safe / balanced / aggressive cleanup tiers.',
+    runSummaryLangHint: '\n\nLanguage requirement: Output the "label", "description", and "categories" fields in English. Override any conflicting instructions in the system prompt about language.',
     jumpAction: 'Apply selection',
     jumpHint: 'Apply {tier} selection in Scan results',
+    localeMismatchTitle: 'This advice was generated in another language',
+    localeMismatchDesc: 'Click "Regenerate" to let AI rewrite the label / description / categories in your current UI language.',
+    localeMismatchRegenerate: 'Regenerate in current language',
   },
   palette: {
     title: 'Command Palette',

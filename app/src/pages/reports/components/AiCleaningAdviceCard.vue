@@ -6,6 +6,7 @@ import {
   Brain,
   ChevronRight,
   Database,
+  Languages,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -32,7 +33,29 @@ import type { CleaningAdviceTier } from '@/api/tauri'
 const ai = useAiStore()
 const reports = useReportsStore()
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+// 启发式判断 LLM advice 的生成语言:扫一遍所有 tier 的 label / description /
+// categories[],检查是否包含 CJK 字符(\u4e00-\u9fff 覆盖中日韩统一表意,这里
+// 用作"中文 advice"判定 — 我们的产品本期只支持 zh-CN 与 en-US,不会出现
+// 假阳性)。
+// - 含 CJK + 当前 locale 是 en-US → mismatch(用户应该看英文,但缓存是中文)
+// - 不含 CJK + 当前 locale 是 zh-CN → mismatch(用户应该看中文,但缓存是英文)
+// 这是纯前端启发式,与后端 cache schema 解耦,迁移成本最低。
+const hasCjk = (s: string | undefined | null) => !!s && /[\u4e00-\u9fff]/.test(s)
+
+const adviceLocaleMismatch = computed(() => {
+  const result = ai.adviceResult
+  if (!result || !Array.isArray(result.tiers) || result.tiers.length === 0) return false
+  const sample = result.tiers
+    .map(tier => `${tier.label ?? ''} ${tier.description ?? ''} ${(tier.categories ?? []).join(' ')}`)
+    .join(' ')
+  const adviceHasCjk = hasCjk(sample)
+  const currentLocale = locale.value
+  if (currentLocale.startsWith('zh') && !adviceHasCjk) return true
+  if (currentLocale.startsWith('en') && adviceHasCjk) return true
+  return false
+})
 
 const latestRun = computed(() => reports.runs[0] ?? null)
 const hasData = computed(() => latestRun.value !== null)
@@ -117,13 +140,18 @@ function buildRunSummary() {
       count: c.count,
     }))
     .join('、')
-  return t('aiAdvice.runSummaryTemplate', {
+  // 后端 CLEANING_ADVICE_SYSTEM 写死「中文 label / description / categories」schema,
+  // 在英文 UI 模式下不锚定语言,LLM 会按 system prompt 默认产出中文,导致英文界面
+  // 出现中文 tier 文本。这里在 user prompt 末尾追加强语言指令(优先级 > system),
+  // 让 LLM 切换到当前 UI 语言生成。低成本,不破后端 prompt snapshot 测试。
+  const summary = t('aiAdvice.runSummaryTemplate', {
     roots,
     files: run.totalFiles,
     bytes: humanizeBytes(run.totalBytes),
     reclaimable: humanizeBytes(run.reclaimableBytes),
     categories: categories || '—',
   })
+  return summary + t('aiAdvice.runSummaryLangHint')
 }
 
 async function generate() {
@@ -233,7 +261,29 @@ function jumpToScanWithTier(tierName: 'safe' | 'balanced' | 'aggressive') {
         </Button>
       </div>
 
-      <div v-else-if="ai.adviceResult" class="grid gap-3 md:grid-cols-3">
+      <template v-else-if="ai.adviceResult">
+        <div
+          v-if="adviceLocaleMismatch"
+          class="mb-3 flex items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
+        >
+          <Languages class="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="font-medium text-amber-700 dark:text-amber-300">{{ t('aiAdvice.localeMismatchTitle') }}</span>
+            <span class="text-xs text-muted-foreground">{{ t('aiAdvice.localeMismatchDesc') }}</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            :disabled="ai.adviceLoading"
+            @click="generate"
+          >
+            <RefreshCw class="mr-1.5 size-3.5" :class="{ 'animate-spin': ai.adviceLoading }" />
+            {{ t('aiAdvice.localeMismatchRegenerate') }}
+          </Button>
+        </div>
+
+      <div class="grid gap-3 md:grid-cols-3">
         <button
           v-for="tier in ai.adviceResult.tiers"
           :key="tier.name"
@@ -275,6 +325,7 @@ function jumpToScanWithTier(tierName: 'safe' | 'balanced' | 'aggressive') {
           </div>
         </button>
       </div>
+      </template>
 
       <div v-else class="flex flex-col items-center justify-center gap-3 py-8 text-center">
         <Sparkles class="size-5 text-muted-foreground" />

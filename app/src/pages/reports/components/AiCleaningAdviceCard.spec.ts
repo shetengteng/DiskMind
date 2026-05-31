@@ -83,10 +83,10 @@ vi.mock('@/lib/notify', () => ({
 
 import AiCleaningAdviceCard from './AiCleaningAdviceCard.vue'
 
-function makeI18n() {
+function makeI18n(locale: 'en-US' | 'zh-CN' = 'en-US') {
   return createI18n({
     legacy: false,
-    locale: 'en-US',
+    locale,
     fallbackLocale: 'en-US',
     // 最小化语言包:只放本组件用到的 key,避免拉整个 i18n 文件
     messages: {
@@ -112,8 +112,42 @@ function makeI18n() {
           reclaimable: 'Reclaimable',
           coversCategories: 'Cleans:',
           runSummaryTemplate: 'roots={roots} files={files}',
+          runSummaryLangHint: ' [LANG_HINT_EN]',
           jumpAction: 'Apply selection',
           jumpHint: 'Apply {tier} selection in Scan',
+          localeMismatchTitle: 'LocaleMismatchTitle',
+          localeMismatchDesc: 'LocaleMismatchDesc',
+          localeMismatchRegenerate: 'RegenerateInCurrentLang',
+        },
+      },
+      'zh-CN': {
+        aiAdvice: {
+          title: '一键清理建议',
+          desc: 'desc',
+          generate: '生成建议',
+          regenerate: '重新生成',
+          loading: 'AI 分析中…',
+          empty: '空',
+          needScan: '需要扫描',
+          errorTitle: '生成失败',
+          updatedAt: '更新于 {time}',
+          fromCache: '来自缓存',
+          cacheHint: '缓存提示',
+          tierSafe: '安全',
+          tierBalanced: '平衡',
+          tierAggressive: '激进',
+          riskLow: '低风险',
+          riskMedium: '中风险',
+          riskHigh: '高风险',
+          reclaimable: '可回收',
+          coversCategories: '清理:',
+          runSummaryTemplate: 'roots={roots} files={files}',
+          runSummaryLangHint: ' [LANG_HINT_ZH]',
+          jumpAction: '选中',
+          jumpHint: '按 {tier} 选中',
+          localeMismatchTitle: '语言不匹配',
+          localeMismatchDesc: '语言不匹配说明',
+          localeMismatchRegenerate: '用中文重新生成',
         },
       },
     },
@@ -131,9 +165,12 @@ function makeRouter() {
   })
 }
 
-function mountCard(router = makeRouter()) {
+function mountCard(
+  router = makeRouter(),
+  locale: 'en-US' | 'zh-CN' = 'en-US',
+) {
   setActivePinia(createPinia())
-  const i18n = makeI18n()
+  const i18n = makeI18n(locale)
   return {
     wrapper: mount(AiCleaningAdviceCard, {
       global: {
@@ -269,5 +306,124 @@ describe('AiCleaningAdviceCard', () => {
       query: { fromAdvice: 'balanced', adviceRunId: '42' },
     })
     wrapper.unmount()
+  })
+
+  // Round 35A · LLM advice locale mismatch 横幅 + 强语言指令。
+  //
+  // 回归路径(用户报告):后端 CLEANING_ADVICE_SYSTEM 写死中文 schema,英文
+  // UI 加载历史缓存或新生成时,tier.label/description/categories 都是中文,
+  // 用户看到 EN UI + CN 内容的认知冲突。修复:
+  // (a) buildRunSummary 末尾追加强语言指令(LANG_HINT_*)走 user prompt 锚定
+  // (b) 启发式 CJK 检测,advice 含中文且当前 locale = en-* → 显示 banner
+  describe('Round 35A · LLM advice locale mismatch', () => {
+    it('shows locale-mismatch banner when EN UI loads CJK advice from cache', async () => {
+      mocks.aiCleaningAdviceGet.mockResolvedValueOnce({
+        runId: 42,
+        adviceJson: JSON.stringify({
+          tiers: [
+            {
+              name: 'safe',
+              label: '安全档',
+              total_bytes: 1024,
+              risk_level: 'low',
+              description: '清理浏览器缓存',
+              categories: ['浏览器缓存'],
+            },
+          ],
+        }),
+        providerName: 'mock',
+        model: 'mock',
+        generatedAt: 1700000000,
+      } as unknown as Awaited<ReturnType<typeof import('@/api/tauri').aiCleaningAdviceGet>>)
+
+      const { wrapper } = mountCard(makeRouter(), 'en-US')
+      await flushPromises()
+      await flushPromises()
+
+      const text = wrapper.text()
+      expect(text).toContain('LocaleMismatchTitle')
+      expect(text).toContain('RegenerateInCurrentLang')
+      wrapper.unmount()
+    })
+
+    it('hides locale-mismatch banner when EN UI loads pure-ASCII advice', async () => {
+      mocks.aiCleaningAdviceGet.mockResolvedValueOnce({
+        runId: 42,
+        adviceJson: JSON.stringify({
+          tiers: [
+            {
+              name: 'safe',
+              label: 'Safe',
+              total_bytes: 1024,
+              risk_level: 'low',
+              description: 'browser cache',
+              categories: ['browser_cache'],
+            },
+          ],
+        }),
+        providerName: 'mock',
+        model: 'mock',
+        generatedAt: 1700000000,
+      } as unknown as Awaited<ReturnType<typeof import('@/api/tauri').aiCleaningAdviceGet>>)
+
+      const { wrapper } = mountCard(makeRouter(), 'en-US')
+      await flushPromises()
+      await flushPromises()
+
+      const text = wrapper.text()
+      expect(text).not.toContain('LocaleMismatchTitle')
+      expect(text).not.toContain('RegenerateInCurrentLang')
+      wrapper.unmount()
+    })
+
+    it('shows locale-mismatch banner when zh-CN UI loads pure-ASCII advice', async () => {
+      mocks.aiCleaningAdviceGet.mockResolvedValueOnce({
+        runId: 42,
+        adviceJson: JSON.stringify({
+          tiers: [
+            {
+              name: 'safe',
+              label: 'Safe tier',
+              total_bytes: 1024,
+              risk_level: 'low',
+              description: 'browser cache cleanup',
+              categories: ['browser_cache'],
+            },
+          ],
+        }),
+        providerName: 'mock',
+        model: 'mock',
+        generatedAt: 1700000000,
+      } as unknown as Awaited<ReturnType<typeof import('@/api/tauri').aiCleaningAdviceGet>>)
+
+      const { wrapper } = mountCard(makeRouter(), 'zh-CN')
+      await flushPromises()
+      await flushPromises()
+
+      const text = wrapper.text()
+      expect(text).toContain('语言不匹配')
+      expect(text).toContain('用中文重新生成')
+      wrapper.unmount()
+    })
+
+    it('generate prompt includes runSummaryLangHint to anchor LLM output language', async () => {
+      const { wrapper } = mountCard(makeRouter(), 'en-US')
+      await flushPromises()
+      await flushPromises()
+
+      // 空缓存 → 走 Generate 按钮路径
+      const btns = wrapper.findAll('button')
+      const generateBtn = btns.find(b => b.text().includes('Generate Advice'))
+      expect(generateBtn).toBeDefined()
+      await generateBtn!.trigger('click')
+      await flushPromises()
+
+      expect(mocks.aiCleaningAdvice).toHaveBeenCalledOnce()
+      const callArgs = mocks.aiCleaningAdvice.mock.calls[0] as [string, number?]
+      // 关键契约:user prompt 末尾必须带 lang hint sentinel,确保 LLM 收到
+      // "用 EN 输出"指令,覆盖后端 CLEANING_ADVICE_SYSTEM 的中文 schema 默认
+      expect(callArgs[0]).toContain('[LANG_HINT_EN]')
+      wrapper.unmount()
+    })
   })
 })

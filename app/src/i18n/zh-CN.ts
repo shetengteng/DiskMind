@@ -618,8 +618,12 @@ export default {
     reclaimable: '预计可回收',
     coversCategories: '主要清理:',
     runSummaryTemplate: '本次扫描覆盖 {roots},共扫描 {files} 个文件 ({bytes}),识别出可回收候选 {reclaimable}。分类分布:{categories}。请基于以上情况,给出 safe / balanced / aggressive 三档清理建议。',
+    runSummaryLangHint: '\n\n语言要求:请用中文输出 label、description、categories 三个字段。',
     jumpAction: '到扫描结果中选中',
     jumpHint: '到扫描结果中按「{tier}」标准批量选中',
+    localeMismatchTitle: '此建议是用其他语言生成的',
+    localeMismatchDesc: '点击「重新生成」让 AI 改用当前 UI 语言重新输出 label / description / categories。',
+    localeMismatchRegenerate: '用当前语言重新生成',
   },
   palette: {
     title: '命令面板',
