@@ -6,7 +6,7 @@
    2. Resets & base typography
    3. Atmosphere (background grid + glow)
    4. Reusable atoms (nav, btn, eyebrow, section-title)
-   5. Sections (hero / problem / way / tour / ai / arch / privacy / roadmap / cta / footer)
+   5. Sections (hero / problem / way / tour / ai / arch / privacy / cta / footer)
    6. Responsive overrides
    7. Motion (reveal, reduced-motion)
 
@@ -36,9 +36,9 @@
   --text-3: oklch(0.55 0.030 263);
 
   /* Brand & roles — stable across themes */
-  --brand:       oklch(0.62 0.20 270);   /* Indigo */
-  --brand-hi:    oklch(0.70 0.22 270);
-  --brand-soft:  oklch(0.30 0.12 270);
+  --brand:       oklch(0.55 0.18 255);   /* shadcn-style blue */
+  --brand-hi:    oklch(0.62 0.20 255);
+  --brand-soft:  oklch(0.34 0.11 255);
   --ai:          oklch(0.65 0.20 295);   /* Violet — AI only */
   --data:        oklch(0.72 0.13 215);   /* Cyan  — data/link */
   --ok:          oklch(0.72 0.16 165);
@@ -136,7 +136,7 @@ body, .nav, .btn, .card, .way-card, .problem-card, .privacy-card,
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
-  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "PingFang SC",
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC",
                "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--text-1);
   background: var(--bg-0);
@@ -185,16 +185,22 @@ body::after {
    ========================================================= */
 .nav {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 16px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: min(1200px, calc(100% - 32px));
   z-index: 50;
   backdrop-filter: blur(20px) saturate(140%);
-  background: color-mix(in oklch, var(--bg-0) 75%, transparent);
-  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--bg-0) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 18px 50px -28px rgba(15, 23, 42, 0.65);
 }
 .nav-inner {
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
-  padding: 14px 28px;
+  padding: 12px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -262,6 +268,12 @@ body::after {
 }
 .btn-primary:hover { background: var(--brand-hi); transform: translateY(-1px); }
 .btn svg { width: 16px; height: 16px; }
+.btn:focus-visible,
+.btn-icon:focus-visible,
+.nav-links a:focus-visible {
+  outline: 2px solid var(--brand-hi);
+  outline-offset: 3px;
+}
 
 /* Icon-only buttons (theme, lang switch) */
 .btn-icon {
@@ -391,6 +403,33 @@ section { padding: 120px 0 40px; scroll-margin-top: 80px; }
 }
 .hero-platforms .platform { display: inline-flex; align-items: center; gap: 8px; }
 .hero-platforms svg { width: 16px; height: 16px; opacity: 0.65; }
+.hero-metrics {
+  margin-top: 34px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 720px;
+}
+.metric-card {
+  padding: 18px;
+  border-radius: var(--radius-l);
+  background: color-mix(in oklch, var(--bg-1) 74%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px -30px rgba(15, 23, 42, 0.7);
+}
+.metric-card strong {
+  display: block;
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: var(--text-1);
+}
+.metric-card span {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+}
 
 /* =========================================================
    7. PROBLEM
@@ -764,70 +803,7 @@ figcaption strong { color: var(--text-1); font-weight: 600; margin-right: 8px; }
 .privacy-card p  { font-size: 14px; color: var(--text-2); line-height: 1.6; }
 
 /* =========================================================
-   13. ROADMAP — timeline
-   ========================================================= */
-.timeline { position: relative; padding: 20px 0 20px 28px; }
-.timeline::before {
-  content: "";
-  position: absolute;
-  left: 6px; top: 8px; bottom: 8px;
-  width: 2px;
-  background: linear-gradient(180deg, var(--brand) 0%, var(--data) 60%, transparent 100%);
-}
-.tl-item { position: relative; padding-left: 28px; margin-bottom: 22px; }
-.tl-item::before {
-  content: "";
-  position: absolute;
-  left: -28px;
-  top: 8px;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--bg-0);
-  border: 2px solid var(--brand);
-}
-.tl-item.done::before { background: var(--brand); border-color: var(--brand-hi); }
-.tl-item.progress::before {
-  background: var(--bg-0);
-  border-color: var(--warn);
-  box-shadow: 0 0 0 4px var(--tint-warn-bg);
-}
-.tl-meta { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
-.tl-tag {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.tl-status {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid;
-}
-.tl-status.s-done {
-  color: var(--ok);
-  background: var(--tint-ok-bg);
-  border-color: var(--tint-ok-bord);
-}
-.tl-status.s-progress {
-  color: var(--warn);
-  background: var(--tint-warn-bg);
-  border-color: var(--tint-warn-bord);
-}
-.tl-status.s-todo {
-  color: var(--text-3);
-  background: var(--surface);
-  border-color: var(--border-hi);
-}
-.tl-item h4 { font-size: 17px; color: var(--text-1); margin: 0 0 6px; font-weight: 600; }
-.tl-item p  { font-size: 14px; color: var(--text-2); line-height: 1.6; }
-
-/* =========================================================
-   14. CTA + FOOTER
+   13. CTA + FOOTER
    ========================================================= */
 .cta {
   margin: 100px 0 80px;
@@ -877,7 +853,7 @@ footer {
 .footer-info a:hover { color: var(--text-1); }
 
 /* =========================================================
-   15. Responsive
+   14. Responsive
    ========================================================= */
 @media (max-width: 1024px) {
   section { padding: 90px 0 30px; }
@@ -893,10 +869,16 @@ footer {
   .cta { padding: 40px 24px; }
 }
 @media (max-width: 720px) {
+  .nav {
+    top: 10px;
+    width: min(calc(100% - 20px), 1200px);
+    border-radius: 18px;
+  }
   .nav-links { display: none; }
   /* Keep the lang/theme controls accessible on mobile; hide only the
      `Download` text label of primary CTA */
   .btn-cta-text { display: none; }
+  .hero-metrics { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .container { padding: 0 20px; }
@@ -908,7 +890,7 @@ footer {
 }
 
 /* =========================================================
-   16. Motion
+   15. Motion
    ========================================================= */
 @media (prefers-reduced-motion: no-preference) {
   .reveal { opacity: 0; transform: translateY(20px); }

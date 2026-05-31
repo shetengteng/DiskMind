@@ -23,7 +23,6 @@
       'nav.tour':       '界面',
       'nav.ai':         'AI',
       'nav.privacy':    '隐私',
-      'nav.roadmap':    '路线图',
       'nav.github':     'GitHub',
       'nav.download':   '下载',
 
@@ -39,6 +38,9 @@
       'hero.platform.mac': 'macOS 12+',
       'hero.platform.win': 'Windows 10 1809+',
       'hero.platform.mit': 'MIT 开源',
+      'hero.metric.tests': '自动化测试全绿',
+      'hero.metric.release': 'Release 目标平台',
+      'hero.metric.content': '文件内容外发',
 
       // PROBLEM
       'problem.eyebrow': 'The Problem',
@@ -118,32 +120,6 @@
       'privacy.6.title': '操作 Manifest 日志',
       'privacy.6.text':  '每次清理生成结构化 manifest，崩溃日志独立 JSONL 文件（行数封顶 1000）。',
 
-      // ROADMAP
-      'roadmap.eyebrow': 'Roadmap',
-      'roadmap.title':   '从 Alpha 到 v1.0。',
-      'roadmap.sub':     'DiskMind 当前是 Alpha 阶段，可下载试用。每月一个里程碑，你能看到我们走到哪了。',
-      'roadmap.status.done':     '已完成',
-      'roadmap.status.progress': '进行中',
-      'roadmap.status.todo':     '计划中',
-      'roadmap.m1.tag':   '2026-05',
-      'roadmap.m1.title': '应用框架就位',
-      'roadmap.m1.text':  'Mac 与 Windows 桌面端应用的基础底座搭建完成，可以正常启动、设置、运行。',
-      'roadmap.m2.tag':   '2026-05',
-      'roadmap.m2.title': '第一次扫描你的磁盘',
-      'roadmap.m2.text':  '全盘扫描、文件分类、可视化磁盘地图全部接通，能看到"哪个目录吃了多少空间"。',
-      'roadmap.m3.tag':   '2026-05',
-      'roadmap.m3.title': 'AI 大脑与安全沙箱',
-      'roadmap.m3.text':  'AI 开始为每个文件打风险分、写自然语言解释。删除全部进沙箱，30 天内随时撤回。',
-      'roadmap.m4.tag':   '2026-05',
-      'roadmap.m4.title': '设置中心 + 首个内测包',
-      'roadmap.m4.text':  '通用设置、AI 模型选择、隐私选项、系统托盘全部上线。可以下载 Alpha 试用了。',
-      'roadmap.m5.tag':   '2026-05',
-      'roadmap.m5.title': '中英双语 + 体验完善',
-      'roadmap.m5.text':  'i18n 中英文支持、Cmd+K 命令面板、崩溃日志自动捕获。日常使用更稳更顺手。',
-      'roadmap.m6.tag':   '2026-06',
-      'roadmap.m6.title': '性能飞跃 + 重复文件清理',
-      'roadmap.m6.text':  '扫描速度提升 3-5 倍，新增重复文件检测，虚拟滚动让大列表丝滑。准备公开 Beta 发布。',
-
       // CTA
       'cta.title': '给磁盘一次说人话的机会。',
       'cta.text':  'DiskMind 当前是 Alpha 阶段，下载即可试用。你的反馈会决定下一个版本的样子。',
@@ -162,7 +138,6 @@
       'nav.tour':       'Tour',
       'nav.ai':         'AI',
       'nav.privacy':    'Privacy',
-      'nav.roadmap':    'Roadmap',
       'nav.github':     'GitHub',
       'nav.download':   'Download',
 
@@ -178,6 +153,9 @@
       'hero.platform.mac': 'macOS 12+',
       'hero.platform.win': 'Windows 10 1809+',
       'hero.platform.mit': 'MIT Open Source',
+      'hero.metric.tests': 'green automated tests',
+      'hero.metric.release': 'release targets',
+      'hero.metric.content': 'file contents uploaded',
 
       // PROBLEM
       'problem.eyebrow': 'The Problem',
@@ -256,32 +234,6 @@
       'privacy.5.text':  'Every delete lands first in the app-internal trash with a 30-day retention. <span class="mono" style="color:var(--text-1)">undo</span> is always available.',
       'privacy.6.title': 'Action manifest log',
       'privacy.6.text':  'Every cleanup emits a structured manifest. Crash logs land in a separate JSONL file (capped at 1000 lines).',
-
-      // ROADMAP
-      'roadmap.eyebrow': 'Roadmap',
-      'roadmap.title':   'From Alpha to v1.0.',
-      'roadmap.sub':     'DiskMind is currently in Alpha and downloadable. One milestone a month, with everything visible.',
-      'roadmap.status.done':     'Done',
-      'roadmap.status.progress': 'In Progress',
-      'roadmap.status.todo':     'Planned',
-      'roadmap.m1.tag':   '2026-05',
-      'roadmap.m1.title': 'App foundation in place',
-      'roadmap.m1.text':  'The base layer for both macOS and Windows desktop apps is ready. The app starts, settles, and runs.',
-      'roadmap.m2.tag':   '2026-05',
-      'roadmap.m2.title': 'First scan of your disk',
-      'roadmap.m2.text':  'Full-disk scan, file classification, and the visual disk map are wired up. You can see which folder eats how much space.',
-      'roadmap.m3.tag':   '2026-05',
-      'roadmap.m3.title': 'AI brain and safety net',
-      'roadmap.m3.text':  'AI begins scoring risk and writing plain-language explanations for every file. All deletes go through a sandbox; undo is available for 30 days.',
-      'roadmap.m4.tag':   '2026-05',
-      'roadmap.m4.title': 'Settings hub + first Alpha build',
-      'roadmap.m4.text':  'General settings, AI model picker, privacy options, and system tray are all online. The Alpha is downloadable.',
-      'roadmap.m5.tag':   '2026-05',
-      'roadmap.m5.title': 'Bilingual + experience polish',
-      'roadmap.m5.text':  'EN/ZH i18n, a Cmd+K command palette, and automatic crash capture. Daily use feels steadier and smoother.',
-      'roadmap.m6.tag':   '2026-06',
-      'roadmap.m6.title': 'Performance leap + duplicate cleanup',
-      'roadmap.m6.text':  'Scan speed up 3-5x, duplicate detection added, and virtual scrolling for huge lists. Public Beta gets ready to ship.',
 
       // CTA
       'cta.title': 'Give your disk a chance to talk back.',

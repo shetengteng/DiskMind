@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="description" content="DiskMind · AI 驱动的桌面级智能磁盘清理工具。本地扫描，大模型研判，沙箱删除。Windows / macOS 跨平台。" />
-<meta name="theme-color" content="#07090f" />
+<meta name="theme-color" content="#f8fafc" />
 <title>DiskMind · 用大模型重新定义磁盘清理</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
 <link rel="icon" type="image/svg+xml" href="./assets/img/diskmind-logo.svg" />
 <link rel="apple-touch-icon" href="./assets/img/diskmind-logo.svg" />
@@ -47,7 +47,6 @@
       <a href="#tour"     data-i18n="nav.tour">界面</a>
       <a href="#ai"       data-i18n="nav.ai">AI</a>
       <a href="#privacy"  data-i18n="nav.privacy">隐私</a>
-      <a href="#roadmap"  data-i18n="nav.roadmap">路线图</a>
     </div>
 
     <div class="nav-actions">
@@ -126,6 +125,21 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <span data-i18n="hero.platform.mit">MIT 开源</span>
           </span>
+        </div>
+
+        <div class="hero-metrics" aria-label="DiskMind project status">
+          <div class="metric-card">
+            <strong>207</strong>
+            <span data-i18n="hero.metric.tests">自动化测试全绿</span>
+          </div>
+          <div class="metric-card">
+            <strong>3</strong>
+            <span data-i18n="hero.metric.release">Release 目标平台</span>
+          </div>
+          <div class="metric-card">
+            <strong>0</strong>
+            <span data-i18n="hero.metric.content">文件内容外发</span>
+          </div>
         </div>
       </div>
     </div>
@@ -380,73 +394,6 @@
         <h4 data-i18n="privacy.6.title"></h4>
         <p data-i18n="privacy.6.text"></p>
       </article>
-    </div>
-  </div>
-</section>
-
-<!-- ====================================================================
-     ROADMAP
-     ==================================================================== -->
-<section id="roadmap">
-  <div class="container">
-    <span class="eyebrow reveal"><span class="dot"></span><span data-i18n="roadmap.eyebrow">Roadmap</span></span>
-    <h2 class="section-title reveal" data-i18n="roadmap.title">从 Alpha 到 v1.0。</h2>
-    <p class="section-sub reveal" data-i18n="roadmap.sub"></p>
-
-    <div class="timeline reveal">
-      <div class="tl-item done">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m1.tag"></span>
-          <span class="tl-status s-done" data-i18n="roadmap.status.done">Done</span>
-        </div>
-        <h4 data-i18n="roadmap.m1.title"></h4>
-        <p data-i18n="roadmap.m1.text"></p>
-      </div>
-
-      <div class="tl-item done">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m2.tag"></span>
-          <span class="tl-status s-done" data-i18n="roadmap.status.done">Done</span>
-        </div>
-        <h4 data-i18n="roadmap.m2.title"></h4>
-        <p data-i18n="roadmap.m2.text"></p>
-      </div>
-
-      <div class="tl-item done">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m3.tag"></span>
-          <span class="tl-status s-done" data-i18n="roadmap.status.done">Done</span>
-        </div>
-        <h4 data-i18n="roadmap.m3.title"></h4>
-        <p data-i18n="roadmap.m3.text"></p>
-      </div>
-
-      <div class="tl-item done">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m4.tag"></span>
-          <span class="tl-status s-done" data-i18n="roadmap.status.done">Done</span>
-        </div>
-        <h4 data-i18n="roadmap.m4.title"></h4>
-        <p data-i18n="roadmap.m4.text"></p>
-      </div>
-
-      <div class="tl-item done">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m5.tag"></span>
-          <span class="tl-status s-done" data-i18n="roadmap.status.done">Done</span>
-        </div>
-        <h4 data-i18n="roadmap.m5.title"></h4>
-        <p data-i18n="roadmap.m5.text"></p>
-      </div>
-
-      <div class="tl-item progress">
-        <div class="tl-meta">
-          <span class="tl-tag" data-i18n="roadmap.m6.tag"></span>
-          <span class="tl-status s-progress" data-i18n="roadmap.status.progress">进行中</span>
-        </div>
-        <h4 data-i18n="roadmap.m6.title"></h4>
-        <p data-i18n="roadmap.m6.text"></p>
-      </div>
     </div>
   </div>
 </section>

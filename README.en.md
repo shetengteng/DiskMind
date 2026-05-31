@@ -249,7 +249,7 @@ cd src-tauri
 cargo test --lib
 ```
 
-Current status: **20/20 green** (10 scanner + 6 ai::log_helper + 3 db::scan::incremental + 1 classifier).
+Current status: **92/92 Rust tests**, **112/112 frontend tests**, and **3/3 Playwright smoke tests** are green.
 
 ---
 
@@ -275,6 +275,26 @@ pnpm tauri:build
 
 The Tauri bundler emits every format for the current platform when `bundle.targets: "all"` is set in `tauri.conf.json`. Code signing certificates are injected via `TAURI_SIGNING_*` environment variables.
 
+### GitHub Release CI
+
+The repository includes `.github/workflows/release.yml`. Pushing a `v*` tag builds macOS and Windows artifacts, runs smoke gates first, and uploads everything to a GitHub Release draft:
+
+```bash
+# 1. Bump versions in tauri.conf.json and Cargo.toml
+# 2. Commit the version bump
+git add app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml
+git commit -m "chore: bump version to v0.2.0"
+
+# 3. Push an annotated release tag
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+
+# 4. Wait for 3 matrix jobs: macOS aarch64 / macOS x86_64 / Windows x64
+# 5. Review the generated "DiskMind v0.2.0" draft, then publish manually
+```
+
+Manual dispatch is also available through **GitHub → Actions → Release → Run workflow**. Release drafts are intentional because the current Alpha is unsigned; macOS users need the right-click Open flow, and Windows users may see SmartScreen's unknown publisher warning.
+
 ---
 
 ## Roadmap
@@ -286,14 +306,17 @@ M2.5 Tree view + Disk Map                            ✅ 100%
 M3  Persistence + AI Engine + Sandbox                ✅ 100%
 M4  Settings + alpha build                           ✅ 100%
 M5  i18n + Header + error monitoring                 ✅ 100%
-M6  Performance + duplicate detection + public Beta  🟡 ~25%
+M6  Performance + duplicate detection + public Beta  🟡 ~92%
        ├─ Scanner rayon three-stage parallel  ✅
        ├─ Incremental bundle diff             ✅
-       ├─ Duplicate detection (BLAKE3 two-pass) ⏳
-       └─ Virtual scrolling                   ⏳
+       ├─ Duplicate detection (BLAKE3 two-stage) ✅
+       ├─ Disk Map drill-down                 ✅
+       ├─ Table / Tree virtual scrolling      ✅
+       ├─ GitHub Release CI                   ✅ macOS / Windows
+       └─ 70% coverage + signing + Tauri e2e  ⏳ before Beta
 ```
 
-Details in [`design/2026-05-28-01-DiskMind后续迭代计划.md`](./design/2026-05-28-01-DiskMind后续迭代计划.md).
+Current status as of 2026-05-31 Round 35C: M1-M5 are complete, and M6 is around 92%. Remaining Beta work is focused on test coverage, macOS / Windows signing, Tauri driver real-device e2e, and device-level API key encryption. Details in [`design/2026-05-25-05-DiskMind开发待办-98%.md`](./design/2026-05-25-05-DiskMind开发待办-98%25.md).
 
 ---
 

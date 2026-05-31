@@ -358,10 +358,10 @@ DiskMind 把"零误删神话"作为头号 KSI（关键成功要素），工程�
 
 | 层次 | 框架 | 当前数量 | 覆盖重点 |
 | :--- | :--- | :---: | :--- |
-| Rust 单测 | `cargo test --lib` | **52 / 52** | scanner / classifier / db / ai prompt snapshot |
-| 前端单测 | Vitest + Vue Test Utils | **48 / 48** | 纯函数 / Pinia stores / 关键组件 mount |
+| Rust 单测 | `cargo test --lib` | **92 / 92** | scanner / classifier / db / ai prompt snapshot / dedup |
+| 前端单测 | Vitest + Vue Test Utils | **112 / 112** | 纯函数 / Pinia stores / 关键组件 mount |
 | e2e | Playwright | **3 / 3** | 路由 / 侧栏 / 无 JS 异常 |
-| **合计** | | **103 / 103 全绿** | |
+| **合计** | | **207 / 207 全绿** | |
 
 每次 PR 自动跑全套；Rust prompt snapshot 测试**锁住 LLM JSON schema 字段在 prompt 中的存在性**，防止改 prompt 时静默破坏下游 JSON 解析。
 
@@ -389,6 +389,32 @@ pnpm tauri:build
 
 Tauri Bundler 按 `tauri.conf.json` 的 `bundle.targets: "all"` 输出当前平台所有发行格式。代码签名证书通过 `TAURI_SIGNING_*` 环境变量注入。
 
+### 发版到 GitHub Release（CI 自动化）
+
+仓库已配置 `.github/workflows/release.yml`,**push tag 即触发** macOS / Windows 打包并上传到 GitHub Release 草稿:
+
+```bash
+# 1. 在 tauri.conf.json 与 Cargo.toml 同步 bump 版本号
+# 2. 提交版本 bump
+git add app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml
+git commit -m "chore: bump version to v0.2.0"
+
+# 3. 打 tag 并推送(tag 名必须以 v 开头才会触发 workflow)
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+
+# 4. 等待 3 个矩阵作业完成(macOS aarch64 / macOS x86_64 / Windows x64)
+#    GitHub → Actions → Release 流水线运行中
+# 5. 完成后到 GitHub → Releases → 找到自动生成的 "DiskMind v0.2.0" 草稿
+#    审查 binary + 编辑 release notes,然后点 "Publish release"
+```
+
+或手动触发(忘了 push tag、需要补发等场景):**GitHub → Actions → Release → Run workflow → 输入版本号**。
+
+**为什么用草稿**:本版本未做签名证书(macOS DeveloperID / Windows EV Code Signing,Round 11 永久决策),Release 草稿态给你最后一次审查 binary 的机会再决定是否对外发布;直接 publish 也可以,但建议至少在本机 download 测试一遍再 publish。
+
+**首次安装绕过未签名 binary 警告**:见 Release notes 中的「首次安装注意」段落(macOS 右键打开 / Windows SmartScreen "仍要运行")。
+
 ---
 
 ## 路线图
@@ -400,21 +426,22 @@ M2.5 Tree 视图 + DiskMap                              ✅ 100%
 M3  数据持久化 + AI Engine + 沙箱                     ✅ 100%
 M4  设置功能 + 内测包                                 ✅ 100%
 M5  i18n + Header + 错误监控                          ✅ 100%
-M6  性能 + 重复文件检测 + 公开 Beta                   🟡 ~50%
+M6  性能 + 重复文件检测 + 公开 Beta                   🟡 ~92%
        ├─ Scanner Rayon 三阶段并行          ✅ Round 20
        ├─ 增量扫描 Bundle diff              ✅ Round 20
        ├─ AI 清理建议按 scan_run 缓存       ✅ Round 18
        ├─ Command Palette (Cmd+K)           ✅ Round 17
-       ├─ 三层测试基础设施 (103 测试)        ✅ Round 22
-       ├─ 重复文件检测 (BLAKE3 两阶段)       ⏳ S14
-       ├─ DiskMap 嵌套层级 + 下钻            ⏳
-       ├─ 虚拟滚动                          ⏳
-       └─ 单测覆盖率冲 70%                   ⏳
+       ├─ 三层测试基础设施 (207 测试)        ✅ Round 22-35
+       ├─ 重复文件检测 (BLAKE3 两阶段)       ✅ Round 33
+       ├─ DiskMap 嵌套层级 + 下钻            ✅ Round 32 校准
+       ├─ 表格 / Tree 虚拟滚动               ✅ Round 23 / 24
+       ├─ GitHub Release CI                 ✅ macOS / Windows
+       └─ 覆盖率 70% + 签名 + Tauri e2e      ⏳ Beta 前
 M7  公开 Beta + 创作者营销                            ⏳
 M8  v1.0 正式发布 + 付费版                            ⏳
 ```
 
-**当前进度**（截至 2026-05-29 Round 22）：M1-M5 全部 100% 收官，M6 推进至 ~50%，剩余主线为 S14 重复文件检测、DiskMap 嵌套下钻、虚拟滚动、覆盖率达标。详见 [`design/2026-05-28-01-DiskMind后续迭代计划.md`](./design/2026-05-28-01-DiskMind后续迭代计划.md)。
+**当前进度**（截至 2026-05-31 Round 35C）：M1-M5 全部 100% 收官，M6 推进至 ~92%。剩余主线是覆盖率冲 70%、macOS / Windows 签名证书、Tauri driver 真机 e2e，以及 Beta 前的设备级 API Key 加密。详见 [`design/2026-05-25-05-DiskMind开发待办-98%.md`](./design/2026-05-25-05-DiskMind开发待办-98%25.md)。
 
 ---
 
