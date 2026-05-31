@@ -8,7 +8,6 @@
 #   - macOS Apple Silicon (.dmg + .app.tar.gz)
 #   - macOS Intel (.dmg + .app.tar.gz)
 #   - Windows x64 (.msi + .exe)
-#   - Linux x64 (.AppImage + .deb)
 #   全部上传到 GitHub Release 草稿,用户手动审查后点 Publish 才对外可见
 #
 # 已知限制(首版未做):
@@ -50,10 +49,6 @@ jobs:
             args: ''
             label: windows-x64
             rust_targets: ''
-          - platform: ubuntu-22.04
-            args: ''
-            label: linux-x64
-            rust_targets: ''
 
     runs-on: ${{ matrix.platform }}
 
@@ -70,31 +65,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: app/pnpm-lock.yaml
 
-      - name: Install Rust stable
+      - name: Install Rust stable with target
+        if: matrix.rust_targets != ''
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_targets }}
+
+      - name: Install Rust stable
+        if: matrix.rust_targets == ''
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './app/src-tauri -> target'
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
 
       - name: Install frontend dependencies
         working-directory: app
@@ -123,14 +111,13 @@ jobs:
           releaseBody: |
             ## DiskMind 桌面磁盘分析与清理工具
 
-            > 跨平台构建产物 — macOS / Windows / Linux
+            > 跨平台构建产物 — macOS / Windows
 
             ### 平台支持
 
             - macOS Apple Silicon (`*-aarch64.dmg`)
             - macOS Intel (`*-x86_64.dmg`)
             - Windows x64 (`*-x64-setup.exe` / `*-x64_en-US.msi`)
-            - Linux x64 (`*.AppImage` / `*.deb`)
 
             ### 首次安装注意
 
@@ -140,8 +127,6 @@ jobs:
             ```
 
             **Windows**:本版本**未做 EV Code Signing**(同上决策),SmartScreen 会显示"未知发布者"警告。点 "更多信息 → 仍要运行" 即可。
-
-            **Linux**:`.AppImage` 需要 `chmod +x` 后双击运行;`.deb` 用 `sudo dpkg -i DiskMind*.deb` 安装。
 
             ### 不支持自动更新
 
