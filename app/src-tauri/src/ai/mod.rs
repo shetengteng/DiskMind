@@ -12,7 +12,7 @@
 
 pub mod anthropic;
 pub mod cost;
-mod log_helper;
+pub mod log_helper;
 pub mod ollama;
 pub mod openai;
 pub mod orchestrator;

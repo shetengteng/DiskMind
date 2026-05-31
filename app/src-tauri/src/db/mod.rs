@@ -23,6 +23,7 @@ mod ai_log;
 mod chat;
 mod classify;
 mod diag;
+mod file_ops;
 mod meta;
 mod provider;
 mod scan;
@@ -38,6 +39,7 @@ pub use classify::{ClassifyApplyItem, PendingClassifyItem};
 pub use diag::DbStats;
 pub use provider::{Provider, ProviderUpsert};
 pub use scan::{ScanRunMeta, StoredDirSummary, StoredScanRun};
+pub use file_ops::FileOpsLogEntry;
 pub use trash::{TrashItem, TrashStats};
 
 /// 扫描历史保留的默认值。真实生效值从 `meta` 表 `max_scan_history` 键读
@@ -200,9 +202,23 @@ CREATE TABLE IF NOT EXISTS ai_cleaning_advice (
     generated_at INTEGER NOT NULL,
     FOREIGN KEY(run_id) REFERENCES scan_run(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS file_ops_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    op_type TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    dest_path TEXT,
+    size_bytes INTEGER,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    ai_query TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_ops_log_created ON file_ops_log(created_at DESC);
 "#;
 
-const DATA_VERSION: i64 = 14;
+const DATA_VERSION: i64 = 15;
 
 /// Round 28 · 把 Round 26 之前已落库的中文 category 字面量改写为 stable
 /// English ID。Round 26 起 classifier 直接产出 English ID,但旧用户库里

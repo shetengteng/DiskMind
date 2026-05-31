@@ -360,6 +360,14 @@ pub fn run() {
             // --- update check (manual, GitHub Releases) ---
             commands::update_check::check_for_updates,
             commands::update_check::open_external_url,
+            // --- file search & ops (AI file manager) ---
+            commands::file_search::file_search,
+            commands::file_ops::file_ops_execute,
+            commands::file_ops::file_ops_history,
+            commands::ai_file_ops::ai_parse_file_intent,
+            // --- explorer (v3.0 Tree-First) ---
+            commands::explorer::explorer_read_dir,
+            commands::explorer::explorer_dir_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

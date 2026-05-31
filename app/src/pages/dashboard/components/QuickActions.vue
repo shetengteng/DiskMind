@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Play, Map as MapIcon, Trash2 } from 'lucide-vue-next'
+import { Play, Map as MapIcon, FolderOpen, Clock } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { useScanStore } from '@/stores/scan'
-import { useTrashStore } from '@/stores/trash'
 
 const router = useRouter()
 const { t } = useI18n()
 const scan = useScanStore()
-const trash = useTrashStore()
 
 async function goScan() {
   await router.push('/scan')
@@ -18,7 +16,22 @@ async function goScan() {
 </script>
 
 <template>
-  <div class="grid gap-4 md:grid-cols-3">
+  <div class="grid gap-4 md:grid-cols-4">
+    <Card
+      class="cursor-pointer transition-all hover:border-primary/40 hover:shadow-md"
+      @click="router.push('/explorer')"
+    >
+      <CardContent class="flex items-start gap-3 p-4">
+        <div class="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <FolderOpen class="size-5" />
+        </div>
+        <div class="flex-1">
+          <div class="font-medium">{{ t('dashboard.quickActions.explorerTitle') }}</div>
+          <p class="text-xs text-muted-foreground">{{ t('dashboard.quickActions.explorerDesc') }}</p>
+        </div>
+      </CardContent>
+    </Card>
+
     <Card
       class="cursor-pointer transition-all hover:border-primary/40 hover:shadow-md"
       @click="goScan"
@@ -51,17 +64,15 @@ async function goScan() {
 
     <Card
       class="cursor-pointer transition-all hover:border-primary/40 hover:shadow-md"
-      @click="router.push('/trash')"
+      @click="router.push('/history')"
     >
       <CardContent class="flex items-start gap-3 p-4">
         <div class="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Trash2 class="size-5" />
+          <Clock class="size-5" />
         </div>
         <div class="flex-1">
-          <div class="font-medium">{{ t('dashboard.quickActions.trashTitle') }}</div>
-          <p class="text-xs text-muted-foreground">
-            {{ t('dashboard.quickActions.trashDesc', { count: trash.count }) }}
-          </p>
+          <div class="font-medium">{{ t('dashboard.quickActions.historyTitle') }}</div>
+          <p class="text-xs text-muted-foreground">{{ t('dashboard.quickActions.historyDesc') }}</p>
         </div>
       </CardContent>
     </Card>

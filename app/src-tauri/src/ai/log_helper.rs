@@ -163,7 +163,7 @@ pub(super) fn extract_first_json_object(s: &str) -> Option<String> {
 ///   2. brace-match 状态机 —— LLM 漏写 sentinel 时兜底,从首个 `{` 数
 ///      到匹配 `}`,正确处理嵌套对象 / 字符串中的转义。
 ///   3. markdown fence 剥离 —— 极少数纯 ```json 代码块场景的旧行为。
-pub(super) fn strip_code_fence(s: &str) -> String {
+pub fn strip_code_fence(s: &str) -> String {
     if let Some(payload) = extract_sentinel_payload(s) {
         // sentinel 内仍可能再被包了一层 ```json,顺手剥一下避免 JSON parse 失败
         if let Some(rest) = payload.strip_prefix("```json") {

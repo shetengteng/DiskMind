@@ -358,6 +358,24 @@ pub fn unique_total_bytes(entries: &[FileEntry]) -> u64 {
     total
 }
 
+/// Lightweight skip filter for file_search: skips only system/dev noise dirs,
+/// no sensitive-directory filtering (search may need to find files there).
+pub fn is_search_skip(path: &std::path::Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let skip = matches!(name, ".git" | ".svn" | ".hg");
+    #[cfg(target_os = "windows")]
+    let platform = matches!(
+        name,
+        "$Recycle.Bin" | "System Volume Information" | "WinSxS"
+    );
+    #[cfg(not(target_os = "windows"))]
+    let platform = false;
+    (skip || platform) && path.parent().is_some()
+}
+
 fn is_definitely_skip(path: &std::path::Path, exclude_sensitive: bool) -> bool {
     let name = path
         .file_name()

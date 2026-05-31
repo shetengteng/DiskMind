@@ -26,6 +26,18 @@ const routes: RouteRecordRaw[] = [
     meta: { titleKey: 'nav.dashboard' },
   },
   {
+    path: '/explorer',
+    name: 'explorer',
+    component: () => import('@/pages/explorer/index.vue'),
+    meta: { titleKey: 'nav.explorer' },
+  },
+  {
+    path: '/history',
+    name: 'history',
+    component: () => import('@/pages/history/index.vue'),
+    meta: { titleKey: 'nav.history' },
+  },
+  {
     path: '/scan',
     name: 'scan',
     component: () => import('@/pages/scan/index.vue'),
@@ -33,9 +45,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/trash',
-    name: 'trash',
-    component: () => import('@/pages/trash/index.vue'),
-    meta: { titleKey: 'nav.trash' },
+    redirect: '/history',
   },
   {
     path: '/reports',

@@ -1037,11 +1037,227 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 
 export async function openExternalUrl(url: string): Promise<void> {
   if (!isTauri()) {
-    // Web 预览模式直接走浏览器原生跳转,体验与 Tauri 一致。
     if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer')
     }
     return
   }
   await invoke('open_external_url', { url })
+}
+
+// ----- AI 文件检索与操作 -----
+
+export type FileSortField = 'name' | 'size' | 'mtime'
+
+export interface FileSearchQuery {
+  roots: string[]
+  namePattern?: string | null
+  extensions?: string[]
+  minSize?: number | null
+  maxSize?: number | null
+  modifiedAfter?: number | null
+  modifiedBefore?: number | null
+  maxResults?: number
+  sortBy?: FileSortField
+  sortDesc?: boolean
+  includeDirs?: boolean
+}
+
+export interface FileSearchEntry {
+  path: string
+  name: string
+  sizeBytes: number
+  mtime: number
+  extension: string
+  isDir: boolean
+}
+
+export interface FileSearchResult {
+  files: FileSearchEntry[]
+  totalMatched: number
+  truncated: boolean
+  elapsedMs: number
+}
+
+export interface FileSearchProgressPayload {
+  scanned: number
+  matched: number
+}
+
+export async function fileSearch(query: FileSearchQuery): Promise<FileSearchResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<FileSearchResult>('file_search', { query })
+}
+
+export function onFileSearchProgress(cb: (p: FileSearchProgressPayload) => void): Promise<UnlistenFn> {
+  return listen<FileSearchProgressPayload>('file:search:progress', (e) => cb(e.payload))
+}
+
+export interface RenameItem {
+  path: string
+  newName: string
+}
+
+export type FileOpsRequest =
+  | { type: 'move'; paths: string[]; destination: string }
+  | { type: 'rename'; items: RenameItem[] }
+  | { type: 'delete'; paths: string[] }
+
+export interface FileOpsSuccess {
+  sourcePath: string
+  destPath: string | null
+  opType: string
+}
+
+export interface FileOpsFailure {
+  sourcePath: string
+  message: string
+}
+
+export interface FileOpsResult {
+  succeeded: FileOpsSuccess[]
+  failures: FileOpsFailure[]
+}
+
+export async function fileOpsExecute(request: FileOpsRequest): Promise<FileOpsResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<FileOpsResult>('file_ops_execute', { request })
+}
+
+export interface FileOpsLogEntry {
+  id: number
+  opType: string
+  sourcePath: string
+  destPath: string | null
+  sizeBytes: number | null
+  status: string
+  errorMessage: string | null
+  aiQuery: string | null
+  createdAt: number
+}
+
+export async function fileOpsHistory(limit?: number): Promise<FileOpsLogEntry[]> {
+  if (!isTauri()) return []
+  return await invoke<FileOpsLogEntry[]>('file_ops_history', { limit: limit ?? 100 })
+}
+
+export interface AiFileIntentInput {
+  query: string
+}
+
+export interface ParsedSearchQuery {
+  roots: string[]
+  namePattern?: string | null
+  extensions?: string[]
+  minSize?: number | null
+  maxSize?: number | null
+  modifiedAfter?: number | null
+  modifiedBefore?: number | null
+}
+
+export interface ParsedOperation {
+  type: 'move' | 'rename' | 'delete'
+  destination?: string
+  pattern?: string
+  replacement?: string
+}
+
+export interface AiFileIntentOutput {
+  intent: string
+  searchQuery: ParsedSearchQuery
+  operation?: ParsedOperation | null
+  explanation: string
+  confidence: number
+}
+
+export async function aiParseFileIntent(input: AiFileIntentInput): Promise<AiFileIntentOutput> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<AiFileIntentOutput>('ai_parse_file_intent', { input })
+}
+
+// ─── Explorer (v3.0 Tree-First) ───────────────────────────────
+
+export type ExplorerSortField = 'name' | 'size' | 'mtime' | 'extension'
+
+export interface ExplorerReadDirInput {
+  path: string
+  sortBy?: ExplorerSortField
+  sortDesc?: boolean
+  showHidden?: boolean
+  offset?: number
+  pageSize?: number
+}
+
+export interface ExplorerEntry {
+  path: string
+  name: string
+  isDir: boolean
+  sizeBytes: number
+  mtime: number
+  extension: string
+  childrenCount: number | null
+  aiTag: string | null
+}
+
+export interface ExplorerReadDirResult {
+  entries: ExplorerEntry[]
+  totalCount: number
+  parentPath: string | null
+  currentPath: string
+  hasMore: boolean
+}
+
+export async function explorerReadDir(input: ExplorerReadDirInput): Promise<ExplorerReadDirResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<ExplorerReadDirResult>('explorer_read_dir', { input })
+}
+
+export interface DirStatsInput {
+  path: string
+}
+
+export interface TypeDistEntry {
+  category: string
+  sizeBytes: number
+  count: number
+  percentage: number
+}
+
+export interface LargestEntry {
+  name: string
+  path: string
+  sizeBytes: number
+  isDir: boolean
+}
+
+export interface DirStatsResult {
+  totalSize: number
+  fileCount: number
+  dirCount: number
+  lastModified: number | null
+  typeDistribution: TypeDistEntry[]
+  largestChildren: LargestEntry[]
+}
+
+export async function explorerDirStats(input: DirStatsInput): Promise<DirStatsResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<DirStatsResult>('explorer_dir_stats', { input })
+}
+
+export interface AiDirSuggestion {
+  type: 'cleanup' | 'organize' | 'archive' | 'duplicate'
+  title: string
+  description: string
+  paths: string[]
+  estimatedSaveBytes: number
+  confidence: number
+}
+
+export interface AiDirSuggestionsResult {
+  suggestions: AiDirSuggestion[]
+}
+
+export async function aiDirSuggestions(path: string): Promise<AiDirSuggestionsResult> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<AiDirSuggestionsResult>('ai_dir_suggestions', { path })
 }

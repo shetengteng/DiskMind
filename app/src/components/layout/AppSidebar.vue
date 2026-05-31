@@ -2,8 +2,10 @@
 import { computed, onMounted } from 'vue'
 import {
   LayoutDashboard,
+  FolderOpen,
   ScanSearch,
   Trash2,
+  Clock,
   BarChart3,
   Settings,
   HardDrive,
@@ -34,12 +36,14 @@ onMounted(() => trash.ensureLoaded())
 
 const mainNav = computed(() => [
   { title: t('nav.dashboard'), to: '/dashboard', icon: LayoutDashboard, loading: false },
+  { title: t('nav.explorer'), to: '/explorer', icon: FolderOpen, loading: false },
   { title: t('nav.scan'), to: '/scan', icon: ScanSearch, loading: scan.isScanning },
   { title: t('nav.reports'), to: '/reports', icon: BarChart3, loading: false },
 ])
 
 const footerNav = computed(() => [
-  { title: t('nav.trash'), to: '/trash', icon: Trash2, badge: trash.count > 0 ? trash.count : null },
+  { title: t('nav.history'), to: '/history', icon: Clock, badge: trash.count > 0 ? trash.count : null },
+  { title: t('nav.trash'), to: '/trash', icon: Trash2, badge: null },
   { title: t('nav.settings'), to: '/settings', icon: Settings, badge: null },
 ])
 </script>
