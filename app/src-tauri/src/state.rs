@@ -106,3 +106,84 @@ pub fn expand_root(raw: &str) -> Option<PathBuf> {
     }
     Some(PathBuf::from(trimmed))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_root_empty_returns_none() {
+        assert!(expand_root("").is_none());
+        assert!(expand_root("   ").is_none());
+        assert!(expand_root("\t").is_none());
+    }
+
+    #[test]
+    fn expand_root_absolute_path_passthrough() {
+        let p = expand_root("/Users/test/Documents").unwrap();
+        assert_eq!(p, PathBuf::from("/Users/test/Documents"));
+    }
+
+    #[test]
+    fn expand_root_tilde_alone_resolves_to_home() {
+        let p = expand_root("~").unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(p, home);
+    }
+
+    #[test]
+    fn expand_root_tilde_subpath_resolves() {
+        let p = expand_root("~/Documents").unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(p, home.join("Documents"));
+    }
+
+    #[test]
+    fn expand_root_tilde_nested_subpath() {
+        let p = expand_root("~/a/b/c").unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(p, home.join("a/b/c"));
+    }
+
+    #[test]
+    fn expand_root_trims_whitespace() {
+        let p = expand_root("  /tmp  ").unwrap();
+        assert_eq!(p, PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn expand_root_relative_path_passthrough() {
+        let p = expand_root("relative/path").unwrap();
+        assert_eq!(p, PathBuf::from("relative/path"));
+    }
+
+    #[test]
+    fn expand_root_tilde_no_slash_is_not_home_prefix() {
+        let p = expand_root("~foo").unwrap();
+        assert_eq!(p, PathBuf::from("~foo"), "~foo is not ~/foo");
+    }
+
+    #[test]
+    fn now_ms_returns_positive_timestamp() {
+        let ts = now_ms();
+        assert!(ts > 0, "expected positive unix ms timestamp, got {ts}");
+        assert!(ts > 1_577_836_800_000, "should be after 2020-01-01");
+    }
+
+    #[test]
+    fn now_ms_is_non_decreasing() {
+        let a = now_ms();
+        let b = now_ms();
+        assert!(b >= a);
+    }
+
+    #[test]
+    fn default_trash_retention_days_is_30() {
+        assert_eq!(DEFAULT_TRASH_RETENTION_DAYS, 30);
+    }
+
+    #[test]
+    fn trash_cleanup_interval_is_one_hour() {
+        assert_eq!(TRASH_CLEANUP_INTERVAL_SECS, 3600);
+    }
+}

@@ -242,6 +242,7 @@ export default {
       refresh: '重新分析',
     },
     empty: '此文件夹为空',
+    dblClickDrill: '双击进入文件夹',
     loadingDir: '正在加载…',
   },
 

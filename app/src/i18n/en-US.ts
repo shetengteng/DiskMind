@@ -191,6 +191,7 @@ export default {
       refresh: 'Re-analyze',
     },
     empty: 'This folder is empty',
+    dblClickDrill: 'Double-click to enter folder',
     loadingDir: 'Loading…',
   },
 

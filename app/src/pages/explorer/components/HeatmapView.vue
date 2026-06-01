@@ -1,38 +1,50 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { computed, ref, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { cn } from '@/lib/utils'
+import { use } from 'echarts/core'
+import { TreemapChart } from 'echarts/charts'
+import { TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import VChart, { THEME_KEY } from 'vue-echarts'
 import { useExplorerStore } from '@/stores/explorer'
 import type { ExplorerEntry } from '@/api/tauri'
 import { formatBytes } from '@/lib/aiActions'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+
+use([TreemapChart, TooltipComponent, CanvasRenderer])
 
 const { t } = useI18n()
 const store = useExplorerStore()
-const containerRef = ref<HTMLElement | null>(null)
-const containerSize = ref({ w: 800, h: 400 })
 
-interface TreemapRect {
-  entry: ExplorerEntry
-  x: number
-  y: number
-  w: number
-  h: number
+const isDarkMode = ref(
+  typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+)
+if (typeof window !== 'undefined') {
+  const observer = new MutationObserver(() => {
+    isDarkMode.value = document.documentElement.classList.contains('dark')
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 }
+provide(THEME_KEY, computed(() => (isDarkMode.value ? 'dark' : 'light')))
 
-const colorMap: Record<string, string> = {
-  image: 'bg-green-500/70',
-  video: 'bg-purple-500/70',
-  audio: 'bg-orange-500/70',
-  code: 'bg-blue-500/70',
-  document: 'bg-yellow-500/70',
-  archive: 'bg-red-500/70',
-  directory: 'bg-sky-500/70',
-  other: 'bg-gray-500/50',
+const CATEGORY_COLORS_LIGHT: Record<string, string> = {
+  image: '#22c55e',
+  video: '#a855f7',
+  audio: '#f97316',
+  code: '#3b82f6',
+  document: '#eab308',
+  archive: '#ef4444',
+  directory: '#0ea5e9',
+  other: '#6b7280',
+}
+const CATEGORY_COLORS_DARK: Record<string, string> = {
+  image: '#4ade80',
+  video: '#c084fc',
+  audio: '#fb923c',
+  code: '#60a5fa',
+  document: '#facc15',
+  archive: '#f87171',
+  directory: '#38bdf8',
+  other: '#9ca3af',
 }
 
 function categoryOf(entry: ExplorerEntry): string {
@@ -47,122 +59,125 @@ function categoryOf(entry: ExplorerEntry): string {
   return 'other'
 }
 
-function squarify(
-  items: { entry: ExplorerEntry; size: number }[],
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): TreemapRect[] {
-  if (items.length === 0 || w <= 0 || h <= 0) return []
+const totalBytes = computed(() =>
+  store.entries.reduce((s, e) => s + e.sizeBytes, 0),
+)
 
-  const totalSize = items.reduce((s, i) => s + i.size, 0)
-  if (totalSize === 0) return []
-
-  const rects: TreemapRect[] = []
-  let cx = x
-  let cy = y
-  let cw = w
-  let ch = h
-
-  for (const item of items) {
-    const ratio = item.size / totalSize
-    if (cw >= ch) {
-      const rw = cw * ratio
-      rects.push({ entry: item.entry, x: cx, y: cy, w: Math.max(rw, 1), h: ch })
-      cx += rw
-      cw -= rw
-    } else {
-      const rh = ch * ratio
-      rects.push({ entry: item.entry, x: cx, y: cy, w: cw, h: Math.max(rh, 1) })
-      cy += rh
-      ch -= rh
-    }
-  }
-  return rects
+interface ChartDataItem {
+  name: string
+  value: number
+  raw: ExplorerEntry
+  itemStyle: { color: string; borderColor: string; borderWidth: number; gapWidth: number; borderRadius: number }
+  label: { color: string }
 }
 
-const rects = computed(() => {
-  const sorted = [...store.entries]
+const dataset = computed<ChartDataItem[]>(() => {
+  const palette = isDarkMode.value ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT
+  const borderColor = isDarkMode.value ? 'hsl(220 13% 12%)' : 'hsl(0 0% 100%)'
+  return [...store.entries]
     .filter((e) => e.sizeBytes > 0)
     .sort((a, b) => b.sizeBytes - a.sizeBytes)
     .slice(0, 100)
-  const items = sorted.map((e) => ({ entry: e, size: e.sizeBytes }))
-  return squarify(items, 0, 0, containerSize.value.w, containerSize.value.h)
+    .map((e) => {
+      const cat = categoryOf(e)
+      const color = palette[cat] ?? palette.other
+      return {
+        name: e.name,
+        value: e.sizeBytes,
+        raw: e,
+        itemStyle: { color, borderColor, borderWidth: 2, gapWidth: 2, borderRadius: 4 },
+        label: { color: isDarkMode.value ? '#f8fafc' : '#1f2937' },
+      }
+    })
 })
 
-let ro: ResizeObserver | null = null
+const chartOption = computed(() => ({
+  tooltip: {
+    trigger: 'item' as const,
+    formatter: (p: { name: string; value: number | undefined; data?: { raw?: ExplorerEntry } }) => {
+      const v = typeof p.value === 'number' ? p.value : 0
+      const pct = totalBytes.value > 0 ? ((v / totalBytes.value) * 100).toFixed(1) : '0'
+      const raw = p.data?.raw
+      const dirHint = raw?.isDir ? `<div style="opacity:.55;margin-top:4px">${t('explorer.dblClickDrill')}</div>` : ''
+      return `<div style="font-size:12px;line-height:1.5">
+        <div style="font-weight:500">${p.name}</div>
+        <div style="opacity:.8">${formatBytes(v)} · ${pct}%</div>
+        ${dirHint}
+      </div>`
+    },
+  },
+  series: [
+    {
+      type: 'treemap' as const,
+      roam: false,
+      nodeClick: false as const,
+      breadcrumb: { show: false },
+      width: '100%',
+      height: '100%',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      label: {
+        show: true,
+        position: 'inside' as const,
+        align: 'center' as const,
+        verticalAlign: 'middle' as const,
+        fontSize: 12,
+        fontWeight: 500,
+        overflow: 'truncate' as const,
+        formatter: (p: { name: string; value: number | undefined }) => {
+          const v = typeof p.value === 'number' ? p.value : 0
+          return `{name|${p.name}}\n{meta|${formatBytes(v)}}`
+        },
+        rich: {
+          name: { fontSize: 12, fontWeight: 600, lineHeight: 16, align: 'center' as const },
+          meta: { fontSize: 10, opacity: 0.85, lineHeight: 14, align: 'center' as const },
+        },
+      },
+      upperLabel: { show: false },
+      itemStyle: {
+        borderColor: isDarkMode.value ? 'hsl(220 13% 12%)' : 'hsl(0 0% 100%)',
+        borderWidth: 2,
+        gapWidth: 2,
+        borderRadius: 4,
+      },
+      emphasis: {
+        itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.25)' },
+      },
+      data: dataset.value,
+    },
+  ],
+}))
 
-function updateSize() {
-  if (containerRef.value) {
-    containerSize.value = {
-      w: containerRef.value.clientWidth,
-      h: containerRef.value.clientHeight,
-    }
-  }
+function onChartClick(params: unknown) {
+  const data = (params as { data?: { raw?: ExplorerEntry } })?.data
+  const raw = data?.raw
+  if (!raw) return
+  store.inspect(raw.path)
 }
 
-onMounted(() => {
-  nextTick(updateSize)
-  if (containerRef.value) {
-    ro = new ResizeObserver(updateSize)
-    ro.observe(containerRef.value)
-  }
-})
-
-onBeforeUnmount(() => {
-  ro?.disconnect()
-})
-
-watch(() => store.currentPath, () => nextTick(updateSize))
-
-function handleClick(entry: ExplorerEntry) {
-  if (entry.isDir) {
-    store.navigateTo(entry.path)
-  } else {
-    store.inspect(entry.path)
-  }
+function onChartDblClick(params: unknown) {
+  const data = (params as { data?: { raw?: ExplorerEntry } })?.data
+  const raw = data?.raw
+  if (raw?.isDir) store.navigateTo(raw.path)
 }
 </script>
 
 <template>
   <div
-    v-if="rects.length === 0"
+    v-if="dataset.length === 0"
     class="flex flex-1 items-center justify-center text-sm text-muted-foreground p-8"
   >
     {{ t('explorer.empty') }}
   </div>
-  <div v-else ref="containerRef" class="relative flex-1 min-h-[300px] overflow-hidden">
-    <Tooltip v-for="(rect, idx) in rects" :key="rect.entry.path">
-      <TooltipTrigger as-child>
-        <div
-          :class="cn(
-            'absolute border border-background/50 cursor-pointer transition-opacity hover:opacity-80 flex items-end p-1 overflow-hidden',
-            colorMap[categoryOf(rect.entry)] ?? 'bg-gray-500/50',
-          )"
-          :style="{
-            left: `${rect.x}px`,
-            top: `${rect.y}px`,
-            width: `${rect.w}px`,
-            height: `${rect.h}px`,
-          }"
-          @click="handleClick(rect.entry)"
-        >
-          <span
-            v-if="rect.w > 50 && rect.h > 24"
-            class="text-[10px] text-white truncate drop-shadow-sm font-medium leading-tight"
-          >
-            {{ rect.entry.name }}
-          </span>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="top" class="max-w-64">
-        <div class="text-xs space-y-0.5">
-          <div class="font-medium truncate">{{ rect.entry.name }}</div>
-          <div class="text-muted-foreground">{{ formatBytes(rect.entry.sizeBytes) }}</div>
-          <div class="text-muted-foreground truncate">{{ rect.entry.path }}</div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
+  <div v-else class="flex-1 min-h-[300px]">
+    <VChart
+      :option="chartOption"
+      :autoresize="true"
+      class="h-full w-full"
+      @click="onChartClick"
+      @dblclick="onChartDblClick"
+    />
   </div>
 </template>

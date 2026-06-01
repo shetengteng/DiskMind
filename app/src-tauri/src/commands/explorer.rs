@@ -390,3 +390,369 @@ pub async fn explorer_dir_stats(
         .await
         .map_err(|e| format!("explorer_dir_stats task panicked: {e}"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn make_input(path: &str) -> ExplorerReadDirInput {
+        ExplorerReadDirInput {
+            path: path.to_string(),
+            sort_by: ExplorerSortField::Name,
+            sort_desc: false,
+            show_hidden: false,
+            offset: 0,
+            page_size: 500,
+        }
+    }
+
+    // ── ext_to_category ─────────────────────────────────────────────
+
+    #[test]
+    fn ext_to_category_video() {
+        assert_eq!(ext_to_category("mp4"), "video");
+        assert_eq!(ext_to_category("MP4"), "video");
+        assert_eq!(ext_to_category("mkv"), "video");
+        assert_eq!(ext_to_category("webm"), "video");
+    }
+
+    #[test]
+    fn ext_to_category_audio() {
+        assert_eq!(ext_to_category("mp3"), "audio");
+        assert_eq!(ext_to_category("flac"), "audio");
+        assert_eq!(ext_to_category("WAV"), "audio");
+    }
+
+    #[test]
+    fn ext_to_category_image() {
+        assert_eq!(ext_to_category("png"), "image");
+        assert_eq!(ext_to_category("jpg"), "image");
+        assert_eq!(ext_to_category("HEIC"), "image");
+        assert_eq!(ext_to_category("svg"), "image");
+    }
+
+    #[test]
+    fn ext_to_category_document() {
+        assert_eq!(ext_to_category("pdf"), "document");
+        assert_eq!(ext_to_category("docx"), "document");
+        assert_eq!(ext_to_category("txt"), "document");
+        assert_eq!(ext_to_category("md"), "document");
+    }
+
+    #[test]
+    fn ext_to_category_installer() {
+        assert_eq!(ext_to_category("dmg"), "installer");
+        assert_eq!(ext_to_category("exe"), "installer");
+        assert_eq!(ext_to_category("msi"), "installer");
+    }
+
+    #[test]
+    fn ext_to_category_archive() {
+        assert_eq!(ext_to_category("zip"), "archive");
+        assert_eq!(ext_to_category("tar"), "archive");
+        assert_eq!(ext_to_category("7z"), "archive");
+    }
+
+    #[test]
+    fn ext_to_category_code() {
+        assert_eq!(ext_to_category("rs"), "code");
+        assert_eq!(ext_to_category("ts"), "code");
+        assert_eq!(ext_to_category("py"), "code");
+        assert_eq!(ext_to_category("vue"), "code");
+        assert_eq!(ext_to_category("json"), "code");
+    }
+
+    #[test]
+    fn ext_to_category_temp() {
+        assert_eq!(ext_to_category("tmp"), "temp");
+        assert_eq!(ext_to_category("log"), "temp");
+        assert_eq!(ext_to_category("bak"), "temp");
+    }
+
+    #[test]
+    fn ext_to_category_unknown_returns_other() {
+        assert_eq!(ext_to_category("xyz"), "other");
+        assert_eq!(ext_to_category(""), "other");
+        assert_eq!(ext_to_category("randomext"), "other");
+    }
+
+    // ── read_one_dir ────────────────────────────────────────────────
+
+    #[test]
+    fn read_dir_lists_files_and_dirs() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("hello.txt"), "content").unwrap();
+        fs::create_dir(tmp.path().join("subdir")).unwrap();
+
+        let input = make_input(&tmp.path().to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        assert_eq!(result.total_count, 2);
+        assert_eq!(result.current_path, tmp.path().to_string_lossy());
+        assert!(result.entries[0].is_dir, "directories should sort before files");
+        assert_eq!(result.entries[0].name, "subdir");
+        assert!(!result.entries[1].is_dir);
+        assert_eq!(result.entries[1].name, "hello.txt");
+    }
+
+    #[test]
+    fn read_dir_hides_dotfiles_by_default() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("visible.txt"), "a").unwrap();
+        fs::write(tmp.path().join(".hidden"), "b").unwrap();
+
+        let input = make_input(&tmp.path().to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        assert_eq!(result.total_count, 1);
+        assert_eq!(result.entries[0].name, "visible.txt");
+    }
+
+    #[test]
+    fn read_dir_shows_dotfiles_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("visible.txt"), "a").unwrap();
+        fs::write(tmp.path().join(".hidden"), "b").unwrap();
+
+        let mut input = make_input(&tmp.path().to_string_lossy());
+        input.show_hidden = true;
+        let result = read_one_dir(&input).unwrap();
+
+        assert_eq!(result.total_count, 2);
+    }
+
+    #[test]
+    fn read_dir_pagination_and_has_more() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..5 {
+            fs::write(tmp.path().join(format!("file{i}.txt")), "x").unwrap();
+        }
+
+        let mut input = make_input(&tmp.path().to_string_lossy());
+        input.page_size = 2;
+        let r1 = read_one_dir(&input).unwrap();
+        assert_eq!(r1.total_count, 5);
+        assert_eq!(r1.entries.len(), 2);
+        assert!(r1.has_more);
+
+        input.offset = 4;
+        let r2 = read_one_dir(&input).unwrap();
+        assert_eq!(r2.entries.len(), 1);
+        assert!(!r2.has_more);
+    }
+
+    #[test]
+    fn read_dir_sort_by_size_desc() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("small.txt"), "x").unwrap();
+        fs::write(tmp.path().join("big.txt"), "x".repeat(1000)).unwrap();
+
+        let mut input = make_input(&tmp.path().to_string_lossy());
+        input.sort_by = ExplorerSortField::Size;
+        input.sort_desc = true;
+        let result = read_one_dir(&input).unwrap();
+
+        assert!(result.entries[0].size_bytes >= result.entries[1].size_bytes);
+    }
+
+    #[test]
+    fn read_dir_sort_by_extension() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("c.rs"), "").unwrap();
+        fs::write(tmp.path().join("a.py"), "").unwrap();
+        fs::write(tmp.path().join("b.ts"), "").unwrap();
+
+        let mut input = make_input(&tmp.path().to_string_lossy());
+        input.sort_by = ExplorerSortField::Extension;
+        let result = read_one_dir(&input).unwrap();
+
+        assert_eq!(result.entries[0].extension, "py");
+        assert_eq!(result.entries[1].extension, "rs");
+        assert_eq!(result.entries[2].extension, "ts");
+    }
+
+    #[test]
+    fn read_dir_nonexistent_path_errors() {
+        let input = make_input("/this/path/does/not/exist/ever");
+        assert!(read_one_dir(&input).is_err());
+    }
+
+    #[test]
+    fn read_dir_file_path_errors() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("file.txt");
+        fs::write(&file, "content").unwrap();
+
+        let input = make_input(&file.to_string_lossy());
+        assert!(read_one_dir(&input).is_err());
+    }
+
+    #[test]
+    fn read_dir_empty_directory() {
+        let tmp = TempDir::new().unwrap();
+        let input = make_input(&tmp.path().to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        assert_eq!(result.total_count, 0);
+        assert!(result.entries.is_empty());
+        assert!(!result.has_more);
+    }
+
+    #[test]
+    fn read_dir_captures_extension_and_no_ext() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("doc.pdf"), "").unwrap();
+        fs::write(tmp.path().join("noext"), "").unwrap();
+
+        let input = make_input(&tmp.path().to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        let pdf = result.entries.iter().find(|e| e.name == "doc.pdf").unwrap();
+        assert_eq!(pdf.extension, "pdf");
+
+        let noext = result.entries.iter().find(|e| e.name == "noext").unwrap();
+        assert_eq!(noext.extension, "");
+    }
+
+    #[test]
+    fn read_dir_children_count_for_subdirs() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("a.txt"), "a").unwrap();
+        fs::write(sub.join("b.txt"), "b").unwrap();
+
+        let input = make_input(&tmp.path().to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        let dir_entry = result.entries.iter().find(|e| e.is_dir).unwrap();
+        assert_eq!(dir_entry.children_count, Some(2));
+    }
+
+    #[test]
+    fn read_dir_parent_path_is_set() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("child");
+        fs::create_dir(&sub).unwrap();
+
+        let input = make_input(&sub.to_string_lossy());
+        let result = read_one_dir(&input).unwrap();
+
+        assert!(result.parent_path.is_some());
+        assert_eq!(
+            result.parent_path.unwrap(),
+            tmp.path().to_string_lossy().to_string()
+        );
+    }
+
+    // ── compute_dir_stats ───────────────────────────────────────────
+
+    #[test]
+    fn dir_stats_counts_files_and_dirs() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        fs::write(tmp.path().join("b.rs"), "fn main() {}").unwrap();
+        let sub = tmp.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("c.txt"), "nested").unwrap();
+
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        assert_eq!(result.file_count, 3);
+        assert_eq!(result.dir_count, 1);
+        assert!(result.total_size > 0);
+    }
+
+    #[test]
+    fn dir_stats_type_distribution() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a.rs"), "code").unwrap();
+        fs::write(tmp.path().join("b.rs"), "more code").unwrap();
+        fs::write(tmp.path().join("doc.pdf"), "doc").unwrap();
+
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        let code = result.type_distribution.iter().find(|d| d.category == "code");
+        assert!(code.is_some());
+        assert_eq!(code.unwrap().count, 2);
+
+        let doc = result.type_distribution.iter().find(|d| d.category == "document");
+        assert!(doc.is_some());
+        assert_eq!(doc.unwrap().count, 1);
+    }
+
+    #[test]
+    fn dir_stats_largest_children_sorted_desc() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("small.txt"), "x").unwrap();
+        fs::write(tmp.path().join("big.txt"), "x".repeat(10_000)).unwrap();
+        fs::write(tmp.path().join("medium.txt"), "x".repeat(100)).unwrap();
+
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        assert!(!result.largest_children.is_empty());
+        for i in 1..result.largest_children.len() {
+            assert!(result.largest_children[i - 1].size_bytes >= result.largest_children[i].size_bytes);
+        }
+        assert_eq!(result.largest_children[0].name, "big.txt");
+    }
+
+    #[test]
+    fn dir_stats_max_five_largest() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..10 {
+            fs::write(tmp.path().join(format!("file{i}.txt")), "content").unwrap();
+        }
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+        assert!(result.largest_children.len() <= 5);
+    }
+
+    #[test]
+    fn dir_stats_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        assert_eq!(result.file_count, 0);
+        assert_eq!(result.dir_count, 0);
+        assert_eq!(result.total_size, 0);
+        assert!(result.type_distribution.is_empty());
+        assert!(result.largest_children.is_empty());
+    }
+
+    #[test]
+    fn dir_stats_nonexistent_errors() {
+        assert!(compute_dir_stats("/this/path/does/not/exist").is_err());
+    }
+
+    #[test]
+    fn dir_stats_percentage_sums_near_100() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a.rs"), "code").unwrap();
+        fs::write(tmp.path().join("b.pdf"), "document").unwrap();
+
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        let total_pct: f32 = result.type_distribution.iter().map(|d| d.percentage).sum();
+        assert!(
+            (total_pct - 100.0).abs() < 0.1,
+            "percentages should sum to ~100, got {total_pct}"
+        );
+    }
+
+    #[test]
+    fn dir_stats_subdir_size_aggregated() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("subdir");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("big.bin"), vec![0u8; 8192]).unwrap();
+
+        let result = compute_dir_stats(&tmp.path().to_string_lossy()).unwrap();
+
+        let child = result.largest_children.iter().find(|c| c.name == "subdir");
+        assert!(child.is_some());
+        assert!(child.unwrap().is_dir);
+        assert_eq!(child.unwrap().size_bytes, 8192);
+    }
+}
