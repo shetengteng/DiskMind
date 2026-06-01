@@ -10,6 +10,13 @@ import './assets/index.css'
 window.addEventListener('error', (e) => {
   if (e.message?.includes('ResizeObserver loop')) {
     e.stopImmediatePropagation()
+    return false
+  }
+})
+
+window.addEventListener('unhandledrejection', (e) => {
+  if (String(e.reason)?.includes('ResizeObserver loop')) {
+    e.preventDefault()
   }
 })
 
