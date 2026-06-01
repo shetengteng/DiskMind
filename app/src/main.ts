@@ -7,6 +7,12 @@ import { handleVueError } from './lib/notify'
 import { metaSetLocale } from './api/tauri'
 import './assets/index.css'
 
+window.addEventListener('error', (e) => {
+  if (e.message?.includes('ResizeObserver loop')) {
+    e.stopImmediatePropagation()
+  }
+})
+
 const app = createApp(App)
 
 // 全局兜底 Vue 组件树异常(S7)。任何 setup / template / lifecycle 抛出
