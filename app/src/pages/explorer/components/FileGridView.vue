@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 import {
   Folder,
   File,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
 import { useExplorerStore } from '@/stores/explorer'
-import type { ExplorerEntry } from '@/api/tauri'
+import { platformOpenPath, type ExplorerEntry } from '@/api/tauri'
 import { formatBytes } from '@/lib/aiActions'
 
 const { t } = useI18n()
@@ -59,9 +60,19 @@ function handleClick(entry: ExplorerEntry) {
   }
 }
 
-function handleDblClick(entry: ExplorerEntry) {
+async function handleDblClick(entry: ExplorerEntry) {
   if (entry.isDir) {
     store.navigateTo(entry.path)
+    return
+  }
+  try {
+    await platformOpenPath(entry.path)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    toast.error(
+      msg === 'not in tauri' ? t('explorer.openBrowserMode') : t('explorer.openFailed'),
+      msg !== 'not in tauri' ? { description: msg } : undefined,
+    )
   }
 }
 
@@ -95,7 +106,7 @@ function formatDate(ts: number | null) {
         'hover:bg-accent/50 hover:border-accent-foreground/20',
         isSelected(entry.path) && 'bg-primary/10 border-primary/40 ring-1 ring-primary/30',
       )"
-      :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : entry.path"
+      :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : `${entry.path}\n${t('explorer.dblClickOpen')}`"
       @click="handleClick(entry)"
       @dblclick="handleDblClick(entry)"
     >
@@ -116,10 +127,9 @@ function formatDate(ts: number | null) {
         </template>
       </span>
       <span
-        v-if="entry.isDir"
         class="pointer-events-none absolute inset-x-2 bottom-1 hidden truncate rounded-sm bg-background/90 px-1.5 py-0.5 text-center text-[10px] text-muted-foreground shadow-sm ring-1 ring-border/60 group-hover/grid:block"
       >
-        {{ t('explorer.dblClickDrill') }}
+        {{ entry.isDir ? t('explorer.dblClickDrill') : t('explorer.dblClickOpen') }}
       </span>
     </div>
   </div>

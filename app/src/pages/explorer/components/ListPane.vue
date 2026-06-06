@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 import {
   Folder,
   FileText,
@@ -12,11 +13,12 @@ import {
   ArrowUpDown,
   Loader2,
   ChevronRight,
+  ExternalLink,
 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
-import type { ExplorerEntry } from '@/api/tauri'
+import { platformOpenPath, type ExplorerEntry } from '@/api/tauri'
 import AiTagBadge from './AiTagBadge.vue'
 
 const { t } = useI18n()
@@ -50,9 +52,19 @@ function handleRowClick(entry: ExplorerEntry) {
   store.inspect(entry.path)
 }
 
-function handleRowDblClick(entry: ExplorerEntry) {
+async function handleRowDblClick(entry: ExplorerEntry) {
   if (entry.isDir) {
     store.navigateTo(entry.path)
+    return
+  }
+  try {
+    await platformOpenPath(entry.path)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    toast.error(
+      msg === 'not in tauri' ? t('explorer.openBrowserMode') : t('explorer.openFailed'),
+      msg !== 'not in tauri' ? { description: msg } : undefined,
+    )
   }
 }
 
@@ -120,7 +132,7 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
             store.inspectedPath === entry.path ? 'bg-accent' : 'hover:bg-accent/50',
             store.selectedPaths.has(entry.path) ? 'bg-primary/5' : '',
           ]"
-          :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : entry.path"
+          :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : `${entry.path}\n${t('explorer.dblClickOpen')}`"
           @click="handleRowClick(entry)"
           @dblclick="handleRowDblClick(entry)"
         >
@@ -153,6 +165,13 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
               >
                 <ChevronRight class="size-3" />
                 {{ t('explorer.dblClickDrill') }}
+              </span>
+              <span
+                v-else
+                class="ml-1 hidden shrink-0 items-center gap-1 rounded-sm bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground group-hover/cell:inline-flex"
+              >
+                <ExternalLink class="size-3" />
+                {{ t('explorer.dblClickOpen') }}
               </span>
               <AiTagBadge v-if="!entry.isDir" :path="entry.path" />
             </div>

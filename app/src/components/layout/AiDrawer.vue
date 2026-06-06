@@ -225,12 +225,14 @@ const drawerStyle = computed(() => ({
 
 let resizeStartX = 0
 let resizeStartWidth = 0
+const resizing = ref(false)
 
 function onResizeStart(e: PointerEvent) {
   // 从左边缘拖拽 → 指针向 LEFT 移动会让抽屉变宽(右对齐锚定)。
   e.preventDefault()
   resizeStartX = e.clientX
   resizeStartWidth = drawerWidth.value
+  resizing.value = true
   const target = e.currentTarget as HTMLElement
   target.setPointerCapture(e.pointerId)
   document.body.style.cursor = 'col-resize'
@@ -248,6 +250,7 @@ function onResizeStart(e: PointerEvent) {
     try { target.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    resizing.value = false
     localStorage.setItem(RESIZE_KEY, String(drawerWidth.value))
   }
   target.addEventListener('pointermove', move)
@@ -263,16 +266,26 @@ function onResizeStart(e: PointerEvent) {
       class="flex flex-row gap-0 overflow-hidden p-0"
       :style="drawerStyle"
     >
-      <!-- Drag handle on the left edge: pointer-driven width control with
-           localStorage persistence. 4px wide hit zone, primary highlight on
-           hover. Click anywhere along the rail to start dragging. -->
+      <!--
+        Drag handle on the left edge. Shares the idle/hover/drag palette
+        with explorer ResizeHandle and AppSidebar SidebarResizer (see
+        ResizeHandle.vue template comment). 1px visible line + 8px hit
+        zone via -left-1 -right-1 overlay; touch-action:none to prevent
+        OS gesture interception during pointer drag.
+      -->
       <div
-        class="ai-resize-handle"
+        class="group/airesize absolute inset-y-0 left-0 z-[60] w-px cursor-col-resize touch-none transition-colors"
+        :class="resizing ? 'bg-primary/70' : 'bg-border hover:bg-primary/50'"
         role="separator"
         aria-orientation="vertical"
         :aria-label="t('aiDrawer.resizeAria')"
         @pointerdown="onResizeStart"
-      />
+      >
+        <div
+          class="pointer-events-none absolute inset-y-0 -left-1 -right-1 transition-colors"
+          :class="resizing ? 'bg-primary/15' : 'group-hover/airesize:bg-primary/10'"
+        />
+      </div>
 
       <!-- ===== 左侧 Session Sidebar ===== -->
       <aside
@@ -703,28 +716,6 @@ function onResizeStart(e: PointerEvent) {
 .ai-scroll {
   scroll-behavior: smooth;
   scrollbar-width: thin;
-}
-
-/* Drag rail on the left edge for user-controlled width.
-   - 4px hit zone (we widen on hover for discoverability)
-   - sits above content via z-50
-   - touch-action: none disables OS gesture interception during drag */
-.ai-resize-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 4px;
-  cursor: col-resize;
-  z-index: 60;
-  touch-action: none;
-  background: transparent;
-  transition: background-color 120ms ease;
-}
-.ai-resize-handle:hover,
-.ai-resize-handle:active {
-  background: var(--primary);
-  opacity: 0.5;
 }
 
 /* Typing indicator — three dots that bounce while waiting for first token. */

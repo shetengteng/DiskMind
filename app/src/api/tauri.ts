@@ -957,6 +957,15 @@ export async function platformListVolumes(): Promise<VolumeEntry[]> {
 }
 
 /**
+ * 用系统默认应用打开 `path`(文件 → 关联应用;目录 → 文件管理器)。
+ * 浏览器模式下抛错,调用方负责 toast。
+ */
+export async function platformOpenPath(path: string): Promise<void> {
+  if (!isTauri()) throw new Error('not in tauri')
+  await invoke<void>('platform_open_path', { path })
+}
+
+/**
  * 崩溃 / 异常本地日志(Sprint 2 · S6 + S7)。前端的
  * onErrorCaptured / window error / unhandledrejection 都走
  * `logFrontendError`,与 Rust panic 共用同一份 `crash.log`(JSONL)。

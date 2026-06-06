@@ -95,9 +95,10 @@ function daysLeft(movedAtMs: number): number {
           <TableRow
             v-for="item in items"
             :key="item.id"
-            :class="item.selected ? 'bg-muted/40' : ''"
+            :class="['cursor-pointer transition-colors', item.selected ? 'bg-muted/40' : 'hover:bg-muted/20']"
+            @click="emit('toggleRow', item.id, !item.selected)"
           >
-            <TableCell>
+            <TableCell @click.stop>
               <Checkbox
                 :model-value="item.selected"
                 @update:model-value="(v) => emit('toggleRow', item.id, v === true)"

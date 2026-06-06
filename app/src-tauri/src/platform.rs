@@ -143,6 +143,53 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
 }
 
+/// 用系统默认应用打开 `path`。文件 → 关联应用(双击行为);目录 →
+/// 系统文件管理器。与 `reveal_in_explorer` 区分:后者总是定位到父目录
+/// 并高亮,前者直接打开目标本身。
+///
+/// 实现思路与 `reveal_in_explorer` 一致,均通过 OS 自带的 open 入口走
+/// 用户自行配置的默认 handler,不引入额外二进制依赖。
+#[tauri::command]
+pub fn platform_open_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(crate::i18n::i18n_p(
+            "platform.error.path_not_found",
+            &[("path", &path)],
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // `cmd /c start "" <path>` 是 Windows 上"用默认 handler 打开"
+        // 的标准用法。第一个空字符串占位是 `start` 命令的 title 参数,
+        // 漏掉的话 path 中含空格时会被误当成 title。
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 /// 按平台返回推荐扫描路径。返回值包含当前 OS,以及一组**可能存在**且
 /// 值得默认扫描的路径。每个候选路径都会基于 `dirs::home_dir()` 做规范化
 /// 并校验是否真实存在,确保首次启动时在 Windows / Linux / macOS 任意

@@ -42,6 +42,8 @@ export default {
     desktopRequired: 'Requires desktop runtime',
     expand: 'Expand',
     collapse: 'Collapse',
+    resize: 'Drag to resize',
+    resetDoubleClick: 'Double-click to reset',
   },
 
   nav: {
@@ -122,6 +124,10 @@ export default {
 
   explorer: {
     searchPlaceholder: 'Search files/folders…',
+    items: 'items',
+    dblClickOpen: 'Double-click to open',
+    openFailed: 'Failed to open file',
+    openBrowserMode: 'Open is desktop-only',
     search: {
       timeout: '{label} timed out ({seconds}s)',
       aiFallback: 'AI parsing failed, falling back to literal search',
@@ -394,6 +400,14 @@ export default {
     dirUnavailable: 'Crash log directory not initialized',
     openFailed: 'Failed to open crash log folder',
     dismiss: 'Dismiss',
+  },
+
+  history: {
+    tabAll: 'All',
+    tabMove: 'Move',
+    tabRename: 'Rename',
+    tabDelete: 'Delete',
+    empty: 'No history yet — file operations will appear here',
   },
 
   trash: {

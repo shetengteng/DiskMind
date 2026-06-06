@@ -24,6 +24,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
+import SidebarResizer from './SidebarResizer.vue'
 import { useTrashStore } from '@/stores/trash'
 import { useScanStore } from '@/stores/scan'
 
@@ -116,5 +117,6 @@ const footerNav = computed(() => [
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarFooter>
+    <SidebarResizer />
   </Sidebar>
 </template>

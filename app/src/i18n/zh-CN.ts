@@ -42,6 +42,8 @@ export default {
     desktopRequired: '需要在桌面端运行',
     expand: '展开',
     collapse: '收起',
+    resize: '拖拽调整宽度',
+    resetDoubleClick: '双击恢复默认',
   },
 
   nav: {
@@ -173,6 +175,10 @@ export default {
 
   explorer: {
     searchPlaceholder: '搜索文件/文件夹…',
+    items: '项',
+    dblClickOpen: '双击用默认应用打开',
+    openFailed: '打开文件失败',
+    openBrowserMode: '此功能仅在桌面端可用',
     search: {
       timeout: '{label} 超时({seconds} 秒)',
       aiFallback: 'AI 解析失败,已降级为字面量搜索',
@@ -445,6 +451,14 @@ export default {
     dirUnavailable: '崩溃日志目录尚未初始化',
     openFailed: '打开崩溃日志目录失败',
     dismiss: '我知道了',
+  },
+
+  history: {
+    tabAll: '全部',
+    tabMove: '移动',
+    tabRename: '重命名',
+    tabDelete: '删除',
+    empty: '暂无操作记录,执行文件操作后会显示在这里',
   },
 
   trash: {

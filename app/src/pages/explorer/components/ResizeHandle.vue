@@ -34,14 +34,24 @@ function onMouseUp() {
 </script>
 
 <template>
+  <!--
+    Shared resize-handle visual language. The same hover / dragging palette
+    is applied to SidebarResizer (left rail) and AiDrawer rail so users get
+    consistent feedback regardless of which split they are dragging.
+
+      idle    : 1px bg-border line, transparent hit zone
+      hover   : line -> primary/50,  hit zone -> primary/10
+      drag    : line -> primary/70,  hit zone -> primary/15
+      hit zone: 8px wide (1px visible line + 4px on each side via -left/right-1)
+  -->
   <div
     class="group/handle relative shrink-0 w-px cursor-col-resize transition-colors"
-    :class="dragging ? 'bg-primary/50' : 'bg-border'"
+    :class="dragging ? 'bg-primary/70' : 'bg-border hover:bg-primary/50'"
     @mousedown="onMouseDown"
   >
     <div
-      class="absolute inset-y-0 -left-0.5 -right-0.5 transition-colors"
-      :class="dragging ? 'bg-primary/30' : 'group-hover/handle:bg-primary/20'"
+      class="absolute inset-y-0 -left-1 -right-1 transition-colors"
+      :class="dragging ? 'bg-primary/15' : 'group-hover/handle:bg-primary/10'"
     />
   </div>
 </template>

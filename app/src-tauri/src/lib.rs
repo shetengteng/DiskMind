@@ -299,6 +299,7 @@ pub fn run() {
             platform::reveal_in_explorer,
             platform::platform_info,
             platform::platform_list_volumes,
+            platform::platform_open_path,
             // --- trash ---
             commands::trash::trash_list,
             commands::trash::trash_stats,

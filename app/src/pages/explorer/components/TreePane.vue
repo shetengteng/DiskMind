@@ -37,7 +37,10 @@ const SUGGESTED_LABEL_KEY: Record<SuggestedTargetKind, string> = {
   appdata: 'explorer.tree.kind.appdata',
 }
 
-function makeNode(e: Pick<ExplorerEntry, 'path' | 'name' | 'sizeBytes' | 'childrenCount'>): TreeNodeData {
+function makeNode(
+  e: Pick<ExplorerEntry, 'path' | 'name' | 'sizeBytes' | 'childrenCount'>,
+  opts?: { expandable?: boolean },
+): TreeNodeData {
   return {
     path: e.path,
     name: e.name || e.path,
@@ -46,6 +49,7 @@ function makeNode(e: Pick<ExplorerEntry, 'path' | 'name' | 'sizeBytes' | 'childr
     children: [],
     expanded: false,
     loading: false,
+    expandable: opts?.expandable,
   }
 }
 
@@ -74,13 +78,16 @@ async function buildFavorites(): Promise<TreeNodeData[]> {
     seen.add(s.path)
     const key = SUGGESTED_LABEL_KEY[s.kind] ?? null
     const label = key ? t(key) : s.path.split(/[\\/]/).filter(Boolean).pop() ?? s.path
+    // home 是其它快捷项的祖先,展开它会让 Documents/Downloads/Desktop 等
+    // 在 sidebar 中重复出现一次,既视觉冗余又让 expandToCurrent 同时展开
+    // 两条路径,用户看上去就像"点了文稿,实际跳到主目录下同名目录"。
+    // 把 home 改成 navigate-only(隐藏 chevron + expandToCurrent 跳过),
+    // 让 favorites 的语义回归扁平快捷方式。
     out.push(
-      makeNode({
-        path: s.path,
-        name: label,
-        sizeBytes: 0,
-        childrenCount: null,
-      }),
+      makeNode(
+        { path: s.path, name: label, sizeBytes: 0, childrenCount: null },
+        s.kind === 'home' ? { expandable: false } : undefined,
+      ),
     )
   }
   return out
@@ -194,24 +201,39 @@ function splitSubPath(parent: string, child: string): string[] {
 
 async function expandToCurrent(currentPath: string) {
   if (!currentPath) return
+
+  // 在所有可展开 root 中,选 path 最长(也即最具体)的那一条来展开。
+  // 如果不去重直接对每一个匹配的 root 展开,会出现同一目录在 sidebar
+  // 重复展开两次的情况(如 home + documents 同时存在 favorites 时)。
+  // 不可展开节点(expandable===false,目前是 home)直接跳过;它们只
+  // 通过 isActive / isOnPath 高亮反馈当前位置,不参与树展开。
+  let target: TreeNodeData | null = null
   for (const group of groups.value) {
     for (const root of group.nodes) {
+      if (root.expandable === false) continue
       if (!isPathInside(root.path, currentPath)) continue
-      const parts = splitSubPath(root.path, currentPath)
-      let cursor = root
-      const sep = currentPath.includes('\\') ? '\\' : '/'
-      let acc = root.path
-      for (const part of parts) {
-        if (!cursor.expanded) {
-          await toggleExpand(cursor)
-        }
-        acc = acc.endsWith(sep) ? acc + part : acc + sep + part
-        const next = cursor.children.find((c) => c.path === acc)
-        if (!next) break
-        cursor = next
+      if (!target || root.path.length > target.path.length) {
+        target = root
       }
     }
   }
+
+  if (target) {
+    const parts = splitSubPath(target.path, currentPath)
+    let cursor = target
+    const sep = currentPath.includes('\\') ? '\\' : '/'
+    let acc = target.path
+    for (const part of parts) {
+      if (!cursor.expanded) {
+        await toggleExpand(cursor)
+      }
+      acc = acc.endsWith(sep) ? acc + part : acc + sep + part
+      const next = cursor.children.find((c) => c.path === acc)
+      if (!next) break
+      cursor = next
+    }
+  }
+
   await nextTick()
   const el = containerRef.value?.querySelector<HTMLElement>(
     `[data-tree-node-path="${cssEscape(currentPath)}"]`,

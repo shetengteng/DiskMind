@@ -53,6 +53,7 @@ const isOnPath = computed(() => {
           @click="emit('navigate', node)"
         >
           <button
+            v-if="node.expandable !== false"
             class="flex size-4 shrink-0 items-center justify-center"
             :aria-label="node.expanded ? t('common.collapse') : t('common.expand')"
             @click.stop="emit('toggle', node)"
@@ -61,6 +62,7 @@ const isOnPath = computed(() => {
             <ChevronDown v-else-if="node.expanded" class="size-3 text-muted-foreground" />
             <ChevronRight v-else class="size-3 text-muted-foreground" />
           </button>
+          <span v-else class="flex size-4 shrink-0" aria-hidden="true" />
 
           <FolderOpen v-if="node.expanded" class="mr-1 size-4 shrink-0 text-primary" />
           <Folder v-else class="mr-1 size-4 shrink-0 text-muted-foreground" />

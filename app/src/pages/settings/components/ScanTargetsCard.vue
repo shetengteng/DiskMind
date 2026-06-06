@@ -34,7 +34,7 @@ async function pickPath() {
   if (props.disabled) return
 
   if (!isTauri()) {
-    notify.warn(t('scanTargets.addFailed', { msg: 'desktop only' }))
+    notify.warn(t('settings.scanTargets.addFailed', { msg: 'desktop only' }))
     return
   }
 

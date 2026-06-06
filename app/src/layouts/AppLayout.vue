@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { RouterView } from 'vue-router'
 import {
   SidebarInset,
@@ -12,8 +12,14 @@ import AiExplainDialog from '@/components/layout/AiExplainDialog.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
 import CrashReportDialog from '@/components/layout/CrashReportDialog.vue'
 import { useAiStore } from '@/stores/ai'
+import { useLayoutStore } from '@/stores/layout'
 
 const ai = useAiStore()
+const layout = useLayoutStore()
+const sidebarStyle = computed(() => ({
+  '--sidebar-width': `${layout.sidebarWidth}px`,
+  '--header-height': 'calc(var(--spacing) * 12)',
+}))
 /** Cmd+K Command Palette 开关。挂在 layout 上避免每个 page 重复实现;
  * 与 AI Drawer 的 Cmd+L 同样走 window 级 keydown,IME 输入框输入时浏
  * 览器会先消化按键,因此不会和搜索/编辑冲突。 */
@@ -45,10 +51,7 @@ onBeforeUnmount(() => {
 <template>
   <SidebarProvider
     class="h-svh"
-    :style="{
-      '--sidebar-width': 'calc(var(--spacing) * 72)',
-      '--header-height': 'calc(var(--spacing) * 12)',
-    }"
+    :style="sidebarStyle"
   >
     <AppSidebar variant="inset" />
     <!--
