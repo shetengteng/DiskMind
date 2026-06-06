@@ -67,8 +67,6 @@ pub struct ScanOutcome {
     pub bytes_total_after: u64,
 }
 
-const PROGRESS_BATCH: u64 = 200;
-
 pub fn scan_paths<F>(
     roots: Vec<PathBuf>,
     follow_symlinks: bool,
@@ -132,37 +130,36 @@ where
     })
 }
 
-/// Round 20 · P0-1.2 · 三阶段扫描:
+/// 二阶段扫描(Walk+Stat 交错批处理 + Reduce 去重):
 ///
-/// 1. **Walk 阶段(单线程)** — `WalkDir` 流式遍历目录树,只过滤掉 `is_file()
-///    == false` 和 `is_definitely_skip` 的项,把 `walkdir::DirEntry` 收进
-///    `candidates: Vec`。每 `PROGRESS_BATCH` 个文件 emit 一次"扫描中"
-///    progress(`bytes_scanned` 这里还是 0,先把 file count 显示出来,
-///    深目录树不至于让用户看到几秒钟空白)。**cancel 在每个 entry 之前
-///    检查**,即时退出。
+/// 1. **Walk + Stat 交错批处理** — `WalkDir` 单线程流式发现文件,每收集
+///    `CHUNK_SIZE` 个候选项就 hand off 给 `stat_chunk` 用 rayon 并行调
+///    `entry.metadata()` 构造 `FileEntry`。一批完成立刻 `accumulate_and_emit`
+///    喷一次 progress(含 bytes,虽然此时还没去重,是估算值)。
 ///
-/// 2. **Stat 阶段(rayon 并行)** — 并行调 `entry.metadata()` 并构造
-///    `FileEntry`(extension / mtime / phys_size / file_id)。这是整个
-///    扫描的 CPU + I/O 大头(metadata syscall),并行后 4-8 核机器期望
-///    3-5x 加速。**par_iter map 内每次调用都检查 cancel**,虽然 rayon
-///    work-stealing 不支持真正 abort,但已派发的 work 能 short-circuit
-///    成 `None` 减负。
+///    这是从原"先 walk 全部 → 再分批 stat"改过来的:原方案 walk 阶段
+///    用户看到的 `bytes_scanned = 0` 持续整段 walk 时间(对 985k 文件 /
+///    多核机来说是几十秒),严重误导。改成交错后首批 5000 文件完成就
+///    开始喷字节数,UX 上从第一秒起就能看到数字跳动。性能等价,仅多了
+///    ~ms 级的批次切换开销。
 ///
-/// 3. **Reduce 阶段(单线程)** — 并行收回来的 `Vec<Option<FileEntry>>`
-///    串行遍历,用 `seen_inodes` 去重硬链接/克隆文件,累计 `bytes_scanned`。
-///    seen_inodes 状态跨 root 共享(`scan_paths` 持有,逐 root 透传到
-///    这里),所以多 root 扫描也能正确去重。
+///    **cancel 在 walk loop 头部 + stat_chunk map 内部都查**,完整 cancel
+///    latency = 最长 ~一个 stat 调用,~毫秒级。
+///
+/// 2. **Reduce 阶段(单线程)** — 把所有批次的 `Vec<Option<FileEntry>>`
+///    串行遍历,用 `seen_inodes` 去重硬链接/克隆文件,累计精确的
+///    `bytes_scanned`。seen_inodes 状态跨 root 共享(`scan_paths` 持有,
+///    逐 root 透传到这里),所以多 root 扫描也能正确去重。Reduce 完成
+///    后 emit 一次精确去重值,前端会从估算跳到精确(极端硬链接场景会
+///    略有下降,正常场景接近一致)。
 ///
 /// 取舍说明:
 /// - **不用 DashMap 并行 reduce**:reduce 阶段是纯 hash insert,~10μs/item,
 ///   10k 文件总共 100ms,简单串行更稳;DashMap 引入新依赖 + 锁争用得不偿失。
-/// - **Walk 阶段也保留 PROGRESS_BATCH emit**:bytes 此时还是 0(metadata 未读),
-///   先把 file count 显示出来,深目录树不至于让用户看到几秒钟空白。Stat 阶段
-///   每个 STAT_CHUNK_SIZE 批次完成时主线程会喷一次 progress(估算 bytes,含
-///   硬链接),Reduce 阶段最后再 emit 一次精确去重值。
-/// - **cancel 在两个阶段都查**:Walk 阶段每文件查 1 次,Stat 阶段 par_iter
-///   map 每个工作单元查 1 次。完整 cancel latency = 最长 ~一个 stat 调用,
-///   ~毫秒级,符合 UX 期望。
+/// - **不用 producer-consumer / par_bridge**:可以让 walk + stat 真正重叠,
+///   但要把 `on_progress` 改成 `Fn + Send + Sync + 'static` + reporter
+///   thread + atomic 计数,改动量大;现在的批处理已经把 UX 痛点解决,
+///   性能也只损失 ms 级,投入产出不划算。
 fn scan_one<F>(
     root: PathBuf,
     follow_symlinks: bool,
@@ -176,14 +173,36 @@ fn scan_one<F>(
 where
     F: FnMut(ScanProgress),
 {
-    // --- 阶段 1:Walk -----------------------------------------------------
+    // --- 阶段 1+2:Walk + Stat 交错批处理 ---------------------------------
+    //
+    // 原实现是先 walk 全部文件(可能 5-30s)再分批 stat,中间用户全程看到
+    // `bytesScanned = 0`。对 985k 文件 / 多核机来说,walk 阶段本身就需要
+    // 几十秒,无论 stat 怎么优化都救不了 walk 阶段的空窗。
+    //
+    // 改成 walk 每收集 CHUNK_SIZE 个候选项就立刻并行 stat 这一批 + emit
+    // progress(含 bytes)。这样首批 5000 文件完成就开始喷字节数,UX 上从
+    // 第一秒起就能看到数字跳动。
+    //
+    // 性能等价(总 walk 时间 + 总 stat 时间不变,只是切片更细),仅多了 ~ms
+    // 级的批次切换开销,对 985k 文件累计 <100ms,可忽略。
+    //
+    // 注意:这里 chunk 累加的 bytes 是去重前的(含硬链接 / 克隆),阶段 3
+    // reduce 时用 seen_inodes 精确去重。所以中间喷的 progress 是估算值,
+    // reduce 完成后再 emit 一次精确值。极端硬链接场景两者会有差异,但 UX
+    // 上"持续涨"远好过"长期 0"。
+    const CHUNK_SIZE: usize = 5000;
+
     let walker = WalkDir::new(&root)
         .follow_links(follow_symlinks)
         .into_iter()
         .filter_entry(move |e| !is_definitely_skip(e.path(), exclude_sensitive));
 
-    let mut candidates: Vec<walkdir::DirEntry> = Vec::with_capacity(8192);
-    let mut last_emit_at: usize = 0;
+    let cancel_for_stat = cancel.clone();
+    let root_str = root.to_string_lossy().to_string();
+    let mut buffer: Vec<walkdir::DirEntry> = Vec::with_capacity(CHUNK_SIZE);
+    let mut raw_entries: Vec<Option<FileEntry>> = Vec::with_capacity(8192);
+    let mut emitted_files = initial_files;
+    let mut emitted_bytes = initial_bytes;
     let mut cancelled = false;
 
     for entry in walker {
@@ -198,131 +217,37 @@ where
         if !entry.file_type().is_file() {
             continue;
         }
-        let cur_path = entry.path().to_string_lossy().to_string();
-        candidates.push(entry);
+        buffer.push(entry);
 
-        if candidates.len() - last_emit_at >= PROGRESS_BATCH as usize {
-            last_emit_at = candidates.len();
-            on_progress(ScanProgress {
-                files_scanned: initial_files + candidates.len() as u64,
-                // Walk 阶段还不知道字节数(metadata 未读),先维持 initial,
-                // Stat 阶段完成后会有 final emit 修正。
-                bytes_scanned: initial_bytes,
-                current_path: cur_path,
-            });
+        if buffer.len() >= CHUNK_SIZE {
+            let chunk = std::mem::take(&mut buffer);
+            buffer.reserve(CHUNK_SIZE);
+            let chunk_results = stat_chunk(chunk, &cancel_for_stat);
+            accumulate_and_emit(
+                &chunk_results,
+                &mut emitted_files,
+                &mut emitted_bytes,
+                &root_str,
+                on_progress,
+            );
+            raw_entries.extend(chunk_results);
         }
     }
 
-    if cancelled {
-        return ScanOutcome {
-            entries: Vec::new(),
-            cancelled: true,
-            bytes_total_after: initial_bytes,
-        };
-    }
-
-    // --- 阶段 2:Stat(分块并行,边跑边 emit progress)----------------------
-    //
-    // 原实现是 `candidates.into_par_iter().map(...).collect()` 一把梭,期间
-    // 主线程 block 在 `.collect()`,导致用户在 Walk 已结束、Stat 还在跑的
-    // 中间态全程看到 `bytesScanned = 0`。对 985k 文件 / 多核机来说这个空
-    // 窗口长达数十秒,严重误导。
-    //
-    // 改成 STAT_CHUNK_SIZE 一批的串行调度 + 每批内并行,批之间主线程拿到
-    // chunk 累加值就 emit 一次 progress(含 bytes)。性能等价(每批内 stat
-    // 仍 rayon 并行,只是分批 hand-off,微秒级开销),UX 改成每批 ~毫秒到
-    // 几百毫秒就跳一次字节数。
-    //
-    // 注意:这里的 chunk_bytes 是去重前的(含硬链接 / 克隆),阶段 3 reduce
-    // 时才用 seen_inodes 精确去重。所以 stat 阶段 emit 的 progress 是估
-    // 算值,reduce 完成后会再 emit 一次精确值。极端硬链接场景两者会有差
-    // 异,但 UX 上"持续涨"远好过"长期 0"。
-    use rayon::prelude::*;
-    const STAT_CHUNK_SIZE: usize = 5000;
-    let cancel_for_stat = cancel.clone();
-    let mut raw_entries: Vec<Option<FileEntry>> = Vec::with_capacity(candidates.len());
-    let mut emitted_files = initial_files;
-    let mut emitted_bytes = initial_bytes;
-
-    for chunk in candidates.chunks(STAT_CHUNK_SIZE) {
-        if cancel_for_stat.load(Ordering::Relaxed) {
-            return ScanOutcome {
-                entries: Vec::new(),
-                cancelled: true,
-                bytes_total_after: emitted_bytes,
-            };
-        }
-
-        let chunk_results: Vec<Option<FileEntry>> = chunk
-            .par_iter()
-            .map(|entry| {
-                if cancel_for_stat.load(Ordering::Relaxed) {
-                    return None;
-                }
-                let metadata = entry.metadata().ok()?;
-                // 防御:filter_entry 已挡掉非文件,但 follow_links / race 时
-                // metadata 可能解出来变成目录(symlink target 被换),再判一次。
-                if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
-                    return None;
-                }
-                let size = metadata.len();
-                let phys = physical_size(&metadata);
-                let mtime = metadata
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let path_buf = entry.path().to_path_buf();
-                let ext = path_buf
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                let is_symlink = metadata.file_type().is_symlink();
-                let (dev, inode) = file_id(&metadata);
-                let path_str = path_buf.to_string_lossy().to_string();
-                Some(FileEntry {
-                    path: path_str,
-                    size,
-                    mtime,
-                    extension: ext,
-                    is_symlink,
-                    dev,
-                    inode,
-                    phys_size: phys,
-                })
-            })
-            .collect();
-
-        let mut chunk_files: u64 = 0;
-        let mut chunk_bytes: u64 = 0;
-        let mut last_path = String::new();
-        for opt in &chunk_results {
-            if let Some(e) = opt {
-                chunk_files += 1;
-                chunk_bytes = chunk_bytes.saturating_add(e.phys_size);
-                last_path = e.path.clone();
-            }
-        }
-        emitted_files += chunk_files;
-        emitted_bytes = emitted_bytes.saturating_add(chunk_bytes);
-
-        on_progress(ScanProgress {
-            files_scanned: emitted_files,
-            bytes_scanned: emitted_bytes,
-            current_path: if last_path.is_empty() {
-                root.to_string_lossy().to_string()
-            } else {
-                last_path
-            },
-        });
-
+    // flush 最后一批不足 CHUNK_SIZE 的余量
+    if !cancelled && !buffer.is_empty() {
+        let chunk_results = stat_chunk(buffer, &cancel_for_stat);
+        accumulate_and_emit(
+            &chunk_results,
+            &mut emitted_files,
+            &mut emitted_bytes,
+            &root_str,
+            on_progress,
+        );
         raw_entries.extend(chunk_results);
     }
 
-    // par_iter 期间用户点了取消 → 不出 partial 结果,直接 cancelled
-    if cancel.load(Ordering::Relaxed) {
+    if cancelled || cancel.load(Ordering::Relaxed) {
         return ScanOutcome {
             entries: Vec::new(),
             cancelled: true,
@@ -359,6 +284,92 @@ where
         cancelled: false,
         bytes_total_after: bytes_scanned,
     }
+}
+
+/// 对一批 walkdir DirEntry 并行调 metadata 并构造 FileEntry。`map` 内部
+/// 检查 cancel 以便快速 short-circuit。返回值与输入等长,失败的项变 None。
+fn stat_chunk(
+    chunk: Vec<walkdir::DirEntry>,
+    cancel: &Arc<AtomicBool>,
+) -> Vec<Option<FileEntry>> {
+    use rayon::prelude::*;
+    chunk
+        .into_par_iter()
+        .map(|entry| {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            // 防御:filter_entry 已挡掉非文件,但 follow_links / race 时
+            // metadata 可能解出来变成目录(symlink target 被换),再判一次。
+            if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
+                return None;
+            }
+            let size = metadata.len();
+            let phys = physical_size(&metadata);
+            let mtime = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let path_buf = entry.path().to_path_buf();
+            let ext = path_buf
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let is_symlink = metadata.file_type().is_symlink();
+            let (dev, inode) = file_id(&metadata);
+            let path_str = path_buf.to_string_lossy().to_string();
+            Some(FileEntry {
+                path: path_str,
+                size,
+                mtime,
+                extension: ext,
+                is_symlink,
+                dev,
+                inode,
+                phys_size: phys,
+            })
+        })
+        .collect()
+}
+
+/// 累加一批 stat 结果到 emitted 计数,并 emit 一次 progress 让前端实时更
+/// 新。`fallback_path` 用在批内全部失败(全 None)时,至少保证 current_path
+/// 不空字符串闪烁。
+fn accumulate_and_emit<F>(
+    chunk_results: &[Option<FileEntry>],
+    emitted_files: &mut u64,
+    emitted_bytes: &mut u64,
+    fallback_path: &str,
+    on_progress: &mut F,
+) where
+    F: FnMut(ScanProgress),
+{
+    let mut chunk_files: u64 = 0;
+    let mut chunk_bytes: u64 = 0;
+    let mut last_path = String::new();
+    for opt in chunk_results {
+        if let Some(e) = opt {
+            chunk_files += 1;
+            chunk_bytes = chunk_bytes.saturating_add(e.phys_size);
+            last_path = e.path.clone();
+        }
+    }
+    *emitted_files += chunk_files;
+    *emitted_bytes = emitted_bytes.saturating_add(chunk_bytes);
+
+    on_progress(ScanProgress {
+        files_scanned: *emitted_files,
+        bytes_scanned: *emitted_bytes,
+        current_path: if last_path.is_empty() {
+            fallback_path.to_string()
+        } else {
+            last_path
+        },
+    });
 }
 
 #[cfg(unix)]
