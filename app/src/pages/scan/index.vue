@@ -21,9 +21,16 @@ import {
 import { useScanStore } from '@/stores/scan'
 import { useAiStore } from '@/stores/ai'
 import { useTrashStore } from '@/stores/trash'
-import type { ScanResultRow, FileRisk } from '@/api/tauri'
+import {
+  isTauri,
+  writeTextFile,
+  type ScanResultRow,
+  type FileRisk,
+} from '@/api/tauri'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { basename } from '@/lib/pathSep'
 import { localize } from '@/lib/localize'
+import { notify } from '@/lib/notify'
 import ScanProgressCard from './components/ScanProgressCard.vue'
 import ScanResultsToolbar from './components/ScanResultsToolbar.vue'
 import ScanResultsTable from './components/ScanResultsTable.vue'
@@ -363,6 +370,72 @@ async function confirmTrashFolder() {
   setTimeout(() => (sandboxBanner.value = null), 5000)
 }
 
+// CSV 导出 — 跟 reports/ScanHistoryCard 用同一套 escape / saveDialog /
+// writeTextFile 链路,差异只是字段维度(scan 是单条文件,history 是整次扫
+// 描)。导出范围严格限定在用户勾选的行;如果一行都没勾选,toolbar 按钮
+// 是 disabled,不会进到这里。函数内部再做一次防御性校验,避免 hot path
+// 冲突时漏勾。
+function escapeCsv(value: string | number | boolean | null | undefined): string {
+  const v = value == null ? '' : String(value)
+  return /[,"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
+
+function buildSelectedCsv(rows: ScanResultRow[]): string {
+  const header = [
+    'id',
+    'path',
+    'size_bytes',
+    'size_human',
+    'risk',
+    'category',
+    'ai_reason',
+  ].join(',')
+  const body = rows
+    .map((r) =>
+      [
+        r.id,
+        escapeCsv(r.path),
+        r.sizeBytes,
+        escapeCsv(r.size),
+        r.risk,
+        escapeCsv(r.category),
+        escapeCsv(r.aiReason ?? ''),
+      ].join(','),
+    )
+    .join('\n')
+  return `${header}\n${body}\n`
+}
+
+const exporting = ref(false)
+
+async function exportSelected() {
+  if (!isTauri()) {
+    notify.warn(t('scan.exportDesktopOnly'))
+    return
+  }
+  if (exporting.value) return
+  if (selectedRows.value.length === 0) {
+    notify.info(t('scan.exportEmpty'))
+    return
+  }
+  exporting.value = true
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const target = await saveDialog({
+      title: t('scan.exportTitle'),
+      defaultPath: `diskmind-scan-selected-${ts}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    })
+    if (typeof target !== 'string' || target.length === 0) return
+    await writeTextFile(target, buildSelectedCsv(selectedRows.value))
+    notify.success(t('scan.exportSuccess', { n: selectedRows.value.length }))
+  } catch (e) {
+    notify.error(t('scan.exportFailed'), String(e))
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function moveToSandbox() {
   const rows = selectedRows.value
   if (rows.length === 0) return
@@ -563,6 +636,7 @@ const subtitle = computed(() => {
             class="flex-1"
             @ai-batch="askAiBatch"
             @move-to-sandbox="moveToSandbox"
+            @export-selected="exportSelected"
           />
           <ToggleGroup
             v-model="listMode"

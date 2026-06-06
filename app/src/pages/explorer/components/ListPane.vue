@@ -12,10 +12,9 @@ import {
   File,
   ArrowUpDown,
   Loader2,
-  ChevronRight,
-  ExternalLink,
 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
 import { platformOpenPath, type ExplorerEntry } from '@/api/tauri'
@@ -127,12 +126,11 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
         <tr
           v-for="entry in store.entries"
           :key="entry.path"
-          class="border-b border-border/40 transition-colors cursor-pointer"
+          class="border-b border-border/40 transition-colors cursor-pointer whitespace-nowrap"
           :class="[
             store.inspectedPath === entry.path ? 'bg-accent' : 'hover:bg-accent/50',
             store.selectedPaths.has(entry.path) ? 'bg-primary/5' : '',
           ]"
-          :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : `${entry.path}\n${t('explorer.dblClickOpen')}`"
           @click="handleRowClick(entry)"
           @dblclick="handleRowDblClick(entry)"
         >
@@ -144,37 +142,36 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
             />
           </td>
           <td class="px-2 py-1.5">
-            <div class="group/cell flex items-center gap-2">
-              <component
-                :is="fileIcon(entry)"
-                class="size-4 shrink-0"
-                :class="entry.isDir ? 'text-primary' : 'text-muted-foreground'"
-              />
-              <span class="truncate" :class="entry.isDir ? 'font-medium' : ''">
-                {{ entry.name }}
-              </span>
-              <span
-                v-if="entry.isDir && entry.childrenCount != null"
-                class="shrink-0 text-[10px] text-muted-foreground"
-              >
-                {{ entry.childrenCount }}
-              </span>
-              <span
-                v-if="entry.isDir"
-                class="ml-1 hidden shrink-0 items-center gap-1 rounded-sm bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground group-hover/cell:inline-flex"
-              >
-                <ChevronRight class="size-3" />
-                {{ t('explorer.dblClickDrill') }}
-              </span>
-              <span
-                v-else
-                class="ml-1 hidden shrink-0 items-center gap-1 rounded-sm bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground group-hover/cell:inline-flex"
-              >
-                <ExternalLink class="size-3" />
-                {{ t('explorer.dblClickOpen') }}
-              </span>
-              <AiTagBadge v-if="!entry.isDir" :path="entry.path" />
-            </div>
+            <Tooltip :delay-duration="400">
+              <TooltipTrigger as-child>
+                <div class="flex items-center gap-2 min-w-0">
+                  <component
+                    :is="fileIcon(entry)"
+                    class="size-4 shrink-0"
+                    :class="entry.isDir ? 'text-primary' : 'text-muted-foreground'"
+                  />
+                  <span class="truncate" :class="entry.isDir ? 'font-medium' : ''">
+                    {{ entry.name }}
+                  </span>
+                  <span
+                    v-if="entry.isDir && entry.childrenCount != null"
+                    class="shrink-0 text-[10px] text-muted-foreground"
+                  >
+                    {{ entry.childrenCount }}
+                  </span>
+                  <AiTagBadge v-if="!entry.isDir" :path="entry.path" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" :side-offset="6" class="max-w-[28rem]">
+                <div class="text-xs space-y-0.5">
+                  <div class="font-medium truncate">{{ entry.name }}</div>
+                  <div class="text-muted-foreground font-mono break-all">{{ entry.path }}</div>
+                  <div class="text-muted-foreground">
+                    {{ entry.isDir ? t('explorer.dblClickDrill') : t('explorer.dblClickOpen') }}
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           </td>
           <td class="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
             {{ entry.isDir ? '—' : formatBytes(entry.sizeBytes) }}

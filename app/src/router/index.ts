@@ -45,7 +45,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/trash',
-    redirect: '/history',
+    name: 'trash',
+    component: () => import('@/pages/trash/index.vue'),
+    meta: { titleKey: 'nav.trash' },
   },
   {
     path: '/reports',

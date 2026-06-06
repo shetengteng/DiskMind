@@ -120,13 +120,23 @@ fn ext_to_category(ext: &str) -> &'static str {
 }
 
 fn read_one_dir(input: &ExplorerReadDirInput) -> Result<ExplorerReadDirResult, String> {
-    let resolved = expand_root(&input.path).ok_or_else(|| "Invalid path".to_string())?;
+    // 错误统一用 i18n marker 输出,前端 localize() 自动翻译;之前
+    // raw 英文字符串会让 toast 出现 "Component error: Path does not
+    // exist: /dev/fd/15" 这类裸文本,既丑也不本地化。
+    let resolved = expand_root(&input.path)
+        .ok_or_else(|| crate::i18n::i18n("platform.error.invalid_path"))?;
 
     if !resolved.exists() {
-        return Err(format!("Path does not exist: {}", resolved.display()));
+        return Err(crate::i18n::i18n_p(
+            "platform.error.path_not_found",
+            &[("path", &resolved.display().to_string())],
+        ));
     }
     if !resolved.is_dir() {
-        return Err(format!("Not a directory: {}", resolved.display()));
+        return Err(crate::i18n::i18n_p(
+            "platform.error.not_a_directory",
+            &[("path", &resolved.display().to_string())],
+        ));
     }
 
     let rd = std::fs::read_dir(&resolved).map_err(|e| format!("read_dir failed: {e}"))?;

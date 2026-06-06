@@ -179,6 +179,8 @@ export default {
     dblClickOpen: '双击用默认应用打开',
     openFailed: '打开文件失败',
     openBrowserMode: '此功能仅在桌面端可用',
+    navigateFailed: '无法打开此目录',
+    loadMoreFailed: '加载更多目录项失败',
     search: {
       timeout: '{label} 超时({seconds} 秒)',
       aiFallback: 'AI 解析失败,已降级为字面量搜索',
@@ -302,6 +304,12 @@ export default {
     moveToSandbox: '放入沙箱',
     moveToSandboxN: '放入沙箱 ({n})',
     exportResults: '导出扫描结果',
+    exportSelectedTooltip: '把选中的结果导出为 CSV',
+    exportTitle: '导出选中的扫描结果',
+    exportSuccess: '已导出 {n} 行',
+    exportFailed: '导出扫描结果失败',
+    exportEmpty: '请先勾选要导出的行',
+    exportDesktopOnly: '导出功能仅在桌面端可用',
     askAi: '问 AI',
     askAiFolder: 'AI 评估整个文件夹',
     trashFolder: '把整个文件夹放入沙箱',
@@ -1029,6 +1037,8 @@ export default {
   platform: {
     error: {
       path_not_found: '路径不存在: {path}',
+      not_a_directory: '不是目录: {path}',
+      invalid_path: '无效的路径',
     },
   },
 

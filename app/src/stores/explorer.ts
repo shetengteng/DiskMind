@@ -12,6 +12,10 @@ import {
   type AiDirSummary,
   type AiTagResult,
 } from '@/api/tauri'
+import { withToast } from '@/lib/notify'
+import { i18n } from '@/i18n'
+
+const t = (key: string) => i18n.global.t(key)
 
 export type ExplorerViewMode = 'list' | 'grid' | 'heatmap'
 
@@ -87,18 +91,27 @@ export const useExplorerStore = defineStore('explorer', () => {
   )
 
   async function navigateTo(path: string) {
+    // 失败时不能让异常冒泡到 Vue 全局错误处理器(否则用户会看到突兀
+    // 的 "Component error" toast,旧视图也会陷入 loading=true)。
+    // 用 withToast 包住后端调用:成功才更新 currentPath / entries,
+    // 失败弹一条精准提示,保留上一个有效视图。
     loading.value = true
     selectedPaths.value = new Set()
     inspectedPath.value = null
     dirStats.value = null
 
     try {
-      const result = await explorerReadDir({
-        path,
-        sortBy: sortBy.value,
-        sortDesc: sortDesc.value,
-        showHidden: showHidden.value,
-      })
+      const result = await withToast(
+        () =>
+          explorerReadDir({
+            path,
+            sortBy: sortBy.value,
+            sortDesc: sortDesc.value,
+            showHidden: showHidden.value,
+          }),
+        { onErrorTitle: t('explorer.navigateFailed') },
+      )
+      if (!result) return
       currentPath.value = result.currentPath
       parentPath.value = result.parentPath
       entries.value = result.entries
@@ -113,13 +126,18 @@ export const useExplorerStore = defineStore('explorer', () => {
     if (!hasMore.value || loading.value) return
     loading.value = true
     try {
-      const result = await explorerReadDir({
-        path: currentPath.value,
-        sortBy: sortBy.value,
-        sortDesc: sortDesc.value,
-        showHidden: showHidden.value,
-        offset: entries.value.length,
-      })
+      const result = await withToast(
+        () =>
+          explorerReadDir({
+            path: currentPath.value,
+            sortBy: sortBy.value,
+            sortDesc: sortDesc.value,
+            showHidden: showHidden.value,
+            offset: entries.value.length,
+          }),
+        { onErrorTitle: t('explorer.loadMoreFailed') },
+      )
+      if (!result) return
       entries.value = [...entries.value, ...result.entries]
       hasMore.value = result.hasMore
     } finally {

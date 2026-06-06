@@ -83,6 +83,16 @@ const PROTECTED_DIRS: &[&str] = &[
     "/sbin",
     "/bin",
     "/private/var/db",
+    // macOS / Linux 虚拟伪文件系统。这些路径下条目常常是瞬态的
+    // (`/dev/fd/N` 是当前进程持有的 FD,扫描期与展示期可能间隔几秒,
+    // FD 早已关闭,回头点击就抛 "Path does not exist: /dev/fd/15"),
+    // 对用户毫无清理价值,扫进来只会让 entry 计数爆炸 + 触发空错误。
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/private/var/folders",
+    "/private/var/vm",
     "C:\\Windows\\System32",
     "C:\\Windows\\SysWOW64",
 ];

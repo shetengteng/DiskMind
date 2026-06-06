@@ -26,6 +26,7 @@ defineProps<{
 const emit = defineEmits<{
   aiBatch: []
   moveToSandbox: []
+  exportSelected: []
 }>()
 
 const { t } = useI18n()
@@ -99,11 +100,20 @@ const { t } = useI18n()
       </Tooltip>
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="icon" class="size-9" :aria-label="t('scan.exportResults')">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-9"
+            :disabled="selectedCount === 0"
+            :aria-label="t('scan.exportSelectedTooltip')"
+            @click="emit('exportSelected')"
+          >
             <Download class="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{{ t('scan.exportResults') }}</TooltipContent>
+        <TooltipContent side="bottom">
+          {{ selectedCount === 0 ? t('scan.exportEmpty') : t('scan.exportSelectedTooltip') }}
+        </TooltipContent>
       </Tooltip>
     </div>
   </div>

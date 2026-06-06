@@ -128,6 +128,8 @@ export default {
     dblClickOpen: 'Double-click to open',
     openFailed: 'Failed to open file',
     openBrowserMode: 'Open is desktop-only',
+    navigateFailed: 'Failed to open folder',
+    loadMoreFailed: 'Failed to load more entries',
     search: {
       timeout: '{label} timed out ({seconds}s)',
       aiFallback: 'AI parsing failed, falling back to literal search',
@@ -251,6 +253,12 @@ export default {
     moveToSandbox: 'Move to Sandbox',
     moveToSandboxN: 'Move to Sandbox ({n})',
     exportResults: 'Export Results',
+    exportSelectedTooltip: 'Export selected results to CSV',
+    exportTitle: 'Export selected scan results',
+    exportSuccess: 'Exported {n} row(s)',
+    exportFailed: 'Failed to export scan results',
+    exportEmpty: 'Select rows to export first',
+    exportDesktopOnly: 'Export is desktop-only',
     askAi: 'Ask AI',
     askAiFolder: 'Ask AI about this folder',
     trashFolder: 'Move whole folder to sandbox',
@@ -979,6 +987,8 @@ export default {
   platform: {
     error: {
       path_not_found: 'Path not found: {path}',
+      not_a_directory: 'Not a directory: {path}',
+      invalid_path: 'Invalid path',
     },
   },
 

@@ -13,6 +13,7 @@ import {
   FileArchive,
 } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useExplorerStore } from '@/stores/explorer'
 import { platformOpenPath, type ExplorerEntry } from '@/api/tauri'
 import { formatBytes } from '@/lib/aiActions'
@@ -98,39 +99,48 @@ function formatDate(ts: number | null) {
     class="grid gap-2 p-3"
     style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))"
   >
-    <div
+    <Tooltip
       v-for="entry in sortedEntries"
       :key="entry.path"
-      :class="cn(
-        'group/grid relative flex flex-col items-center gap-1.5 rounded-lg border p-3 cursor-pointer transition-all',
-        'hover:bg-accent/50 hover:border-accent-foreground/20',
-        isSelected(entry.path) && 'bg-primary/10 border-primary/40 ring-1 ring-primary/30',
-      )"
-      :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : `${entry.path}\n${t('explorer.dblClickOpen')}`"
-      @click="handleClick(entry)"
-      @dblclick="handleDblClick(entry)"
+      :delay-duration="400"
     >
-      <component
-        :is="iconFor(entry)"
-        class="size-10"
-        :class="iconColorClass(entry)"
-      />
-      <span class="text-xs font-medium text-center w-full truncate">
-        {{ entry.name }}
-      </span>
-      <span class="text-[10px] text-muted-foreground">
-        <template v-if="entry.isDir && entry.childrenCount != null">
-          {{ entry.childrenCount }} {{ t('explorer.items') }}
-        </template>
-        <template v-else-if="!entry.isDir">
-          {{ formatBytes(entry.sizeBytes) }}
-        </template>
-      </span>
-      <span
-        class="pointer-events-none absolute inset-x-2 bottom-1 hidden truncate rounded-sm bg-background/90 px-1.5 py-0.5 text-center text-[10px] text-muted-foreground shadow-sm ring-1 ring-border/60 group-hover/grid:block"
-      >
-        {{ entry.isDir ? t('explorer.dblClickDrill') : t('explorer.dblClickOpen') }}
-      </span>
-    </div>
+      <TooltipTrigger as-child>
+        <div
+          :class="cn(
+            'flex flex-col items-center gap-1.5 rounded-lg border p-3 cursor-pointer transition-all',
+            'hover:bg-accent/50 hover:border-accent-foreground/20',
+            isSelected(entry.path) && 'bg-primary/10 border-primary/40 ring-1 ring-primary/30',
+          )"
+          @click="handleClick(entry)"
+          @dblclick="handleDblClick(entry)"
+        >
+          <component
+            :is="iconFor(entry)"
+            class="size-10"
+            :class="iconColorClass(entry)"
+          />
+          <span class="text-xs font-medium text-center w-full truncate">
+            {{ entry.name }}
+          </span>
+          <span class="text-[10px] text-muted-foreground">
+            <template v-if="entry.isDir && entry.childrenCount != null">
+              {{ entry.childrenCount }} {{ t('explorer.items') }}
+            </template>
+            <template v-else-if="!entry.isDir">
+              {{ formatBytes(entry.sizeBytes) }}
+            </template>
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" :side-offset="6" class="max-w-[28rem]">
+        <div class="text-xs space-y-0.5">
+          <div class="font-medium truncate">{{ entry.name }}</div>
+          <div class="text-muted-foreground font-mono break-all">{{ entry.path }}</div>
+          <div class="text-muted-foreground">
+            {{ entry.isDir ? t('explorer.dblClickDrill') : t('explorer.dblClickOpen') }}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   </div>
 </template>

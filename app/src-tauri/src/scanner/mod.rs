@@ -156,9 +156,10 @@ where
 /// 取舍说明:
 /// - **不用 DashMap 并行 reduce**:reduce 阶段是纯 hash insert,~10μs/item,
 ///   10k 文件总共 100ms,简单串行更稳;DashMap 引入新依赖 + 锁争用得不偿失。
-/// - **Walk 阶段也保留 PROGRESS_BATCH emit**:即使后续 Stat 阶段不喷,
-///   用户看到 "files_scanned 在涨" 就知道扫描没卡;Stat 完成时再 final emit
-///   一次精确的 bytes_scanned。
+/// - **Walk 阶段也保留 PROGRESS_BATCH emit**:bytes 此时还是 0(metadata 未读),
+///   先把 file count 显示出来,深目录树不至于让用户看到几秒钟空白。Stat 阶段
+///   每个 STAT_CHUNK_SIZE 批次完成时主线程会喷一次 progress(估算 bytes,含
+///   硬链接),Reduce 阶段最后再 emit 一次精确去重值。
 /// - **cancel 在两个阶段都查**:Walk 阶段每文件查 1 次,Stat 阶段 par_iter
 ///   map 每个工作单元查 1 次。完整 cancel latency = 最长 ~一个 stat 调用,
 ///   ~毫秒级,符合 UX 期望。
@@ -220,57 +221,112 @@ where
         };
     }
 
-    // --- 阶段 2:Stat(并行)----------------------------------------------
+    // --- 阶段 2:Stat(分块并行,边跑边 emit progress)----------------------
+    //
+    // 原实现是 `candidates.into_par_iter().map(...).collect()` 一把梭,期间
+    // 主线程 block 在 `.collect()`,导致用户在 Walk 已结束、Stat 还在跑的
+    // 中间态全程看到 `bytesScanned = 0`。对 985k 文件 / 多核机来说这个空
+    // 窗口长达数十秒,严重误导。
+    //
+    // 改成 STAT_CHUNK_SIZE 一批的串行调度 + 每批内并行,批之间主线程拿到
+    // chunk 累加值就 emit 一次 progress(含 bytes)。性能等价(每批内 stat
+    // 仍 rayon 并行,只是分批 hand-off,微秒级开销),UX 改成每批 ~毫秒到
+    // 几百毫秒就跳一次字节数。
+    //
+    // 注意:这里的 chunk_bytes 是去重前的(含硬链接 / 克隆),阶段 3 reduce
+    // 时才用 seen_inodes 精确去重。所以 stat 阶段 emit 的 progress 是估
+    // 算值,reduce 完成后会再 emit 一次精确值。极端硬链接场景两者会有差
+    // 异,但 UX 上"持续涨"远好过"长期 0"。
     use rayon::prelude::*;
+    const STAT_CHUNK_SIZE: usize = 5000;
     let cancel_for_stat = cancel.clone();
-    let raw_entries: Vec<Option<FileEntry>> = candidates
-        .into_par_iter()
-        .map(|entry| {
-            if cancel_for_stat.load(Ordering::Relaxed) {
-                return None;
-            }
-            let metadata = entry.metadata().ok()?;
-            // 防御:filter_entry 已挡掉非文件,但 follow_links / race 时
-            // metadata 可能解出来变成目录(symlink target 被换),再判一次。
-            if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
-                return None;
-            }
-            let size = metadata.len();
-            let phys = physical_size(&metadata);
-            let mtime = metadata
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let path_buf = entry.path().to_path_buf();
-            let ext = path_buf
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            let is_symlink = metadata.file_type().is_symlink();
-            let (dev, inode) = file_id(&metadata);
-            let path_str = path_buf.to_string_lossy().to_string();
-            Some(FileEntry {
-                path: path_str,
-                size,
-                mtime,
-                extension: ext,
-                is_symlink,
-                dev,
-                inode,
-                phys_size: phys,
+    let mut raw_entries: Vec<Option<FileEntry>> = Vec::with_capacity(candidates.len());
+    let mut emitted_files = initial_files;
+    let mut emitted_bytes = initial_bytes;
+
+    for chunk in candidates.chunks(STAT_CHUNK_SIZE) {
+        if cancel_for_stat.load(Ordering::Relaxed) {
+            return ScanOutcome {
+                entries: Vec::new(),
+                cancelled: true,
+                bytes_total_after: emitted_bytes,
+            };
+        }
+
+        let chunk_results: Vec<Option<FileEntry>> = chunk
+            .par_iter()
+            .map(|entry| {
+                if cancel_for_stat.load(Ordering::Relaxed) {
+                    return None;
+                }
+                let metadata = entry.metadata().ok()?;
+                // 防御:filter_entry 已挡掉非文件,但 follow_links / race 时
+                // metadata 可能解出来变成目录(symlink target 被换),再判一次。
+                if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
+                    return None;
+                }
+                let size = metadata.len();
+                let phys = physical_size(&metadata);
+                let mtime = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let path_buf = entry.path().to_path_buf();
+                let ext = path_buf
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let is_symlink = metadata.file_type().is_symlink();
+                let (dev, inode) = file_id(&metadata);
+                let path_str = path_buf.to_string_lossy().to_string();
+                Some(FileEntry {
+                    path: path_str,
+                    size,
+                    mtime,
+                    extension: ext,
+                    is_symlink,
+                    dev,
+                    inode,
+                    phys_size: phys,
+                })
             })
-        })
-        .collect();
+            .collect();
+
+        let mut chunk_files: u64 = 0;
+        let mut chunk_bytes: u64 = 0;
+        let mut last_path = String::new();
+        for opt in &chunk_results {
+            if let Some(e) = opt {
+                chunk_files += 1;
+                chunk_bytes = chunk_bytes.saturating_add(e.phys_size);
+                last_path = e.path.clone();
+            }
+        }
+        emitted_files += chunk_files;
+        emitted_bytes = emitted_bytes.saturating_add(chunk_bytes);
+
+        on_progress(ScanProgress {
+            files_scanned: emitted_files,
+            bytes_scanned: emitted_bytes,
+            current_path: if last_path.is_empty() {
+                root.to_string_lossy().to_string()
+            } else {
+                last_path
+            },
+        });
+
+        raw_entries.extend(chunk_results);
+    }
 
     // par_iter 期间用户点了取消 → 不出 partial 结果,直接 cancelled
     if cancel.load(Ordering::Relaxed) {
         return ScanOutcome {
             entries: Vec::new(),
             cancelled: true,
-            bytes_total_after: initial_bytes,
+            bytes_total_after: emitted_bytes,
         };
     }
 
@@ -480,7 +536,35 @@ fn is_definitely_skip(path: &std::path::Path, exclude_sensitive: bool) -> bool {
     #[cfg(not(target_os = "windows"))]
     let platform_skip = false;
 
-    (cross_platform_skip || sensitive_skip || platform_skip) && path.parent().is_some()
+    // Unix 虚拟伪文件系统:`/dev` 下是 FD / 设备节点(瞬态,扫完点不
+    // 开)、`/proc` `/sys` 是内核接口、`/private/var/folders` 是 macOS
+    // 短命 sandbox cache。整子树跳过,既加速也避免后续视图把这些
+    // "路径"展示给用户。这不依赖 file_name 匹配 — 用户在 home 下
+    // 不会有同名顶级目录,所以前缀 starts_with 是安全的。
+    #[cfg(unix)]
+    let virtual_fs_skip = is_unix_virtual_fs(path);
+    #[cfg(not(unix))]
+    let virtual_fs_skip = false;
+
+    (cross_platform_skip || sensitive_skip || platform_skip || virtual_fs_skip)
+        && path.parent().is_some()
+}
+
+#[cfg(unix)]
+fn is_unix_virtual_fs(path: &std::path::Path) -> bool {
+    const PREFIXES: &[&str] = &[
+        "/dev",
+        "/proc",
+        "/sys",
+        "/run",
+        "/private/var/folders",
+        "/private/var/vm",
+    ];
+    let s = match path.to_str() {
+        Some(s) => s,
+        None => return false,
+    };
+    PREFIXES.iter().any(|p| s == *p || s.starts_with(&format!("{p}/")))
 }
 
 #[cfg(test)]

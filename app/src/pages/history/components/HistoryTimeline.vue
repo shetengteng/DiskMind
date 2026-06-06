@@ -17,7 +17,7 @@ import type { TrashItem } from '@/api/tauri'
 
 const { t } = useI18n()
 
-interface MergedEntry {
+export interface MergedEntry {
   id: string
   type: 'move' | 'rename' | 'delete'
   sourcePath: string
@@ -69,10 +69,15 @@ const typeColors = {
   delete: 'text-red-500',
 }
 
+// retention 计时基准是 `movedAt`(进入沙箱的时间);`deletedAt` 是真正
+// 物理删除时的时间戳,只在 30 天后台清理执行后才会非空 —— 所以原本
+// 用 deletedAt 算剩余天数对 in_trash 状态的项目恒为 expired,完全错误。
 function trashStatus(item: TrashItem | null): 'pending' | 'expiring' | 'urgent' | 'expired' {
-  if (!item || !item.deletedAt) return 'expired'
+  if (!item) return 'expired'
+  const baseTs = item.movedAt
+  if (!baseTs) return 'expired'
   const now = Date.now()
-  const expiresAt = item.deletedAt + RETENTION_DAYS * 86_400_000
+  const expiresAt = baseTs + RETENTION_DAYS * 86_400_000
   const remaining = expiresAt - now
   if (remaining <= 0) return 'expired'
   if (remaining < 86_400_000) return 'urgent'
@@ -81,8 +86,8 @@ function trashStatus(item: TrashItem | null): 'pending' | 'expiring' | 'urgent' 
 }
 
 function trashDaysLeft(item: TrashItem | null): number {
-  if (!item || !item.deletedAt) return 0
-  const expiresAt = item.deletedAt + RETENTION_DAYS * 86_400_000
+  if (!item || !item.movedAt) return 0
+  const expiresAt = item.movedAt + RETENTION_DAYS * 86_400_000
   return Math.max(0, Math.ceil((expiresAt - Date.now()) / 86_400_000))
 }
 
