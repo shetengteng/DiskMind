@@ -174,7 +174,16 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
             </Tooltip>
           </td>
           <td class="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
-            {{ entry.isDir ? '—' : formatBytes(entry.sizeBytes) }}
+            <template v-if="entry.isDir">
+              <Loader2 v-if="store.getDirSize(entry.path) === 'loading'" class="ml-auto size-3 animate-spin text-muted-foreground/60" />
+              <span v-else-if="typeof store.getDirSize(entry.path) === 'number' && (store.getDirSize(entry.path) as number) >= 0">
+                {{ formatBytes(store.getDirSize(entry.path) as number) }}
+              </span>
+              <span v-else>—</span>
+            </template>
+            <template v-else>
+              {{ formatBytes(entry.sizeBytes) }}
+            </template>
           </td>
           <td class="px-2 py-1.5 text-muted-foreground">
             {{ formatTime(entry.mtime) }}

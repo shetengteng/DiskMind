@@ -370,6 +370,7 @@ pub fn run() {
             // --- explorer (v3.0 Tree-First) ---
             commands::explorer::explorer_read_dir,
             commands::explorer::explorer_dir_stats,
+            commands::explorer::explorer_dir_size,
             // --- explorer AI (v3.0 Phase 2) ---
             commands::ai_explorer::ai_summarize_dir,
             commands::ai_explorer::ai_tag_batch,

@@ -1,183 +1,102 @@
 <script setup lang="ts">
-import { computed, ref, provide } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { use } from 'echarts/core'
-import { TreemapChart } from 'echarts/charts'
-import { TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-import VChart, { THEME_KEY } from 'vue-echarts'
+import { computed } from 'vue'
 import { useExplorerStore } from '@/stores/explorer'
 import type { ExplorerEntry } from '@/api/tauri'
 import { formatBytes } from '@/lib/aiActions'
+import DiskMapTreemap from '@/pages/disk-map/components/DiskMapTreemap.vue'
 
-use([TreemapChart, TooltipComponent, CanvasRenderer])
+// Round X · 不再自己画 treemap。复用 disk-map 的 DiskMapTreemap —— 它
+// 已经把 ColorBrewer YlOrRd 量级配色 / dark 模式 / tooltip / label /
+// 下钻事件做齐了。本视图只负责:
+//   1. 把 explorer.entries 的字节 size 适配成 treemap 节点
+//   2. 用 store.getDirSize 兜底目录大小,避免 home 视图下"目录 size=0
+//      → 被过滤掉 / 全同色"的退化场景
+//   3. 用 formatBytes 把 size 自动适配 KB/MB/GB,而不是固定 GB
+//   4. 点击文件 → inspect;点击目录 → 下钻 navigateTo
 
-const { t } = useI18n()
 const store = useExplorerStore()
 
-const isDarkMode = ref(
-  typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
-)
-if (typeof window !== 'undefined') {
-  const observer = new MutationObserver(() => {
-    isDarkMode.value = document.documentElement.classList.contains('dark')
-  })
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-}
-provide(THEME_KEY, computed(() => (isDarkMode.value ? 'dark' : 'light')))
-
-const CATEGORY_COLORS_LIGHT: Record<string, string> = {
-  image: '#22c55e',
-  video: '#a855f7',
-  audio: '#f97316',
-  code: '#3b82f6',
-  document: '#eab308',
-  archive: '#ef4444',
-  directory: '#0ea5e9',
-  other: '#6b7280',
-}
-const CATEGORY_COLORS_DARK: Record<string, string> = {
-  image: '#4ade80',
-  video: '#c084fc',
-  audio: '#fb923c',
-  code: '#60a5fa',
-  document: '#facc15',
-  archive: '#f87171',
-  directory: '#38bdf8',
-  other: '#9ca3af',
-}
-
-function categoryOf(entry: ExplorerEntry): string {
-  if (entry.isDir) return 'directory'
-  const ext = entry.extension?.toLowerCase() ?? ''
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
-  if (['mp4', 'mov', 'avi', 'mkv', 'wmv', 'webm'].includes(ext)) return 'video'
-  if (['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(ext)) return 'audio'
-  if (['ts', 'js', 'tsx', 'vue', 'py', 'rs', 'go', 'java', 'c', 'cpp', 'css', 'html'].includes(ext)) return 'code'
-  if (['pdf', 'doc', 'docx', 'txt', 'md', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'document'
-  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) return 'archive'
-  return 'other'
-}
-
-const totalBytes = computed(() =>
-  store.entries.reduce((s, e) => s + e.sizeBytes, 0),
-)
-
-interface ChartDataItem {
+interface TreemapNode {
   name: string
-  value: number
-  raw: ExplorerEntry
-  itemStyle: { color: string; borderColor: string; borderWidth: number; gapWidth: number; borderRadius: number }
-  label: { color: string }
+  size: number
+  hasChildren?: boolean
 }
 
-const dataset = computed<ChartDataItem[]>(() => {
-  const palette = isDarkMode.value ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT
-  const borderColor = isDarkMode.value ? 'hsl(220 13% 12%)' : 'hsl(0 0% 100%)'
+function effectiveSize(entry: ExplorerEntry): number {
+  if (entry.isDir) {
+    const cached = store.getDirSize(entry.path)
+    if (typeof cached === 'number' && cached >= 0) return cached
+    return 0
+  }
+  return entry.sizeBytes
+}
+
+/**
+ * 适配后的节点数组。entry 与 raw path 都保留以便点击事件回溯。
+ *   - 用 dirSizes 兜底目录大小
+ *   - 过滤 size=0 与 dirSize 仍 loading 的目录,避免在图里占位空白
+ *   - top 100,echarts treemap 的 sweet spot
+ */
+const adapted = computed(() => {
   return [...store.entries]
-    .filter((e) => e.sizeBytes > 0)
-    .sort((a, b) => b.sizeBytes - a.sizeBytes)
+    .map((e) => ({ entry: e, size: effectiveSize(e) }))
+    .filter((p) => p.size > 0)
+    .sort((a, b) => b.size - a.size)
     .slice(0, 100)
-    .map((e) => {
-      const cat = categoryOf(e)
-      const color = palette[cat] ?? palette.other
-      return {
-        name: e.name,
-        value: e.sizeBytes,
-        raw: e,
-        itemStyle: { color, borderColor, borderWidth: 2, gapWidth: 2, borderRadius: 4 },
-        label: { color: isDarkMode.value ? '#f8fafc' : '#1f2937' },
-      }
-    })
 })
 
-const chartOption = computed(() => ({
-  tooltip: {
-    trigger: 'item' as const,
-    formatter: (p: { name: string; value: number | undefined; data?: { raw?: ExplorerEntry } }) => {
-      const v = typeof p.value === 'number' ? p.value : 0
-      const pct = totalBytes.value > 0 ? ((v / totalBytes.value) * 100).toFixed(1) : '0'
-      const raw = p.data?.raw
-      const dirHint = raw?.isDir ? `<div style="opacity:.55;margin-top:4px">${t('explorer.dblClickDrill')}</div>` : ''
-      return `<div style="font-size:12px;line-height:1.5">
-        <div style="font-weight:500">${p.name}</div>
-        <div style="opacity:.8">${formatBytes(v)} · ${pct}%</div>
-        ${dirHint}
-      </div>`
-    },
-  },
-  series: [
-    {
-      type: 'treemap' as const,
-      roam: false,
-      nodeClick: false as const,
-      breadcrumb: { show: false },
-      width: '100%',
-      height: '100%',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      label: {
-        show: true,
-        position: 'inside' as const,
-        align: 'center' as const,
-        verticalAlign: 'middle' as const,
-        fontSize: 12,
-        fontWeight: 500,
-        overflow: 'truncate' as const,
-        formatter: (p: { name: string; value: number | undefined }) => {
-          const v = typeof p.value === 'number' ? p.value : 0
-          return `{name|${p.name}}\n{meta|${formatBytes(v)}}`
-        },
-        rich: {
-          name: { fontSize: 12, fontWeight: 600, lineHeight: 16, align: 'center' as const },
-          meta: { fontSize: 10, opacity: 0.85, lineHeight: 14, align: 'center' as const },
-        },
-      },
-      upperLabel: { show: false },
-      itemStyle: {
-        borderColor: isDarkMode.value ? 'hsl(220 13% 12%)' : 'hsl(0 0% 100%)',
-        borderWidth: 2,
-        gapWidth: 2,
-        borderRadius: 4,
-      },
-      emphasis: {
-        itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.25)' },
-      },
-      data: dataset.value,
-    },
-  ],
-}))
+const nodes = computed<TreemapNode[]>(() =>
+  adapted.value.map((p) => ({
+    name: p.entry.name,
+    size: p.size,
+    hasChildren: p.entry.isDir,
+  })),
+)
 
-function onChartClick(params: unknown) {
-  const data = (params as { data?: { raw?: ExplorerEntry } })?.data
-  const raw = data?.raw
-  if (!raw) return
-  store.inspect(raw.path)
+/**
+ * 用 name → entry 的反查表,在 click 事件里恢复 isDir / path,
+ * 决定是 inspect 还是 navigateTo。
+ */
+const entryByName = computed(() => {
+  const m = new Map<string, ExplorerEntry>()
+  for (const p of adapted.value) m.set(p.entry.name, p.entry)
+  return m
+})
+
+const total = computed(() => nodes.value.reduce((s, n) => s + n.size, 0))
+
+const placeholderSelected = computed<TreemapNode>(() => nodes.value[0] ?? { name: '', size: 0 })
+
+function onSelect(node: TreemapNode) {
+  const entry = entryByName.value.get(node.name)
+  if (!entry) return
+  store.inspect(entry.path)
 }
 
-function onChartDblClick(params: unknown) {
-  const data = (params as { data?: { raw?: ExplorerEntry } })?.data
-  const raw = data?.raw
-  if (raw?.isDir) store.navigateTo(raw.path)
+function onDrill(node: TreemapNode) {
+  const entry = entryByName.value.get(node.name)
+  if (!entry?.isDir) return
+  store.navigateTo(entry.path)
 }
 </script>
 
 <template>
   <div
-    v-if="dataset.length === 0"
+    v-if="nodes.length === 0"
     class="flex flex-1 items-center justify-center text-sm text-muted-foreground p-8"
   >
-    {{ t('explorer.empty') }}
+    {{ $t('explorer.empty') }}
   </div>
-  <div v-else class="flex-1 min-h-[300px]">
-    <VChart
-      :option="chartOption"
-      :autoresize="true"
-      class="h-full w-full"
-      @click="onChartClick"
-      @dblclick="onChartDblClick"
+  <div v-else class="h-full w-full">
+    <DiskMapTreemap
+      :nodes="nodes"
+      :total="total"
+      :selected-node="placeholderSelected"
+      path-label=""
+      :format-size="formatBytes"
+      :show-card="false"
+      @select="onSelect"
+      @drill="onDrill"
     />
   </div>
 </template>

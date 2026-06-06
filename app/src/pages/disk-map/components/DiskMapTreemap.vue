@@ -29,12 +29,29 @@ interface TreemapNode {
   hasChildren?: boolean
 }
 
-const props = defineProps<{
-  nodes: TreemapNode[]
-  total: number
-  selectedNode: TreemapNode
-  pathLabel: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    nodes: TreemapNode[]
+    total: number
+    selectedNode: TreemapNode
+    pathLabel: string
+    /**
+     * size → 显示字符串。默认按 GB 渲染(disk-map 的传统单位);explorer
+     * 这种字节场景应该传 formatBytes,自动适配 KB/MB/GB/TB。
+     */
+    formatSize?: (v: number) => string
+    /**
+     * 是否渲染 Card 外壳(header / footer)。disk-map 维持 true 以显示
+     * pathLabel + 色阶图例;explorer 把 treemap 直接嵌进自己的视图,
+     * 需要纯净版,传 false 即可。
+     */
+    showCard?: boolean
+  }>(),
+  {
+    formatSize: (v: number) => `${v.toFixed(2)} GB`,
+    showCard: true,
+  },
+)
 
 const emit = defineEmits<{
   (e: 'select', node: TreemapNode): void
@@ -140,7 +157,7 @@ const chartOption = computed(() => ({
       const drill = p.data?.raw?.hasChildren ? `<div style="opacity:.55;margin-top:4px">${t('diskMap.treemapDrillHint')}</div>` : ''
       return `<div style="font-size:12px;line-height:1.5">
         <div style="font-weight:500">${p.name}</div>
-        <div style="opacity:.8">${v.toFixed(2)} GB · ${pct}%</div>
+        <div style="opacity:.8">${props.formatSize(v)} · ${pct}%</div>
         ${drill}
       </div>`
     },
@@ -170,7 +187,7 @@ const chartOption = computed(() => ({
           // 中也会被 ECharts 内部触发到 root 容器,p.value 可能 undefined。
           const v = typeof p.value === 'number' ? p.value : 0
           const pct = props.total > 0 ? ((v / props.total) * 100).toFixed(0) : '0'
-          return `{name|${p.name}}\n{meta|${v.toFixed(1)} GB · ${pct}%}`
+          return `{name|${p.name}}\n{meta|${props.formatSize(v)} · ${pct}%}`
         },
         rich: {
           name: {
@@ -218,7 +235,7 @@ function onChartClick(params: unknown) {
 </script>
 
 <template>
-  <Card class="gap-0 overflow-hidden py-0">
+  <Card v-if="showCard" class="gap-0 overflow-hidden py-0">
     <CardHeader class="gap-1 border-b px-4 py-3">
       <div class="flex items-center justify-between gap-2">
         <CardTitle class="font-mono text-sm font-medium">{{ pathLabel }}</CardTitle>
@@ -245,4 +262,13 @@ function onChartClick(params: unknown) {
       </div>
     </CardContent>
   </Card>
+
+  <div v-else class="h-full w-full">
+    <VChart
+      :option="chartOption"
+      :autoresize="true"
+      class="h-full w-full"
+      @click="onChartClick"
+    />
+  </div>
 </template>

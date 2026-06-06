@@ -362,6 +362,22 @@ export const useAiStore = defineStore('ai', () => {
     isOpen.value = !isOpen.value
   }
 
+  /**
+   * 用户点击 header 的 Sparkles 按钮时的语义:**每次都新会话 + 打开 Drawer**。
+   * 即便 Drawer 已经处于打开状态、即便正在进行中的对话有内容,也强制
+   * 重置 — 这是用户在 #user-2026-06 选项 B 的明确诉求。正在进行的
+   * 对话不会丢:`newSession()` 只把 `sessionId` / `messages` /
+   * `contextFiles` 置空,而后端的 session 记录保留,用户随时可以从
+   * Drawer 左侧 sidebar 切回去。
+   *
+   * **不要**把它接到 Cmd+L 上 — 快捷键约定俗成是 toggle,如果按一下
+   * 就新建会话,用户反复按会创造一堆空会话污染历史。
+   */
+  function openNewSession(prompt?: string, files?: AiContextFile[]) {
+    newSession()
+    openDrawer(prompt, files)
+  }
+
   function setContext(files: AiContextFile[]) {
     contextFiles.value = files
   }
@@ -1135,6 +1151,7 @@ export const useAiStore = defineStore('ai', () => {
     openDrawer,
     closeDrawer,
     toggleDrawer,
+    openNewSession,
     setContext,
     clearContext,
     askAi,

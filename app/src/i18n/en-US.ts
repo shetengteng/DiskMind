@@ -963,7 +963,26 @@ export default {
   ai_classify: {
     error: {
       already_running: 'AI batch classify task already running; please retry later',
-      provider_unavailable: 'Provider unavailable: {err}',
+      connection_refused:
+        "Can't reach the AI Provider — the service appears to be down. If you're using a local Ollama, open a terminal and run `ollama serve`. For cloud providers, verify the endpoint and your network in Settings → AI Providers.",
+      timeout:
+        "AI Provider timed out. The model may be loading slowly or the network is unstable. Retry, or switch to a faster model in Settings → AI Providers.",
+      network: 'AI Provider network error; please check your connection and retry.',
+      unauthorized:
+        "AI Provider authentication failed — API Key is invalid or expired. Update it in Settings → AI Providers.",
+      not_found:
+        "AI Provider endpoint not found (404). Verify the Base URL in Settings → AI Providers.",
+      rate_limited: 'AI Provider rate-limited (429). Wait a moment, or switch to another Provider.',
+      provider_server_error: 'AI Provider server error; please retry later or switch Provider.',
+      bad_status: 'AI Provider returned an unexpected status. Review your configuration in Settings → AI Providers.',
+      bad_payload: 'AI Provider returned data in an unexpected format. The model may be incompatible; try switching to another model.',
+      missing_config:
+        'No usable AI Provider configured. Add and enable at least one in Settings → AI Providers.',
+      all_failed: 'All AI Providers are unavailable; please check Settings → AI Providers.',
+      // Legacy key kept as a fallback so anything still emitting it won't
+      // trigger an i18n-missing warning. New emit sites use the named
+      // categories above.
+      provider_unavailable: 'AI Provider unavailable: {detail}',
       fetch_pending: 'Read pending failed: {err}',
       continuous_timeout: 'Multiple batches timed out; task aborted (please check Provider status)',
       continuous_failures: 'Multiple batches failed; task aborted',

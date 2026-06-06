@@ -8,8 +8,6 @@ import {
   List,
   Grid3x3,
   LayoutGrid,
-  Eye,
-  EyeOff,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,8 +16,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
 import { useExplorerStore } from '@/stores/explorer'
-import AiSuggestPopover from './AiSuggestPopover.vue'
 
 const { t } = useI18n()
 const store = useExplorerStore()
@@ -59,7 +57,7 @@ const viewModeIcon = computed(() => {
       <ArrowUp class="size-4" />
     </Button>
 
-    <div class="flex items-center gap-0.5 overflow-x-auto text-sm">
+    <div class="flex flex-1 items-center gap-0.5 overflow-x-auto text-sm">
       <template v-for="(seg, i) in pathSegments" :key="seg.path">
         <ChevronRight v-if="i > 0" class="size-3 shrink-0 text-muted-foreground" />
         <button
@@ -71,29 +69,24 @@ const viewModeIcon = computed(() => {
         </button>
       </template>
     </div>
+  </div>
 
-    <div class="flex-1" />
-
-    <Button variant="ghost" size="icon" class="size-7" @click="store.refresh()">
-      <RefreshCw class="size-3.5" />
+  <!--
+    Page-specific header actions teleported into SiteHeader. ListToolbar
+    keeps its breadcrumb / up-nav inline; refresh / view-mode live in the
+    global header so we don't stack two action rows. AI features are owned
+    by the global AiDrawer (SiteHeader Sparkles button); there's no
+    page-local AI entry here anymore.
+  -->
+  <Teleport to="#page-header-actions">
+    <Button variant="ghost" size="icon" class="size-8" @click="store.refresh()">
+      <RefreshCw class="size-4" />
     </Button>
-
-    <Button
-      variant="ghost"
-      size="icon"
-      class="size-7"
-      @click="store.toggleHidden()"
-    >
-      <Eye v-if="store.showHidden" class="size-3.5" />
-      <EyeOff v-else class="size-3.5" />
-    </Button>
-
-    <AiSuggestPopover />
 
     <DropdownMenu>
       <DropdownMenuTrigger as-child>
-        <Button variant="ghost" size="icon" class="size-7">
-          <component :is="viewModeIcon" class="size-3.5" />
+        <Button variant="ghost" size="icon" class="size-8">
+          <component :is="viewModeIcon" class="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -111,5 +104,7 @@ const viewModeIcon = computed(() => {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  </div>
+
+    <Separator orientation="vertical" class="mx-1 data-[orientation=vertical]:h-4" />
+  </Teleport>
 </template>

@@ -52,6 +52,16 @@ const aiTooltip = computed(() => {
 
 
       <div class="ml-auto flex items-center gap-1">
+        <!--
+          Teleport target for page-specific header actions. Pages mount their
+          own toolbar buttons here via <Teleport to="#page-header-actions">.
+          When the page unmounts (route change), Vue cleans up automatically,
+          so this slot is invisible on pages that opt out. Pages own their own
+          trailing <Separator /> if they need a visual divider, so SiteHeader
+          stays unaware of any per-page details.
+        -->
+        <div id="page-header-actions" class="flex items-center gap-1" />
+
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
@@ -79,7 +89,7 @@ const aiTooltip = computed(() => {
               class="relative size-8"
               :aria-label="aiTooltip"
               :aria-pressed="ai.isOpen"
-              @click="ai.toggleDrawer()"
+              @click="ai.openNewSession()"
             >
               <Sparkles class="size-4" />
               <span

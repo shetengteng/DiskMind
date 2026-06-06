@@ -121,6 +121,53 @@ describe('useAiStore', () => {
     })
   })
 
+  describe('openNewSession (SiteHeader Sparkles 点击语义)', () => {
+    it('清空当前会话并打开 Drawer (从关到开)', () => {
+      const ai = useAiStore()
+      // 先制造一个"非空且 Drawer 已关"的初始状态:有 sessionId、有
+      // messages(不止 welcomeMessage)、Drawer 当前关闭。
+      ai.isOpen = false
+      ai.lastError = 'pretend last call failed'
+      ai.contextFiles = [
+        { name: 'a.txt', path: '/a.txt', size: '1 KB' },
+      ]
+      // welcomeMessage 是内部实现细节,这里直接 push 一条 user message
+      // 模拟用户已经发过问。
+      ai.messages.push({
+        id: 'm-test',
+        role: 'user',
+        content: '上一轮的问题',
+        timestamp: Date.now(),
+      })
+      const beforeLen = ai.messages.length
+
+      ai.openNewSession()
+
+      expect(ai.isOpen).toBe(true)
+      expect(ai.lastError).toBeNull()
+      expect(ai.contextFiles).toEqual([])
+      // newSession 重置后,messages 应仅含 welcomeMessage 一条
+      expect(ai.messages.length).toBe(1)
+      expect(ai.messages.length).toBeLessThan(beforeLen)
+    })
+
+    it('Drawer 已经打开时,也强制重置会话 (用户选项 B 语义)', () => {
+      const ai = useAiStore()
+      ai.isOpen = true
+      ai.messages.push({
+        id: 'm-existing',
+        role: 'user',
+        content: '正在进行的对话',
+        timestamp: Date.now(),
+      })
+
+      ai.openNewSession()
+
+      expect(ai.isOpen).toBe(true)
+      expect(ai.messages.some(m => m.id === 'm-existing')).toBe(false)
+    })
+  })
+
   describe('loadCleaningAdvice', () => {
     it('returns false and updates adviceRunId when cache misses', async () => {
       mocks.aiCleaningAdviceGet.mockResolvedValueOnce(null)

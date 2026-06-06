@@ -1267,6 +1267,17 @@ export async function explorerDirStats(input: DirStatsInput): Promise<DirStatsRe
   return await invoke<DirStatsResult>('explorer_dir_stats', { input })
 }
 
+/**
+ * 仅算目录递归总字节数,跳过 type_distribution 与 largest_children 这种
+ * 重统计。给 ListPane 在 navigateTo 完成后,**并发**为每个子目录单独
+ * 计算大小用 — 用 explorer_dir_stats 会做双倍 WalkDir,本接口正好砍掉
+ * 那部分浪费。
+ */
+export async function explorerDirSize(path: string): Promise<number> {
+  if (!isTauri()) throw new Error('$i18n:common.desktopRequired')
+  return await invoke<number>('explorer_dir_size', { input: { path } })
+}
+
 export interface AiDirSuggestion {
   type: 'cleanup' | 'organize' | 'archive' | 'duplicate'
   title: string

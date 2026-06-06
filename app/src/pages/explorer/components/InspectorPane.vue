@@ -5,7 +5,6 @@ import { Folder, File, X, Loader2, Pin, PinOff } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
-import AiSummaryCard from './AiSummaryCard.vue'
 
 const { t } = useI18n()
 const store = useExplorerStore()
@@ -134,8 +133,6 @@ function categoryLabel(key: string) {
             </div>
           </div>
         </template>
-
-        <AiSummaryCard />
       </template>
 
       <template v-else>

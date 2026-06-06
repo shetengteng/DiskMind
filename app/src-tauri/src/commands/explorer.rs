@@ -401,6 +401,42 @@ pub async fn explorer_dir_stats(
         .map_err(|e| format!("explorer_dir_stats task panicked: {e}"))?
 }
 
+/// 仅返回目录递归总字节数,跳过 type_distribution / largest_children 等
+/// 全量统计。给 ListPane 在加载完父目录后,**并发**为每个子目录单独
+/// 计算大小用。和 `explorer_dir_stats` 比省一半工作量 — 后者要做第二次
+/// WalkDir 来填 largest_children,这里只需一次。
+fn compute_dir_size(path_str: &str) -> Result<u64, String> {
+    let resolved = expand_root(path_str)
+        .ok_or_else(|| crate::i18n::i18n("platform.error.invalid_path"))?;
+    if !resolved.is_dir() {
+        return Err(crate::i18n::i18n_p(
+            "platform.error.not_a_directory",
+            &[("path", &resolved.display().to_string())],
+        ));
+    }
+
+    let mut total: u64 = 0;
+    for entry in WalkDir::new(&resolved)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| !crate::scanner::is_search_skip(e.path()))
+    {
+        if let Ok(e) = entry {
+            if e.file_type().is_file() {
+                total += e.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    Ok(total)
+}
+
+#[tauri::command]
+pub async fn explorer_dir_size(input: DirStatsInput) -> Result<u64, String> {
+    tokio::task::spawn_blocking(move || compute_dir_size(&input.path))
+        .await
+        .map_err(|e| format!("explorer_dir_size task panicked: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -749,6 +785,42 @@ mod tests {
             (total_pct - 100.0).abs() < 0.1,
             "percentages should sum to ~100, got {total_pct}"
         );
+    }
+
+    // ── compute_dir_size ────────────────────────────────────────────
+
+    #[test]
+    fn dir_size_sums_recursive_file_bytes() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a.bin"), vec![0u8; 1000]).unwrap();
+        let sub = tmp.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("b.bin"), vec![0u8; 2048]).unwrap();
+        let deep = sub.join("deep");
+        fs::create_dir(&deep).unwrap();
+        fs::write(deep.join("c.bin"), vec![0u8; 512]).unwrap();
+
+        let total = compute_dir_size(&tmp.path().to_string_lossy()).unwrap();
+        assert_eq!(total, 1000 + 2048 + 512);
+    }
+
+    #[test]
+    fn dir_size_empty_dir_returns_zero() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(compute_dir_size(&tmp.path().to_string_lossy()).unwrap(), 0);
+    }
+
+    #[test]
+    fn dir_size_nonexistent_errors() {
+        assert!(compute_dir_size("/this/path/does/not/exist/ever").is_err());
+    }
+
+    #[test]
+    fn dir_size_rejects_files() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("a.txt");
+        fs::write(&f, "x").unwrap();
+        assert!(compute_dir_size(&f.to_string_lossy()).is_err());
     }
 
     #[test]

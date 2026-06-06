@@ -201,6 +201,13 @@ pub async fn ai_classify_batch_pending(
             }
             Err(e) => {
                 log::warn!("[diskmind] classify health check failed: {e}");
+                // 不再把 reqwest 原始 to_string()("HTTP error: error sending
+                // request for url (...)") 直接抛到 UI。改成根据错误分类
+                // 选具名 i18n key,前端字典提供带"如何修复"引导的文案。
+                // 原始错误仍以 `detail` 参数附带,供高级用户参考。
+                let kind = e.user_facing_kind();
+                let key = format!("ai_classify.error.{kind}");
+                let detail = e.to_string();
                 emit_classify_progress(
                     &app_handle,
                     "error",
@@ -208,10 +215,7 @@ pub async fn ai_classify_batch_pending(
                     0,
                     0,
                     total_pending,
-                    Some(crate::i18n::i18n_p(
-                        "ai_classify.error.provider_unavailable",
-                        &[("err", &e.to_string())],
-                    )),
+                    Some(crate::i18n::i18n_p(&key, &[("detail", &detail)])),
                     0,
                 );
                 running.store(false, Ordering::SeqCst);

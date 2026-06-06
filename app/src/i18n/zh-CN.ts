@@ -1013,7 +1013,25 @@ export default {
   ai_classify: {
     error: {
       already_running: 'AI 批量分类任务已在运行中,请稍后再试',
-      provider_unavailable: 'Provider 不可用: {err}',
+      connection_refused:
+        '无法连接到 AI Provider — 服务似乎未启动。如果使用 Ollama 本地,请打开终端运行 `ollama serve`;如果是云端 Provider,请在「设置 → AI Providers」检查地址和网络',
+      timeout:
+        'AI Provider 响应超时。可能是模型加载慢或网络不稳定,请稍后重试,或在「设置 → AI Providers」更换更快的模型',
+      network: 'AI Provider 网络错误,请检查网络连接并重试',
+      unauthorized:
+        'AI Provider 鉴权失败 — API Key 无效或已过期。请在「设置 → AI Providers」更新密钥',
+      not_found:
+        'AI Provider 接口未找到(404)。请在「设置 → AI Providers」核对 Base URL 是否正确',
+      rate_limited: 'AI Provider 限流(429),请稍候再试或更换 Provider',
+      provider_server_error: 'AI Provider 服务端错误,请稍后再试或更换 Provider',
+      bad_status: 'AI Provider 返回非预期状态。请在「设置 → AI Providers」检查配置',
+      bad_payload: 'AI Provider 返回了非预期格式的数据,可能是模型不兼容,请尝试更换模型',
+      missing_config:
+        '未配置任何可用的 AI Provider。请在「设置 → AI Providers」添加并启用至少一个 Provider',
+      all_failed: '所有 AI Provider 都不可用,请在「设置 → AI Providers」检查配置',
+      // 旧 key 保留兜底:任何还在引用 provider_unavailable 的路径不会
+      // 出现 i18n missing 警告。新调用请使用上面的具名分类。
+      provider_unavailable: 'AI Provider 不可用: {detail}',
       fetch_pending: '读取待办失败: {err}',
       continuous_timeout: '连续多批超时,任务终止(请检查 Provider 状态)',
       continuous_failures: '连续多批失败,任务终止',
