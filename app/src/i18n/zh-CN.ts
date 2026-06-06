@@ -40,6 +40,8 @@ export default {
     poweredBy: 'Powered by',
     noResults: '没有匹配的结果',
     desktopRequired: '需要在桌面端运行',
+    expand: '展开',
+    collapse: '收起',
   },
 
   nav: {
@@ -171,6 +173,11 @@ export default {
 
   explorer: {
     searchPlaceholder: '搜索文件/文件夹…',
+    search: {
+      timeout: '{label} 超时({seconds} 秒)',
+      aiFallback: 'AI 解析失败,已降级为字面量搜索',
+      failed: '搜索失败',
+    },
     parentDir: '上级目录',
     refresh: '刷新',
     viewList: '列表',
@@ -244,6 +251,24 @@ export default {
     empty: '此文件夹为空',
     dblClickDrill: '双击进入文件夹',
     loadingDir: '正在加载…',
+    tree: {
+      favorites: '常用位置',
+      volumes: '磁盘',
+      pinned: '已置顶',
+      pin: '置顶到侧边栏',
+      unpin: '取消置顶',
+      pinHint: '在主区域选中文件夹后,详情面板顶部会出现图钉按钮;或将鼠标移到侧边栏的子目录上点击图钉',
+      kind: {
+        home: '主目录',
+        downloads: '下载',
+        documents: '文稿',
+        desktop: '桌面',
+        pictures: '图片',
+        videos: '影片',
+        applications: '应用程序',
+        appdata: '应用数据',
+      },
+    },
   },
 
   scan: {

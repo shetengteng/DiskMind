@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Folder, File, X, Loader2 } from 'lucide-vue-next'
+import { Folder, File, X, Loader2, Pin, PinOff } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useExplorerStore } from '@/stores/explorer'
 import { formatBytes } from '@/lib/aiActions'
@@ -12,6 +12,9 @@ const store = useExplorerStore()
 
 const entry = computed(() => store.inspectedEntry)
 const stats = computed(() => store.dirStats)
+const isEntryPinned = computed(() =>
+  entry.value ? store.isPinned(entry.value.path) : false,
+)
 
 function formatTime(ms: number | null | undefined) {
   if (!ms) return '—'
@@ -39,15 +42,28 @@ function categoryLabel(key: string) {
 
 <template>
   <div class="p-3 text-sm" v-if="entry">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
-        <Folder v-if="entry.isDir" class="size-5 text-primary" />
-        <File v-else class="size-5 text-muted-foreground" />
+    <div class="flex items-center justify-between mb-3 gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <Folder v-if="entry.isDir" class="size-5 shrink-0 text-primary" />
+        <File v-else class="size-5 shrink-0 text-muted-foreground" />
         <span class="font-medium truncate">{{ entry.name }}</span>
       </div>
-      <Button variant="ghost" size="icon" class="size-6" @click="store.inspect(null)">
-        <X class="size-3.5" />
-      </Button>
+      <div class="flex items-center gap-0.5 shrink-0">
+        <Button
+          v-if="entry.isDir"
+          variant="ghost"
+          size="icon"
+          class="size-6"
+          :title="isEntryPinned ? t('explorer.tree.unpin') : t('explorer.tree.pin')"
+          @click="store.togglePin(entry.path)"
+        >
+          <PinOff v-if="isEntryPinned" class="size-3.5 text-primary" />
+          <Pin v-else class="size-3.5 text-muted-foreground" />
+        </Button>
+        <Button variant="ghost" size="icon" class="size-6" @click="store.inspect(null)">
+          <X class="size-3.5" />
+        </Button>
+      </div>
     </div>
 
     <div class="space-y-2 text-muted-foreground">

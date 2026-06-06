@@ -31,6 +31,42 @@ export const useExplorerStore = defineStore('explorer', () => {
   const selectedPaths = ref<Set<string>>(new Set())
   const inspectedPath = ref<string | null>(null)
 
+  const PIN_STORAGE_KEY = 'diskmind.explorer.pinnedPaths.v1'
+  const pinnedPaths = ref<string[]>(loadPinnedFromStorage())
+
+  function loadPinnedFromStorage(): string[] {
+    try {
+      const raw = localStorage.getItem(PIN_STORAGE_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  function persistPinned() {
+    try {
+      localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(pinnedPaths.value))
+    } catch {
+      // best-effort
+    }
+  }
+
+  function togglePin(path: string) {
+    const idx = pinnedPaths.value.indexOf(path)
+    if (idx >= 0) {
+      pinnedPaths.value.splice(idx, 1)
+    } else {
+      pinnedPaths.value.push(path)
+    }
+    persistPinned()
+  }
+
+  function isPinned(path: string): boolean {
+    return pinnedPaths.value.includes(path)
+  }
+
   const dirStats = shallowRef<DirStatsResult | null>(null)
   const dirStatsLoading = ref(false)
 
@@ -209,6 +245,7 @@ export const useExplorerStore = defineStore('explorer', () => {
     aiSummary,
     aiSummaryLoading,
     aiTags,
+    pinnedPaths,
     navigateTo,
     loadMore,
     refresh,
@@ -221,6 +258,8 @@ export const useExplorerStore = defineStore('explorer', () => {
     loadAiSummary,
     loadAiTags,
     getAiTag,
+    togglePin,
+    isPinned,
     init,
   }
 })

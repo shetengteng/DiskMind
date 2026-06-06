@@ -298,6 +298,7 @@ pub fn run() {
             platform::disk_usage_for,
             platform::reveal_in_explorer,
             platform::platform_info,
+            platform::platform_list_volumes,
             // --- trash ---
             commands::trash::trash_list,
             commands::trash::trash_stats,

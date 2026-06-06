@@ -358,22 +358,75 @@ pub fn unique_total_bytes(entries: &[FileEntry]) -> u64 {
     total
 }
 
-/// Lightweight skip filter for file_search: skips only system/dev noise dirs,
-/// no sensitive-directory filtering (search may need to find files there).
+/// Lightweight skip filter for file_search: skips system / vendored / cache
+/// noise dirs that almost never contain user-facing search hits but blow up
+/// walkdir time by orders of magnitude (node_modules / target / .git / ...).
 pub fn is_search_skip(path: &std::path::Path) -> bool {
     let name = path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    let skip = matches!(name, ".git" | ".svn" | ".hg");
+
+    let scm = matches!(name, ".git" | ".svn" | ".hg");
+
+    let dev_artifacts = matches!(
+        name,
+        "node_modules"
+            | "target"
+            | "build"
+            | "dist"
+            | ".next"
+            | ".nuxt"
+            | ".turbo"
+            | ".gradle"
+            | ".cargo"
+            | ".rustup"
+            | ".npm"
+            | ".pnpm-store"
+            | ".yarn"
+            | ".m2"
+            | ".ivy2"
+            | "vendor"
+            | "__pycache__"
+            | ".venv"
+            | "venv"
+            | ".tox"
+            | ".pytest_cache"
+            | ".mypy_cache"
+            | ".ruff_cache"
+            | ".idea"
+            | ".vscode"
+            | ".cache"
+            | ".local"
+            | ".pnpm"
+    );
+
+    #[cfg(target_os = "macos")]
+    let platform = matches!(
+        name,
+        ".Trash"
+            | "Caches"
+            | "DerivedData"
+            | "Containers"
+            | "Group Containers"
+            | "iOS DeviceSupport"
+            | "iPhone Simulator"
+            | "CoreSimulator"
+    );
     #[cfg(target_os = "windows")]
     let platform = matches!(
         name,
-        "$Recycle.Bin" | "System Volume Information" | "WinSxS"
+        "$Recycle.Bin"
+            | "System Volume Information"
+            | "WinSxS"
+            | "Temp"
+            | "INetCache"
+            | "Package Cache"
     );
-    #[cfg(not(target_os = "windows"))]
-    let platform = false;
-    (skip || platform) && path.parent().is_some()
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let platform = matches!(name, ".cache" | "Cache");
+
+    (scm || dev_artifacts || platform) && path.parent().is_some()
 }
 
 fn is_definitely_skip(path: &std::path::Path, exclude_sensitive: bool) -> bool {

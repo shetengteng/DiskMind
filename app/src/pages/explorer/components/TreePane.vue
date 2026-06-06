@@ -1,233 +1,300 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { onMounted, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-vue-next'
+import { Loader2 } from 'lucide-vue-next'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { explorerReadDir, type ExplorerEntry } from '@/api/tauri'
+  explorerReadDir,
+  platformInfo,
+  platformListVolumes,
+  type ExplorerEntry,
+  type SuggestedTargetKind,
+  type VolumeEntry,
+} from '@/api/tauri'
 import { useExplorerStore } from '@/stores/explorer'
-import { formatBytes } from '@/lib/aiActions'
+import TreeNode from './TreeNode.vue'
+import type { TreeGroup, TreeNodeData } from './tree-types'
 
 const { t } = useI18n()
 const store = useExplorerStore()
 
-interface TreeNodeData {
-  path: string
-  name: string
-  sizeBytes: number
-  childrenCount: number | null
-  children: TreeNodeData[]
-  expanded: boolean
-  loading: boolean
+const groups = ref<TreeGroup[]>([
+  { id: 'favorites', labelKey: 'explorer.tree.favorites', nodes: [], canPin: false },
+  { id: 'volumes', labelKey: 'explorer.tree.volumes', nodes: [], canPin: false },
+  { id: 'pinned', labelKey: 'explorer.tree.pinned', nodes: [], canPin: true },
+])
+
+const initLoading = ref(true)
+const containerRef = ref<HTMLElement | null>(null)
+
+const SUGGESTED_LABEL_KEY: Record<SuggestedTargetKind, string> = {
+  home: 'explorer.tree.kind.home',
+  downloads: 'explorer.tree.kind.downloads',
+  documents: 'explorer.tree.kind.documents',
+  desktop: 'explorer.tree.kind.desktop',
+  pictures: 'explorer.tree.kind.pictures',
+  videos: 'explorer.tree.kind.videos',
+  applications: 'explorer.tree.kind.applications',
+  appdata: 'explorer.tree.kind.appdata',
 }
 
-const roots = ref<TreeNodeData[]>([])
-
-onMounted(async () => {
-  try {
-    const result = await explorerReadDir({ path: '~', showHidden: false })
-    roots.value = result.entries
-      .filter((e) => e.isDir)
-      .map((e) => ({
-        path: e.path,
-        name: e.name,
-        sizeBytes: e.sizeBytes,
-        childrenCount: e.childrenCount,
-        children: [],
-        expanded: false,
-        loading: false,
-      }))
-  } catch {
-    roots.value = []
+function makeNode(e: Pick<ExplorerEntry, 'path' | 'name' | 'sizeBytes' | 'childrenCount'>): TreeNodeData {
+  return {
+    path: e.path,
+    name: e.name || e.path,
+    sizeBytes: e.sizeBytes,
+    childrenCount: e.childrenCount,
+    children: [],
+    expanded: false,
+    loading: false,
   }
-})
+}
+
+async function safeReadDir(path: string) {
+  try {
+    return await explorerReadDir({ path, showHidden: store.showHidden })
+  } catch {
+    return null
+  }
+}
+
+async function buildFavorites(): Promise<TreeNodeData[]> {
+  let suggested
+  try {
+    const info = await platformInfo()
+    suggested = info.suggestedTargets
+  } catch {
+    return []
+  }
+  if (!suggested.length) return []
+
+  const out: TreeNodeData[] = []
+  const seen = new Set<string>()
+  for (const s of suggested) {
+    if (seen.has(s.path)) continue
+    seen.add(s.path)
+    const key = SUGGESTED_LABEL_KEY[s.kind] ?? null
+    const label = key ? t(key) : s.path.split(/[\\/]/).filter(Boolean).pop() ?? s.path
+    out.push(
+      makeNode({
+        path: s.path,
+        name: label,
+        sizeBytes: 0,
+        childrenCount: null,
+      }),
+    )
+  }
+  return out
+}
+
+function formatVolumeName(v: VolumeEntry): string {
+  const label = v.name.trim()
+  const mp = v.mountPoint
+  if (label && label !== mp) return `${label} (${mp})`
+  return mp
+}
+
+async function buildVolumes(): Promise<TreeNodeData[]> {
+  let volumes: VolumeEntry[]
+  try {
+    volumes = await platformListVolumes()
+  } catch {
+    return []
+  }
+  const probed = await Promise.all(
+    volumes.map(async (v) => {
+      const res = await safeReadDir(v.mountPoint)
+      if (!res) return null
+      return makeNode({
+        path: res.currentPath,
+        name: formatVolumeName(v),
+        sizeBytes: 0,
+        childrenCount: null,
+      })
+    }),
+  )
+  return probed.filter((n): n is TreeNodeData => n != null)
+}
+
+async function buildPinned(): Promise<TreeNodeData[]> {
+  const out: TreeNodeData[] = []
+  for (const p of store.pinnedPaths) {
+    const res = await safeReadDir(p)
+    if (!res) continue
+    const name = res.currentPath.split(/[\\/]/).filter(Boolean).pop() ?? res.currentPath
+    out.push(
+      makeNode({
+        path: res.currentPath,
+        name,
+        sizeBytes: 0,
+        childrenCount: null,
+      }),
+    )
+  }
+  return out
+}
 
 async function toggleExpand(node: TreeNodeData) {
   if (node.expanded) {
     node.expanded = false
     return
   }
-
   node.loading = true
   try {
-    const result = await explorerReadDir({ path: node.path, showHidden: store.showHidden })
+    const result = await safeReadDir(node.path)
+    if (!result) {
+      node.children = []
+      return
+    }
     node.children = result.entries
       .filter((e) => e.isDir)
-      .map((e) => ({
-        path: e.path,
-        name: e.name,
-        sizeBytes: e.sizeBytes,
-        childrenCount: e.childrenCount,
-        children: [],
-        expanded: false,
-        loading: false,
-      }))
+      .map((e) =>
+        makeNode({
+          path: e.path,
+          name: e.name,
+          sizeBytes: e.sizeBytes,
+          childrenCount: e.childrenCount,
+        }),
+      )
     node.expanded = true
-  } catch {
-    node.children = []
   } finally {
     node.loading = false
   }
 }
 
-function selectNode(node: TreeNodeData) {
-  store.navigateTo(node.path)
+async function navigate(node: TreeNodeData) {
+  if (!node.expanded) {
+    void toggleExpand(node)
+  }
+  await store.navigateTo(node.path)
 }
 
-function isActive(node: TreeNodeData) {
-  return store.currentPath === node.path
+async function togglePin(node: TreeNodeData) {
+  store.togglePin(node.path)
+  await refreshPinned()
 }
+
+async function refreshPinned() {
+  const grp = groups.value.find((g) => g.id === 'pinned')
+  if (!grp) return
+  grp.nodes = await buildPinned()
+}
+
+function isPathInside(parent: string, child: string) {
+  if (parent === child) return true
+  const sep = child.includes('\\') ? '\\' : '/'
+  const normalized = parent.endsWith(sep) ? parent : parent + sep
+  return child.startsWith(normalized)
+}
+
+function splitSubPath(parent: string, child: string): string[] {
+  const sep = child.includes('\\') ? '\\' : '/'
+  const tail = child.slice(parent.length).replace(/^[\\/]+/, '')
+  return tail ? tail.split(sep).filter(Boolean) : []
+}
+
+async function expandToCurrent(currentPath: string) {
+  if (!currentPath) return
+  for (const group of groups.value) {
+    for (const root of group.nodes) {
+      if (!isPathInside(root.path, currentPath)) continue
+      const parts = splitSubPath(root.path, currentPath)
+      let cursor = root
+      const sep = currentPath.includes('\\') ? '\\' : '/'
+      let acc = root.path
+      for (const part of parts) {
+        if (!cursor.expanded) {
+          await toggleExpand(cursor)
+        }
+        acc = acc.endsWith(sep) ? acc + part : acc + sep + part
+        const next = cursor.children.find((c) => c.path === acc)
+        if (!next) break
+        cursor = next
+      }
+    }
+  }
+  await nextTick()
+  const el = containerRef.value?.querySelector<HTMLElement>(
+    `[data-tree-node-path="${cssEscape(currentPath)}"]`,
+  )
+  if (el) {
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
+}
+
+function cssEscape(s: string) {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(s)
+  }
+  return s.replace(/(["\\])/g, '\\$1')
+}
+
+onMounted(async () => {
+  initLoading.value = true
+  try {
+    const [favorites, volumes, pinned] = await Promise.all([
+      buildFavorites(),
+      buildVolumes(),
+      buildPinned(),
+    ])
+    groups.value[0].nodes = favorites
+    groups.value[1].nodes = volumes
+    groups.value[2].nodes = pinned
+  } finally {
+    initLoading.value = false
+  }
+  if (store.currentPath) {
+    await expandToCurrent(store.currentPath)
+  }
+})
+
+watch(
+  () => store.currentPath,
+  async (p) => {
+    if (p) await expandToCurrent(p)
+  },
+)
 </script>
 
 <template>
-  <div class="px-1 py-2 text-sm">
-    <div class="mb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-      {{ t('common.folder') }}
+  <div ref="containerRef" class="px-1 py-2 text-sm">
+    <div v-if="initLoading" class="flex items-center justify-center py-6 text-muted-foreground">
+      <Loader2 class="size-4 animate-spin" />
+      <span class="ml-2 text-xs">{{ t('common.loading') }}</span>
     </div>
 
-    <template v-for="node in roots" :key="node.path">
-      <Tooltip :delay-duration="400">
-        <TooltipTrigger as-child>
-          <div
-            class="group flex items-center gap-0.5 rounded-md px-1.5 py-1 cursor-pointer transition-colors"
-            :class="isActive(node) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
-            @click="selectNode(node)"
-          >
-            <button
-              class="flex size-4 shrink-0 items-center justify-center"
-              @click.stop="toggleExpand(node)"
-            >
-              <ChevronDown v-if="node.expanded" class="size-3 text-muted-foreground" />
-              <ChevronRight v-else class="size-3 text-muted-foreground" />
-            </button>
+    <template v-else>
+      <template v-for="(group, gi) in groups" :key="group.id">
+        <div
+          v-if="(group.nodes.length > 0 || group.id === 'pinned') && gi > 0"
+          class="my-2 border-t border-border/60"
+        />
 
-            <FolderOpen v-if="node.expanded" class="mr-1 size-4 shrink-0 text-primary" />
-            <Folder v-else class="mr-1 size-4 shrink-0 text-muted-foreground" />
+        <div
+          v-if="group.nodes.length > 0 || group.id === 'pinned'"
+          class="mb-1 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider"
+        >
+          {{ t(group.labelKey) }}
+        </div>
 
-            <span class="flex-1 truncate">{{ node.name }}</span>
+        <div
+          v-if="group.id === 'pinned' && group.nodes.length === 0"
+          class="px-2 py-1 text-[11px] text-muted-foreground/70"
+        >
+          {{ t('explorer.tree.pinHint') }}
+        </div>
 
-            <span
-              v-if="node.sizeBytes > 0"
-              class="shrink-0 text-[10px] text-muted-foreground tabular-nums"
-            >
-              {{ formatBytes(node.sizeBytes) }}
-            </span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="right" :side-offset="8" class="max-w-72">
-          <div class="text-xs space-y-0.5">
-            <div class="font-medium truncate">{{ node.name }}</div>
-            <div class="text-muted-foreground font-mono truncate">{{ node.path }}</div>
-            <div v-if="node.sizeBytes > 0" class="text-muted-foreground">
-              {{ formatBytes(node.sizeBytes) }}
-              <span v-if="node.childrenCount != null"> · {{ node.childrenCount }} {{ t('explorer.items') }}</span>
-            </div>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-
-      <div v-if="node.expanded && node.children.length" class="ml-3 border-l pl-1">
-        <tree-subtree :nodes="node.children" :depth="1" />
-      </div>
+        <TreeNode
+          v-for="node in group.nodes"
+          :key="node.path"
+          :node="node"
+          :depth="0"
+          :can-pin="group.canPin || store.isPinned(node.path)"
+          :is-pinned="store.isPinned(node.path)"
+          @toggle="toggleExpand"
+          @navigate="navigate"
+          @toggle-pin="togglePin"
+        />
+      </template>
     </template>
   </div>
 </template>
-
-<script lang="ts">
-import { defineComponent, h, type PropType } from 'vue'
-
-const TreeSubtree = defineComponent({
-  name: 'TreeSubtree',
-  props: {
-    nodes: { type: Array as PropType<TreeNodeData[]>, required: true },
-    depth: { type: Number, default: 0 },
-  },
-  setup(props) {
-    const store = useExplorerStore()
-
-    return () =>
-      props.nodes.map((node) =>
-        h('div', { key: node.path }, [
-          h(
-            'div',
-            {
-              class: [
-                'group flex items-center gap-0.5 rounded-md px-1.5 py-1 cursor-pointer transition-colors',
-                store.currentPath === node.path
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/50',
-              ],
-              onClick: () => store.navigateTo(node.path),
-            },
-            [
-              h(
-                'button',
-                {
-                  class: 'flex size-4 shrink-0 items-center justify-center',
-                  onClick: (e: Event) => {
-                    e.stopPropagation()
-                    toggleExpand(node)
-                  },
-                },
-                [
-                  node.expanded
-                    ? h(ChevronDown, { class: 'size-3 text-muted-foreground' })
-                    : h(ChevronRight, { class: 'size-3 text-muted-foreground' }),
-                ],
-              ),
-              node.expanded
-                ? h(FolderOpen, { class: 'mr-1 size-4 shrink-0 text-primary' })
-                : h(Folder, { class: 'mr-1 size-4 shrink-0 text-muted-foreground' }),
-              h('span', { class: 'flex-1 truncate' }, node.name),
-              node.sizeBytes > 0
-                ? h(
-                    'span',
-                    { class: 'shrink-0 text-[10px] text-muted-foreground tabular-nums' },
-                    formatBytes(node.sizeBytes),
-                  )
-                : null,
-            ],
-          ),
-          node.expanded && node.children.length
-            ? h(
-                'div',
-                { class: 'ml-3 border-l pl-1' },
-                [h(TreeSubtree, { nodes: node.children, depth: props.depth + 1 })],
-              )
-            : null,
-        ]),
-      )
-  },
-})
-
-async function toggleExpand(node: TreeNodeData) {
-  if (node.expanded) {
-    node.expanded = false
-    return
-  }
-  node.loading = true
-  try {
-    const store = useExplorerStore()
-    const result = await explorerReadDir({ path: node.path, showHidden: store.showHidden })
-    node.children = result.entries
-      .filter((e: ExplorerEntry) => e.isDir)
-      .map((e: ExplorerEntry) => ({
-        path: e.path,
-        name: e.name,
-        sizeBytes: e.sizeBytes,
-        childrenCount: e.childrenCount,
-        children: [],
-        expanded: false,
-        loading: false,
-      }))
-    node.expanded = true
-  } catch {
-    node.children = []
-  } finally {
-    node.loading = false
-  }
-}
-</script>

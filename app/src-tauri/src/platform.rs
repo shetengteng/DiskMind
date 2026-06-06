@@ -236,3 +236,113 @@ pub fn platform_info() -> PlatformInfo {
         suggested_targets: suggested,
     }
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeEntry {
+    pub name: String,
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub is_removable: bool,
+    pub file_system: String,
+}
+
+fn is_pseudo_mount(mp: &str) -> bool {
+    // macOS / Linux 上 sysinfo 会列出 /dev/* /proc /sys 等虚拟挂载,
+    // 这些不属于用户可见的磁盘,直接过滤。
+    mp.starts_with("/dev")
+        || mp.starts_with("/proc")
+        || mp.starts_with("/sys")
+        || mp.starts_with("/run")
+        || mp.starts_with("/private/var/vm")
+        || mp == "/private/var/folders"
+}
+
+fn is_pseudo_filesystem(fs: &str) -> bool {
+    let f = fs.to_ascii_lowercase();
+    matches!(
+        f.as_str(),
+        "devfs"
+            | "autofs"
+            | "tmpfs"
+            | "proc"
+            | "sysfs"
+            | "cgroup"
+            | "cgroup2"
+            | "overlay"
+            | "squashfs"
+            | "fuse.gvfsd-fuse"
+            | "fdesc"
+            | "lifs"
+    )
+}
+
+#[tauri::command]
+pub fn platform_list_volumes() -> Vec<VolumeEntry> {
+    use sysinfo::Disks;
+
+    let disks = Disks::new_with_refreshed_list();
+    let mut out: Vec<VolumeEntry> = Vec::with_capacity(disks.len());
+    for d in disks.iter() {
+        let mp = d.mount_point();
+        if !mp.is_dir() {
+            continue;
+        }
+
+        let mp_str = mp.to_string_lossy();
+        if is_pseudo_mount(&mp_str) {
+            continue;
+        }
+
+        let fs = d.file_system().to_string_lossy().into_owned();
+        if is_pseudo_filesystem(&fs) {
+            continue;
+        }
+
+        let total = d.total_space();
+        if total == 0 {
+            continue;
+        }
+
+        // 探测一下能否 read_dir,避免 sysinfo 列出但用户没权限的卷。
+        if std::fs::read_dir(mp).is_err() {
+            continue;
+        }
+
+        out.push(VolumeEntry {
+            name: d.name().to_string_lossy().into_owned(),
+            mount_point: mp_str.into_owned(),
+            total_bytes: total,
+            available_bytes: d.available_space(),
+            is_removable: d.is_removable(),
+            file_system: fs,
+        });
+    }
+
+    out.sort_by(|a, b| {
+        let key = |v: &VolumeEntry| {
+            let mp = v.mount_point.as_str();
+            #[cfg(target_os = "windows")]
+            {
+                if mp.eq_ignore_ascii_case("c:\\") || mp.eq_ignore_ascii_case("c:/") {
+                    return 0_u8;
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                if mp == "/" {
+                    return 0_u8;
+                }
+            }
+            if v.is_removable {
+                2
+            } else {
+                1
+            }
+        };
+        key(a).cmp(&key(b)).then_with(|| a.mount_point.cmp(&b.mount_point))
+    });
+
+    out
+}

@@ -35,8 +35,13 @@ function onMouseUp() {
 
 <template>
   <div
-    class="shrink-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
-    :class="dragging ? 'bg-primary/50' : 'bg-transparent'"
+    class="group/handle relative shrink-0 w-px cursor-col-resize transition-colors"
+    :class="dragging ? 'bg-primary/50' : 'bg-border'"
     @mousedown="onMouseDown"
-  />
+  >
+    <div
+      class="absolute inset-y-0 -left-0.5 -right-0.5 transition-colors"
+      :class="dragging ? 'bg-primary/30' : 'group-hover/handle:bg-primary/20'"
+    />
+  </div>
 </template>

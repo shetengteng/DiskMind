@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, Bot, X, Loader2 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useExplorerStore } from '@/stores/explorer'
@@ -9,6 +10,7 @@ import {
   fileSearch,
   aiParseFileIntent,
   type FileSearchQuery,
+  type FileSearchResult,
 } from '@/api/tauri'
 
 const { t } = useI18n()
@@ -23,14 +25,69 @@ const nlResult = ref<{
   confidence: number
 } | null>(null)
 
+const AI_PARSE_TIMEOUT_MS = 15_000
+const FILE_SEARCH_TIMEOUT_MS = 30_000
+
+const SEMANTIC_HINT_RE =
+  /(上[个月周]|最近|过去|今年|去年|前年|昨天|前天|N天前|这周|本周|本月|本年|大于|小于|超过|不到|视频|音频|安装包|图片|文档|代码|压缩|缓存|临时|大文件|空文件|重复)/
+
 const hasChineseOrSemantic = computed(() => {
   const q = query.value.trim()
   if (!q) return false
-  if (/[\u4e00-\u9fff]/.test(q)) return true
-  if (/上[个月周]|最近|去年|昨天|前天/.test(q)) return true
-  if (q.length > 10 && !/[.*?[\]{}()]/.test(q) && !/\.\w{1,5}$/.test(q)) return true
-  return false
+  return SEMANTIC_HINT_RE.test(q)
 })
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(t('explorer.search.timeout', { label, seconds: Math.round(ms / 1000) })))
+    }, ms)
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
+function applyResultToStore(result: FileSearchResult) {
+  store.$patch({
+    entries: result.files.map((f) => ({
+      path: f.path,
+      name: f.name,
+      isDir: f.isDir,
+      sizeBytes: f.sizeBytes,
+      mtime: f.mtime,
+      extension: f.extension,
+      childrenCount: null,
+      aiTag: null,
+    })),
+    totalCount: result.totalMatched,
+    hasMore: result.truncated,
+  })
+}
+
+async function runLiteralSearch(q: string) {
+  const result = await withTimeout(
+    fileSearch({
+      roots: [store.currentPath],
+      namePattern: `*${q}*`,
+      extensions: [],
+      maxResults: 200,
+      sortBy: 'name',
+      sortDesc: false,
+      includeDirs: true,
+    }),
+    FILE_SEARCH_TIMEOUT_MS,
+    'file_search',
+  )
+  applyResultToStore(result)
+}
 
 async function handleSearch() {
   const q = query.value.trim()
@@ -42,52 +99,44 @@ async function handleSearch() {
   try {
     if (hasChineseOrSemantic.value) {
       isNl.value = true
-      const parsed = await aiParseFileIntent({ query: q })
-      nlResult.value = {
-        explanation: parsed.explanation,
-        searchQuery: {
-          roots: parsed.searchQuery.roots?.length
-            ? parsed.searchQuery.roots
-            : [store.currentPath],
-          namePattern: parsed.searchQuery.namePattern ?? undefined,
-          extensions: parsed.searchQuery.extensions ?? [],
-          minSize: parsed.searchQuery.minSize ?? undefined,
-          maxSize: parsed.searchQuery.maxSize ?? undefined,
-          modifiedAfter: parsed.searchQuery.modifiedAfter ?? undefined,
-          modifiedBefore: parsed.searchQuery.modifiedBefore ?? undefined,
-          maxResults: 200,
-          sortBy: 'mtime',
-          sortDesc: true,
-          includeDirs: true,
-        },
-        confidence: parsed.confidence,
+      try {
+        const parsed = await withTimeout(
+          aiParseFileIntent({ query: q }),
+          AI_PARSE_TIMEOUT_MS,
+          'ai_parse_file_intent',
+        )
+        nlResult.value = {
+          explanation: parsed.explanation,
+          searchQuery: {
+            roots: parsed.searchQuery.roots?.length
+              ? parsed.searchQuery.roots
+              : [store.currentPath],
+            namePattern: parsed.searchQuery.namePattern ?? undefined,
+            extensions: parsed.searchQuery.extensions ?? [],
+            minSize: parsed.searchQuery.minSize ?? undefined,
+            maxSize: parsed.searchQuery.maxSize ?? undefined,
+            modifiedAfter: parsed.searchQuery.modifiedAfter ?? undefined,
+            modifiedBefore: parsed.searchQuery.modifiedBefore ?? undefined,
+            maxResults: 200,
+            sortBy: 'mtime',
+            sortDesc: true,
+            includeDirs: true,
+          },
+          confidence: parsed.confidence,
+        }
+      } catch (e) {
+        isNl.value = false
+        const msg = e instanceof Error ? e.message : String(e)
+        toast.error(t('explorer.search.aiFallback'), { description: msg })
+        await runLiteralSearch(q)
       }
     } else {
       isNl.value = false
-      const result = await fileSearch({
-        roots: [store.currentPath],
-        namePattern: `*${q}*`,
-        extensions: [],
-        maxResults: 200,
-        sortBy: 'name',
-        sortDesc: false,
-        includeDirs: true,
-      })
-      store.$patch({
-        entries: result.files.map((f) => ({
-          path: f.path,
-          name: f.name,
-          isDir: f.isDir,
-          sizeBytes: f.sizeBytes,
-          mtime: f.mtime,
-          extension: f.extension,
-          childrenCount: null,
-          aiTag: null,
-        })),
-        totalCount: result.totalMatched,
-        hasMore: result.truncated,
-      })
+      await runLiteralSearch(q)
     }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    toast.error(t('explorer.search.failed'), { description: msg })
   } finally {
     searching.value = false
   }
@@ -97,22 +146,16 @@ async function applyNlSearch() {
   if (!nlResult.value) return
   searching.value = true
   try {
-    const result = await fileSearch(nlResult.value.searchQuery)
-    store.$patch({
-      entries: result.files.map((f) => ({
-        path: f.path,
-        name: f.name,
-        isDir: f.isDir,
-        sizeBytes: f.sizeBytes,
-        mtime: f.mtime,
-        extension: f.extension,
-        childrenCount: null,
-        aiTag: null,
-      })),
-      totalCount: result.totalMatched,
-      hasMore: result.truncated,
-    })
+    const result = await withTimeout(
+      fileSearch(nlResult.value.searchQuery),
+      FILE_SEARCH_TIMEOUT_MS,
+      'file_search',
+    )
+    applyResultToStore(result)
     nlResult.value = null
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    toast.error(t('explorer.search.failed'), { description: msg })
   } finally {
     searching.value = false
   }

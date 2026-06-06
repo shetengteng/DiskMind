@@ -40,6 +40,8 @@ export default {
     poweredBy: 'Powered by',
     noResults: 'No matching results',
     desktopRequired: 'Requires desktop runtime',
+    expand: 'Expand',
+    collapse: 'Collapse',
   },
 
   nav: {
@@ -120,6 +122,11 @@ export default {
 
   explorer: {
     searchPlaceholder: 'Search files/folders…',
+    search: {
+      timeout: '{label} timed out ({seconds}s)',
+      aiFallback: 'AI parsing failed, falling back to literal search',
+      failed: 'Search failed',
+    },
     parentDir: 'Parent',
     refresh: 'Refresh',
     viewList: 'List',
@@ -193,6 +200,24 @@ export default {
     empty: 'This folder is empty',
     dblClickDrill: 'Double-click to enter folder',
     loadingDir: 'Loading…',
+    tree: {
+      favorites: 'Favorites',
+      volumes: 'Volumes',
+      pinned: 'Pinned',
+      pin: 'Pin to sidebar',
+      unpin: 'Unpin',
+      pinHint: 'Select a folder in the main area, then click the pin in the inspector header; or hover a child folder in the sidebar and click its pin icon',
+      kind: {
+        home: 'Home',
+        downloads: 'Downloads',
+        documents: 'Documents',
+        desktop: 'Desktop',
+        pictures: 'Pictures',
+        videos: 'Videos',
+        applications: 'Applications',
+        appdata: 'AppData',
+      },
+    },
   },
 
   scan: {

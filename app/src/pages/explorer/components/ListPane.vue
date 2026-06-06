@@ -11,6 +11,7 @@ import {
   File,
   ArrowUpDown,
   Loader2,
+  ChevronRight,
 } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useExplorerStore } from '@/stores/explorer'
@@ -119,6 +120,7 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
             store.inspectedPath === entry.path ? 'bg-accent' : 'hover:bg-accent/50',
             store.selectedPaths.has(entry.path) ? 'bg-primary/5' : '',
           ]"
+          :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : entry.path"
           @click="handleRowClick(entry)"
           @dblclick="handleRowDblClick(entry)"
         >
@@ -130,7 +132,7 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
             />
           </td>
           <td class="px-2 py-1.5">
-            <div class="flex items-center gap-2">
+            <div class="group/cell flex items-center gap-2">
               <component
                 :is="fileIcon(entry)"
                 class="size-4 shrink-0"
@@ -144,6 +146,13 @@ function sortByColumn(field: 'name' | 'size' | 'mtime' | 'extension') {
                 class="shrink-0 text-[10px] text-muted-foreground"
               >
                 {{ entry.childrenCount }}
+              </span>
+              <span
+                v-if="entry.isDir"
+                class="ml-1 hidden shrink-0 items-center gap-1 rounded-sm bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground group-hover/cell:inline-flex"
+              >
+                <ChevronRight class="size-3" />
+                {{ t('explorer.dblClickDrill') }}
               </span>
               <AiTagBadge v-if="!entry.isDir" :path="entry.path" />
             </div>

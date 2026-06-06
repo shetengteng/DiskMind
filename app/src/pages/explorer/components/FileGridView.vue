@@ -91,11 +91,11 @@ function formatDate(ts: number | null) {
       v-for="entry in sortedEntries"
       :key="entry.path"
       :class="cn(
-        'flex flex-col items-center gap-1.5 rounded-lg border p-3 cursor-pointer transition-all',
+        'group/grid relative flex flex-col items-center gap-1.5 rounded-lg border p-3 cursor-pointer transition-all',
         'hover:bg-accent/50 hover:border-accent-foreground/20',
         isSelected(entry.path) && 'bg-primary/10 border-primary/40 ring-1 ring-primary/30',
       )"
-      :title="entry.path"
+      :title="entry.isDir ? `${entry.path}\n${t('explorer.dblClickDrill')}` : entry.path"
       @click="handleClick(entry)"
       @dblclick="handleDblClick(entry)"
     >
@@ -114,6 +114,12 @@ function formatDate(ts: number | null) {
         <template v-else-if="!entry.isDir">
           {{ formatBytes(entry.sizeBytes) }}
         </template>
+      </span>
+      <span
+        v-if="entry.isDir"
+        class="pointer-events-none absolute inset-x-2 bottom-1 hidden truncate rounded-sm bg-background/90 px-1.5 py-0.5 text-center text-[10px] text-muted-foreground shadow-sm ring-1 ring-border/60 group-hover/grid:block"
+      >
+        {{ t('explorer.dblClickDrill') }}
       </span>
     </div>
   </div>

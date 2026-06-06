@@ -942,6 +942,20 @@ export async function platformInfo(): Promise<PlatformInfo> {
   return await invoke<PlatformInfo>('platform_info')
 }
 
+export interface VolumeEntry {
+  name: string
+  mountPoint: string
+  totalBytes: number
+  availableBytes: number
+  isRemovable: boolean
+  fileSystem: string
+}
+
+export async function platformListVolumes(): Promise<VolumeEntry[]> {
+  if (!isTauri()) return []
+  return await invoke<VolumeEntry[]>('platform_list_volumes')
+}
+
 /**
  * 崩溃 / 异常本地日志(Sprint 2 · S6 + S7)。前端的
  * onErrorCaptured / window error / unhandledrejection 都走
